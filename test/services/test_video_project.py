@@ -1,4 +1,6 @@
-"""Native FFmpeg scenarios plus deterministic storage/lifecycle checks."""
+"""Escenarios nativos de FFmpeg más comprobaciones deterministas de almacenamiento y ciclo
+de vida.
+"""
 
 import copy
 import json
@@ -202,7 +204,7 @@ def test_three_native_revision_scenarios(native):
         project.metadata()["last_successful_export"]["revision_id"]
         == mixed["revision_id"]
     )
-    assert Path(initial_export).is_file()  # Previous success was never overwritten.
+    assert Path(initial_export).is_file()  # El éxito anterior nunca se sobrescribió.
     assert project.compare(shot["revision_id"], spoken["revision_id"])[0]["change"] in {
         "changed",
         "unchanged",
@@ -215,14 +217,14 @@ def test_integrity_and_source_snapshot(native):
     project, request, revision, root = native
     project.render()
     (root / "red.mp4").write_bytes(b"changed outside project")
-    assert not _builds(project)  # Imports are snapshots, not mutable references.
+    assert not _builds(project)  # Las importaciones son instantáneas, no referencias mutables.
     opening = next(
         stage for stage in stage_graph(revision) if stage.key == "opening:scene"
     )
     artifact = Path(project._cached(opening)["path"])
     artifact.write_bytes(b"corrupted")
     assert _builds(project) == {"opening:scene", "assembly", "export"}
-    project.render()  # Repair stage from verified sources; final export remains verified.
+    project.render()  # Repara la etapa a partir de fuentes verificadas; la exportación final sigue verificada.
     assert artifact.read_bytes() != b"corrupted"
     asset = project.directory / revision["scenes"][0]["footage"]["path"]
     asset.write_bytes(b"source damage")
@@ -381,7 +383,7 @@ def test_command_deadline_and_active_cancellation(tmp_path):
     project = VideoProject(tmp_path)
     cancellation = tmp_path / "cancel.json"
     before = time.monotonic()
-    with pytest.raises(ProjectError, match="deadline"):
+    with pytest.raises(ProjectError, match="plazo"):
         project._run(
             [sys.executable, "-c", "import time; time.sleep(60)"], cancellation, 0.15
         )
@@ -470,7 +472,7 @@ def test_commit_record_loss_is_not_success(native):
     record.unlink()
     assert "opening:audio" in _builds(project)
     assert project.render()["state"] == "succeeded"
-    # A source asset extension never controls output/cache paths.
+    # La extensión de un recurso de origen nunca controla las rutas de salida/caché.
     assert not list(project.directory.glob("*.mp4"))
 
 
@@ -576,7 +578,7 @@ def test_dash_external_segments_cannot_escape_source_snapshot(native):
     unchanged_manifest = source_snapshot.read_bytes()
     segments(
         "blue"
-    )  # External segments change while the hashed snapshot remains unchanged.
+    )  # Los segmentos externos cambian mientras la instantánea con hash permanece igual.
     assert source_snapshot.read_bytes() == unchanged_manifest
     with pytest.raises(ProjectError, match="not on whitelist"):
         project.render()

@@ -1,4 +1,6 @@
-"""Reject invalid keyword arrays before a video task can be scheduled."""
+"""Rechaza listas de palabras clave no válidas antes de que se pueda programar una tarea de
+vídeo.
+"""
 
 import unittest
 from unittest.mock import patch

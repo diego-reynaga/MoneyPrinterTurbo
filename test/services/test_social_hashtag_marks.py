@@ -1,4 +1,6 @@
-"""组合符必须附着于保留的字符，不能由已删除的 emoji 留下空标签。"""
+"""Los caracteres combinantes deben quedar unidos al carácter conservado; un emoji
+eliminado no puede dejar una etiqueta vacía.
+"""
 
 import json
 import unicodedata
@@ -27,7 +29,9 @@ from app.services import llm
     ],
 )
 def test_hashtag_keeps_marks_attached_to_retained_letters(tag):
-    """保留真实语言的元音、声调及 CJK 字形变体，不全局删除 Mark 字符。"""
+    """Conserva las vocales, tonos y variantes de glifos CJK de los idiomas reales; no se
+    eliminan globalmente los caracteres Mark.
+    """
     assert llm._normalize_hashtags([tag], count=5) == [tag]
 
 
@@ -78,7 +82,9 @@ def test_string_hashtags_keep_language_marks_after_discarding_emoji():
 
 @pytest.mark.parametrize("platform", list(llm.SOCIAL_PLATFORMS))
 def test_social_metadata_api_uses_cleaned_tags_without_displacing_valid_ones(platform):
-    """固定模型输出，真实运行 API 的解析、清洗、去重和数量限制。"""
+    """Fija la salida del modelo y ejecuta de verdad el análisis, la limpieza, la
+    deduplicación y el límite de cantidad de la API.
+    """
     response_text = json.dumps(
         {
             "title": "旅行",

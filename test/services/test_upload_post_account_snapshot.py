@@ -1,4 +1,6 @@
-"""A scheduled publish belongs to the account selected at scheduling time."""
+"""Una publicación programada pertenece a la cuenta seleccionada en el momento de
+programarla.
+"""
 
 import json
 import tempfile
@@ -110,8 +112,8 @@ class TestUploadPostAccountSnapshot(unittest.TestCase):
                 "Prepared script", ["tiktok"], "public",
             )
             self.assertIsNone(error)
-            # Wait for real executor work even if its done callback already
-            # removed the future from the registry.
+            # Espera al trabajo real del ejecutor aunque su callback de finalización ya
+            # haya quitado el future del registro.
             executor.submit(lambda: None).result(timeout=10)
             get.assert_called_once()
             self.assertEqual(get.call_args.kwargs["headers"], {

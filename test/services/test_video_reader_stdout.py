@@ -40,8 +40,9 @@ class TestVideoReaderStdout(unittest.TestCase):
                 first = executor.submit(first_call)
                 self.assertTrue(first_started.wait(timeout=1))
                 second = executor.submit(video._open_video_clip_quietly, "second.mp4")
-                # Old code permits both redirections to overlap; corrected code
-                # serializes just reader construction, not later encoding.
+                # El código antiguo permite que ambas redirecciones se solapen; el
+                # código corregido serializa solo la construcción del lector, no la
+                # codificación posterior.
                 second_started.wait(timeout=0.1)
                 release_first.set()
                 self.assertIs(first.result(timeout=2), readers["first.mp4"])

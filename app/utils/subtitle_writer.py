@@ -1,4 +1,4 @@
-"""Stage subtitle artifacts beside their destination before publication."""
+"""Prepara los artefactos de subtítulos junto a su destino antes de publicarlos."""
 from contextlib import contextmanager
 import os
 import re
@@ -22,15 +22,15 @@ def staged_subtitle_file(destination):
         except FileNotFoundError:
             pass
         except OSError as cleanup_error:
-            logger.warning(f"failed to remove temporary subtitle: {cleanup_error}")
+            logger.warning(f"no se pudo eliminar el subtítulo temporal: {cleanup_error}")
 
 
 def has_subtitle_cue(content) -> bool:
-    """Return True when the body carries at least one timed SRT cue.
+    """Devuelve True cuando el cuerpo contiene al menos un subtítulo SRT con tiempos.
 
-    An SRT body without a complete timestamp timing line holds no caption any player
-    can display, so a publication built from it is a failed write rather than a
-    valid empty result.
+    Un cuerpo SRT sin una línea de tiempos completa no contiene ningún subtítulo que
+    pueda mostrar un reproductor, así que una publicación hecha con él es una escritura
+    fallida y no un resultado vacío válido.
     """
     timestamp = r"[0-9]{2,}:[0-5][0-9]:[0-5][0-9],[0-9]{3}"
     return any(
@@ -40,21 +40,21 @@ def has_subtitle_cue(content) -> bool:
 
 
 def write_subtitle_file(destination, content) -> bool:
-    """Publish a complete subtitle file without destroying existing captions.
+    """Publica un archivo de subtítulos completo sin destruir los subtítulos existentes.
 
-    Every other caption publication site validates the artifact it is about to
-    replace: ``voice._write_subtitle_items`` re-parses the staged file and
-    ``task.generate_subtitle`` requires parseable cues before ``os.replace``.
-    Publishing an empty body would silently delete the captions already stored
-    at ``destination``, which is the exact outcome those checks exist to
-    prevent, so the same rule is enforced once here for every caller.
+    Todos los demás puntos de publicación de subtítulos validan el artefacto que van a
+    sustituir: ``voice._write_subtitle_items`` vuelve a analizar el archivo preparado y
+    ``task.generate_subtitle`` exige subtítulos analizables antes de ``os.replace``.
+    Publicar un cuerpo vacío borraría en silencio los subtítulos ya guardados en
+    ``destination``, que es justo lo que esas comprobaciones existen para evitar, así
+    que aquí se aplica la misma regla una sola vez para todos los llamadores.
 
-    Returns ``True`` after a successful replacement, and ``False`` when nothing
-    was published because the body held no cue.
+    Devuelve ``True`` tras una sustitución correcta y ``False`` cuando no se publicó
+    nada porque el cuerpo no tenía subtítulos.
     """
     if not has_subtitle_cue(content):
         logger.warning(
-            f"refusing to publish a subtitle file without cues: path={destination}"
+            f"se rechaza publicar un archivo de subtítulos sin entradas: path={destination}"
         )
         return False
 

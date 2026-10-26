@@ -40,11 +40,13 @@ class RedisTaskManager(TaskManager):
         return "task_queue"
 
     def resume_queued_tasks(self):
-        """Dispatch persisted queue entries when a new API process starts.
+        """Despacha las entradas de cola persistidas cuando arranca un nuevo proceso de la
+        API.
 
-        Queued Redis items survive a restart, but no worker calls check_queue
-        until an active task finishes. Fill each available local worker slot so
-        an idle process does not leave old requests stuck in processing.
+        Los elementos en cola de Redis sobreviven a un reinicio, pero ningún worker
+        llama a check_queue hasta que termina una tarea activa. Se ocupa cada plaza de
+        worker local disponible para que un proceso inactivo no deje las solicitudes
+        antiguas atascadas en processing.
         """
         for _ in range(max(0, self.max_concurrent_tasks - self.current_tasks)):
             self.check_queue()
@@ -53,8 +55,9 @@ class RedisTaskManager(TaskManager):
         self.redis_client.rpush(self.queue, self._serialize_task(task))
 
     def enqueue_new_task(self, task: Dict):
-        # Manager locks are process-local. Keep capacity validation and admission
-        # in one Redis operation so other API workers cannot claim the same slot.
+        # Los bloqueos del gestor son locales al proceso. La validación de capacidad y
+        # la admisión se hacen en una sola operación de Redis para que otros workers de
+        # la API no puedan ocupar la misma plaza.
         admitted = self.redis_client.eval(
             _ADMIT_QUEUED_TASK_SCRIPT,
             1,
@@ -63,14 +66,16 @@ class RedisTaskManager(TaskManager):
             self._serialize_task(task),
         )
         if not admitted:
-            raise TaskQueueFullError("task queue is full, please try again later")
+            raise TaskQueueFullError("la cola de tareas está llena, inténtalo de nuevo más tarde")
 
     @staticmethod
     def _serialize_task(task: Dict) -> str:
         task_with_serializable_params = task.copy()
-        # task.copy() 只复制最外层字典；如果直接改写嵌套 kwargs，会把调用方
-        # 持有的 VideoParams 同步替换成 dict。后续日志或重试仍可能读取原任务，
-        # 因此这里单独复制 kwargs，确保序列化过程没有意外副作用。
+        # task.copy() solo copia el diccionario exterior; si se modificaran directamente
+        # los kwargs anidados, el VideoParams que tiene quien llama se sustituiría
+        # también por un dict. Los logs o reintentos posteriores aún podrían leer la
+        # tarea original, así que aquí se copian los kwargs por separado, para que la
+        # serialización no tenga efectos secundarios inesperados.
         task_kwargs = task.get("kwargs", {})
         task_with_serializable_params["kwargs"] = task_kwargs.copy()
 
@@ -81,55 +86,69 @@ class RedisTaskManager(TaskManager):
                 "params"
             ].model_dump(warnings=False)
 
-        # 将函数对象转换为其名称
+        # Convierte el objeto función en su nombre
         task_with_serializable_params["func"] = task["func"].__name__
         return json.dumps(task_with_serializable_params)
 
     def dequeue(self):
-        # 循环而非单次弹出：某个任务在入队时可能满足当时的校验规则，但校验规则与
-        # FUNC_MAP 成员会随部署变化（例如 VideoParams 新增 ge=1 约束、某个入口
-        # 函数被移除），队列里因此可能残留按旧 schema 写入、或已无法解析的条目。
-        # lpop 是破坏性操作，一旦弹出就不能放回原位；这条任务已经从队列中永久
-        # 移除了，不能再假装它还在。与其让异常从这里往上抛（check_queue 持锁调用
-        # 本方法，异常会顺着 task_done → run_task 的 finally 把工作线程带崩；此后
-        # 没有任务在跑，就再也不会有人调用 check_queue，队列里后面的任务会永久
-        # 停在 processing），不如原地丢弃并继续尝试下一条，把"拿到一条可用任务
-        # 或者队列确实空了"这个约定维持住。
+        # Se usa un bucle en lugar de una sola extracción: una tarea pudo cumplir las
+        # reglas de validación al encolarse, pero las reglas de validación y los
+        # miembros de FUNC_MAP cambian con los despliegues (por ejemplo, VideoParams
+        # añade una restricción ge=1 o se elimina una función de entrada), así que en la
+        # cola pueden quedar entradas escritas con un esquema antiguo o que ya no se
+        # pueden analizar. lpop es destructivo: una vez extraída no se puede devolver a
+        # su sitio; esa tarea ya ha salido de la cola para siempre y no se puede fingir
+        # que sigue ahí. En lugar de dejar que la excepción suba desde aquí (check_queue
+        # llama a este método con el bloqueo, y la excepción tumbaría el hilo de trabajo
+        # a través del finally de task_done → run_task; a partir de ahí no habría tareas
+        # en marcha, nadie volvería a llamar a check_queue y las tareas siguientes de la
+        # cola se quedarían para siempre en processing), es mejor descartarla en el
+        # sitio y seguir con la siguiente, manteniendo el contrato de "obtener una tarea
+        # utilizable o que la cola esté realmente vacía".
         while True:
             task_json = self.redis_client.lpop(self.queue)
-            # 只有 lpop 什么都没弹出来才代表队列空了。空字符串（或空 bytes）同样
-            # 是一条不可用条目，它后面可能还排着可用的任务，所以要走下面的丢弃
-            # 路径，而不是当成"队列结束"直接返回。
+            # Solo que lpop no extraiga nada significa que la cola está vacía. Una
+            # cadena vacía (o bytes vacíos) también es una entrada inutilizable y puede
+            # haber tareas válidas detrás, así que debe ir por la ruta de descarte de
+            # abajo en lugar de tratarse como "fin de la cola" y volver.
             if task_json is None:
                 return None
 
             task_info = None
             try:
                 task_info = json.loads(task_json)
-                # 将函数名称转换回函数对象。名称缺失、或已不在 FUNC_MAP 中时不能
-                # 直接索引，否则 KeyError 会绕过下面针对 params 的丢弃策略。
+                # Convierte el nombre de la función de vuelta en el objeto función. Si
+                # falta el nombre o ya no está en FUNC_MAP no se puede indexar
+                # directamente, o un KeyError se saltaría la política de descarte de
+                # params de abajo.
                 task_info["func"] = FUNC_MAP[task_info["func"]]
                 task_kwargs = task_info["kwargs"]
                 if not isinstance(task_kwargs, dict):
-                    raise ValueError("queued task has no keyword argument mapping")
-                # args 整体缺失时沿用 check_queue 的默认值；写成 null 或其它不是
-                # 数组的形态则会让 check_queue 展开 `*args` 时抛 TypeError，那里
-                # 会把条目重新入队并让异常逃出工作线程，必须在这里先拦下。
+                    raise ValueError("la tarea en cola no tiene un mapa de argumentos con nombre")
+                # Si falta args entero se usa el valor por defecto de check_queue; si se
+                # escribe como null u otra forma que no sea un array, check_queue
+                # lanzaría TypeError al expandir `*args`, y allí la entrada volvería a
+                # encolarse y la excepción escaparía del hilo de trabajo, así que hay
+                # que interceptarlo aquí antes.
                 if not isinstance(task_info.get("args", []), list):
-                    raise ValueError("queued task positional arguments are not a list")
-                # A persisted request can outlive a callable's signature. Fail
-                # it before dispatch: Python argument-binding errors happen
-                # before start() enters its pipeline failure handler.
+                    raise ValueError("los argumentos posicionales de la tarea en cola no son una lista")
+                # Una solicitud persistida puede sobrevivir a la firma de una función.
+                # Se marca como fallida antes de despachar: los errores de enlace de
+                # argumentos de Python ocurren antes de que start() entre en su
+                # manejador de fallos del flujo.
                 inspect.signature(task_info["func"]).bind(
                     *task_info.get("args", []), **task_kwargs
                 )
             except (TypeError, ValueError, KeyError) as e:
-                logger.error(f"dropping unusable queued task: {e}")
-                # 与下面的 params 校验失败路径一致：只要能读出可用的 task_id，就把
-                # 这条已经永久离开队列的任务收敛为失败，否则 API/WebUI 会一直显示
-                # 它在 processing。payload 本身没法解析、或 task_id 不是字符串
-                # （例如 JSON 数组）时则没有可回写的记录，只能丢弃 —— 把非字符串
-                # 直接交给 patch_task 会让 redis 抛 DataError，反过来打断丢弃循环。
+                logger.error(f"se descarta una tarea en cola inutilizable: {e}")
+                # Igual que la ruta de fallo de validación de params de abajo: si se
+                # puede leer un task_id utilizable, esta tarea que ya ha salido para
+                # siempre de la cola se cierra como fallida; si no, la API/WebUI la
+                # mostrarían siempre en processing. Si la carga útil no se puede
+                # analizar o el task_id no es una cadena (por ejemplo un array JSON), no
+                # hay registro que actualizar y solo se puede descartar; pasar un valor
+                # que no es cadena a patch_task haría que redis lanzara DataError e
+                # interrumpiera a su vez el bucle de descarte.
                 stale_kwargs = (
                     task_info.get("kwargs") if isinstance(task_info, dict) else None
                 )
@@ -143,16 +162,17 @@ class RedisTaskManager(TaskManager):
                         task_id,
                         state=const.TASK_STATE_FAILED,
                         failed_stage="dequeue",
-                        error=f"discarded stale queued task: {e}",
+                        error=f"se descartó una tarea en cola obsoleta: {e}",
                     )
                 continue
 
             if "params" in task_kwargs and isinstance(task_kwargs["params"], dict):
                 try:
                     params_model = VideoParams
-                    # /audio and /subtitle use short-form request models without
-                    # video_subject. Preserve those schemas at the queue boundary;
-                    # full VideoParams can also stop at either of these stages.
+                    # /audio y /subtitle usan modelos de solicitud abreviados sin
+                    # video_subject. Se conservan esos esquemas en el límite de la cola;
+                    # un VideoParams completo también puede detenerse en cualquiera de
+                    # esas etapas.
                     if "video_subject" not in task_kwargs["params"]:
                         if task_kwargs.get("stop_at") == "audio":
                             params_model = AudioRequest
@@ -161,22 +181,24 @@ class RedisTaskManager(TaskManager):
                     task_kwargs["params"] = params_model(**task_kwargs["params"])
                 except ValidationError as e:
                     logger.error(
-                        "dropping queued task with params that fail current "
-                        f"request model validation (queued under an older, more "
-                        f"permissive schema, or corrupted): {e}"
+                        "se descarta una tarea en cola cuyos parámetros no pasan la validación actual "
+                        f"del modelo de solicitud (encolada con un esquema anterior más "
+                        f"permisivo, o dañada): {e}"
                     )
-                    # 任务状态记录在入队前就已创建，且默认是 processing；如果只是
-                    # 丢弃这条队列项而不动状态记录，API/WebUI 会一直显示任务在
-                    # 运行，永远不会变成失败。用 patch_task 而不是 update_task，
-                    # 这样如果用户已经删除了这个任务，我们不会又把它建回来。
-                    # task_id 不是字符串时同上：没有可回写的记录，跳过状态更新。
+                    # El registro de estado de la tarea se crea antes de encolar y por
+                    # defecto está en processing; si solo se descartara esta entrada de
+                    # la cola sin tocar el estado, la API/WebUI mostrarían siempre la
+                    # tarea en ejecución y nunca pasaría a fallo. Se usa patch_task y no
+                    # update_task para no volver a crear la tarea si el usuario ya la ha
+                    # borrado. Si task_id no es una cadena, igual que arriba: no hay
+                    # registro que actualizar y se omite la actualización de estado.
                     task_id = task_kwargs.get("task_id")
                     if isinstance(task_id, str) and task_id:
                         sm.state.patch_task(
                             task_id,
                             state=const.TASK_STATE_FAILED,
                             failed_stage="dequeue",
-                            error=f"discarded stale queued task: {e}",
+                            error=f"se descartó una tarea en cola obsoleta: {e}",
                         )
                     continue
 

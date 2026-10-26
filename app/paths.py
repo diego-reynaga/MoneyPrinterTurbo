@@ -1,4 +1,6 @@
-"""统一源码版和安装版的资源、配置及运行数据目录。"""
+"""Unifica los directorios de recursos, configuración y datos de ejecución entre la versión
+de código fuente y la instalada.
+"""
 
 import os
 import shutil
@@ -18,7 +20,9 @@ def is_source_checkout() -> bool:
 
 
 def runtime_root() -> Path:
-    """源码沿用项目目录；安装版使用用户目录，也允许显式指定 MPT_HOME。"""
+    """El código fuente sigue usando el directorio del proyecto; la versión instalada usa
+    el directorio del usuario, y también permite indicar MPT_HOME explícitamente.
+    """
     override = os.environ.get("MPT_HOME", "").strip()
     if override:
         return Path(override).expanduser().resolve()
@@ -41,7 +45,9 @@ def config_template() -> Path:
 
 
 def _copy_missing_resource(source: Path, target: Path) -> None:
-    """原子补齐内置资源；并发启动和升级都不覆盖用户已有的文件。"""
+    """Completa de forma atómica los recursos integrados; ni los arranques concurrentes ni
+    las actualizaciones sobrescriben archivos que el usuario ya tenga.
+    """
     if target.exists():
         return
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -50,7 +56,8 @@ def _copy_missing_resource(source: Path, target: Path) -> None:
         with os.fdopen(fd, "wb") as destination, source.open("rb") as origin:
             shutil.copyfileobj(origin, destination)
         try:
-            # Windows rename 拒绝覆盖；POSIX 使用硬链接实现同样的独占发布。
+            # En Windows, rename se niega a sobrescribir; en POSIX se usan enlaces duros
+            # para lograr la misma publicación exclusiva.
             if os.name == "nt":
                 os.rename(temporary, target)
             else:
@@ -67,8 +74,10 @@ def resource_directory(sub_dir: str = "") -> Path:
     if is_source_checkout() and root == SOURCE_ROOT:
         return target
 
-    # 字体和音乐仍可由用户扩充。放在运行目录，避免 WebUI 上传或后续升级写入
-    # site-packages；只补齐缺失文件，保留用户编辑过的资源。
+    # El usuario puede seguir añadiendo fuentes y música. Se colocan en el directorio de
+    # ejecución para que las subidas de la WebUI o las actualizaciones no escriban en
+    # site-packages; solo se completan los archivos que faltan y se conservan los
+    # recursos que el usuario haya editado.
     origin = (SOURCE_ROOT if is_source_checkout() else BUNDLED_ROOT) / "resource" / sub_dir
     if origin.is_dir():
         for source in origin.rglob("*"):

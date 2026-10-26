@@ -36,7 +36,7 @@ from app.utils.subtitle_reader import moviepy_subtitles
 from app.utils.subtitle_writer import staged_subtitle_file
 
 _DEFAULT_EDGE_TTS_TIMEOUT_SECONDS = 30.0
-_SILICONFLOW_TTS_TIMEOUT_SECONDS = (10, 300)  # connect, read
+_SILICONFLOW_TTS_TIMEOUT_SECONDS = (10, 300)  # conexión, lectura
 _MIMO_DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1"
 _MIMO_DEFAULT_TTS_MODEL = "mimo-v2.5-tts"
 MINIMAX_TTS_GLOBAL_URL = "https://api.minimax.io/v1/t2a_v2"
@@ -92,14 +92,16 @@ VOXCPM_REFERENCE_AUDIO_FILE_TYPES = ("wav", "mp3", "m4a", "aac", "ogg", "flac")
 _DEFAULT_TTS_FFMPEG_TIMEOUT_SECONDS = 600
 _VOXCPM_NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 404, 422}
 _VOXCPM_RETRY_DELAY_SECONDS = (1.0, 2.0)
-# Match the existing generated-speech ceiling; allow one full Base64 WAV event
-# plus JSON framing while bounding both transport lines and multiline events.
+# Coincide con el límite actual de voz generada; permite un evento WAV Base64 completo
+# más el marco JSON, acotando tanto las líneas de transporte como los eventos de varias
+# líneas.
 _VOXCPM_TTS_MAX_AUDIO_BYTES = 50 * 1024 * 1024
 _VOXCPM_SSE_MAX_EVENT_BYTES = 4 * ((_VOXCPM_TTS_MAX_AUDIO_BYTES + 2) // 3) + 64 * 1024
 NO_VOICE_NAME = "no-voice"
-# `none` 是 PR #981 里曾使用过的无配音标识。这里短期兼容这个值，避免
-# 已经手动调用过该分支的 API 用户升级后立即失效；WebUI 和新代码统一使用
-# 更明确的 `no-voice`。
+# `none` es el identificador de sin locución que usó el PR #981. Aquí se mantiene a
+# corto plazo la compatibilidad con este valor, para que los usuarios de la API que ya
+# llamaron a esa rama a mano no dejen de funcionar de inmediato al actualizar; la WebUI
+# y el código nuevo usan siempre el más claro `no-voice`.
 _NO_VOICE_ALIASES = {NO_VOICE_NAME, "none"}
 
 
@@ -111,14 +113,18 @@ def _configure_pydub_ffmpeg(audio_segment_cls):
 
 def mktimestamp(time_unit: float) -> str:
     """
-    将 edge_tts 使用的 100 纳秒时间单位转换为字幕时间戳。
+    Convierte la unidad de tiempo de 100 nanosegundos que usa edge_tts en una marca de
+    tiempo de subtítulo.
 
-    edge_tts 7.x 不再导出旧版本里的 `mktimestamp`，但项目里旧字幕链路
-    还需要这个格式化函数来兼容 Azure v2、Gemini、SiliconFlow 这些
-    手工构造的字幕时间轴，因此这里内置一个等价实现。
+    edge_tts 7.x ya no exporta el `mktimestamp` de las versiones antiguas, pero la
+    cadena de subtítulos antigua del proyecto sigue necesitando esta función de formato
+    para las líneas de tiempo de subtítulos construidas a mano de Azure v2, Gemini o
+    SiliconFlow, así que aquí se incluye una implementación equivalente.
     """
-    # 先统一取整到毫秒再拆分时分秒。直接用 `:06.3f` 格式化取模后的秒数，
-    # 59.9996 秒会显示成 `00:00:60.000`，严格的 SRT 解析器会拒绝该时间戳。
+    # Primero se redondea a milisegundos y luego se separan horas, minutos y segundos.
+    # Si se formateara directamente con `:06.3f` los segundos tras el módulo, 59,9996
+    # segundos se mostrarían como `00:00:60.000`, y un analizador SRT estricto
+    # rechazaría esa marca de tiempo.
     total_milliseconds = int(round(time_unit / 10**4))
     hour, remainder = divmod(total_milliseconds, 3_600_000)
     minute, remainder = divmod(remainder, 60_000)
@@ -128,12 +134,13 @@ def mktimestamp(time_unit: float) -> str:
 
 def get_siliconflow_voices() -> list[str]:
     """
-    获取硅基流动的声音列表
+    Obtiene la lista de voces de SiliconFlow
 
     Returns:
-        声音列表，格式为 ["siliconflow:FunAudioLLM/CosyVoice2-0.5B:alex", ...]
+        Lista de voces, con el formato ["siliconflow:FunAudioLLM/CosyVoice2-0.5B:alex",
+        ...]
     """
-    # 硅基流动的声音列表和对应的性别（用于显示）
+    # Lista de voces de SiliconFlow y su género correspondiente (para mostrar)
     voices_with_gender = [
         ("FunAudioLLM/CosyVoice2-0.5B", "alex", "Male"),
         ("FunAudioLLM/CosyVoice2-0.5B", "anna", "Female"),
@@ -145,7 +152,7 @@ def get_siliconflow_voices() -> list[str]:
         ("FunAudioLLM/CosyVoice2-0.5B", "diana", "Female"),
     ]
 
-    # 添加siliconflow:前缀，并格式化为显示名称
+    # Añade el prefijo siliconflow: y lo formatea como nombre visible
     return [
         f"siliconflow:{model}:{voice}-{gender}"
         for model, voice, gender in voices_with_gender
@@ -154,26 +161,30 @@ def get_siliconflow_voices() -> list[str]:
 
 def get_gemini_voices() -> list[str]:
     """
-    获取 Gemini TTS 官方预置音色列表。
+    Obtiene la lista de voces predefinidas oficiales de Gemini TTS.
 
-    Google 没有为这些音色发布性别元数据，因此下拉框使用官方风格描述，
-    避免把推测的性别写进持久化 voice id。音色目录来源：
+    Google no publica metadatos de género para estas voces, así que el desplegable usa
+    la descripción del estilo oficial, para no escribir un género supuesto en el voice
+    id persistente. Origen del catálogo de voces:
     https://ai.google.dev/gemini-api/docs/speech-generation#voice-options
 
     Returns:
-        声音列表，格式为 ["gemini:Zephyr-Bright", "gemini:Puck-Upbeat", ...]
+        Lista de voces, con el formato ["gemini:Zephyr-Bright", "gemini:Puck-Upbeat",
+        ...]
     """
     return [f"gemini:{voice}-{style}" for voice, style in GEMINI_TTS_VOICES]
 
 
 def get_mimo_voices() -> list[str]:
     """
-    获取 Xiaomi MiMo V2.5 TTS 的预置音色列表。
+    Obtiene la lista de voces predefinidas de Xiaomi MiMo V2.5 TTS.
 
-    当前只接入官方文档里的 `mimo-v2.5-tts` 预置音色模式。音色设计
-    `mimo-v2.5-tts-voicedesign` 和音色复刻 `mimo-v2.5-tts-voiceclone`
-    需要额外的输入表单和素材上传流程，先不混入普通 TTS 下拉框，避免
-    用户误以为选择一个 voice id 就能完成所有高级能力。
+    De momento solo se integra el modo de voces predefinidas `mimo-v2.5-tts` de la
+    documentación oficial. El diseño de voces `mimo-v2.5-tts-voicedesign` y la clonación
+    de voz `mimo-v2.5-tts-voiceclone` necesitan formularios de entrada y flujos de
+    subida de material adicionales, así que de momento no se mezclan en el desplegable
+    TTS normal, para que el usuario no crea que elegir un voice id basta para tener
+    todas las funciones avanzadas.
     """
     voices_with_gender = [
         ("mimo_default", "Female"),
@@ -191,7 +202,9 @@ def get_mimo_voices() -> list[str]:
 
 
 def get_minimax_voices(voice_id: str | None = None) -> list[str]:
-    """返回当前配置的 MiniMax 音色，供统一的 TTS 调度格式使用。"""
+    """Devuelve las voces de MiniMax configuradas actualmente, en el formato común de
+    despacho del TTS.
+    """
     voice_id = str(
         voice_id
         or config.minimax_tts.get("voice_id", MINIMAX_TTS_DEFAULT_VOICE)
@@ -207,18 +220,19 @@ def get_elevenlabs_voices(api_key: str) -> list[str]:
         url = "https://api.elevenlabs.io/v2/voices"
         params = {"is_favorite": "true", "page_size": 100}
         headers = {"xi-api-key": api_key}
-        # Requests preserves custom xi-api-key headers across redirects. Keep
-        # the key on the provider endpoint even if it responds with a redirect.
+        # Requests conserva las cabeceras personalizadas xi-api-key en las
+        # redirecciones. Se mantiene la clave en el endpoint del proveedor aunque
+        # responda con una redirección.
         result = []
         seen_voices = set()
         seen_tokens = set()
         deadline = time.monotonic() + 30.0
-        # v2 catalogs are paginated even when page_size is at its maximum.
-        # Retain the fixed endpoint and no-redirect credential boundary.
+        # Los catálogos v2 están paginados incluso con page_size al máximo.
+        # Se mantiene el endpoint fijo y el límite de credenciales sin redirecciones.
         for _ in range(100):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                logger.warning("ElevenLabs voice catalog time budget exhausted; returning partial catalog")
+                logger.warning("se agotó el tiempo para el catálogo de voces de ElevenLabs; se devuelve un catálogo parcial")
                 break
             phase_timeout = min(10.0, remaining / 2.0)
             response = trace_http_call(
@@ -229,7 +243,7 @@ def get_elevenlabs_voices(api_key: str) -> list[str]:
             try:
                 if response.status_code != 200:
                     logger.warning(
-                        f"ElevenLabs voices fetch failed with status {response.status_code}"
+                        f"falló la obtención de voces de ElevenLabs con el estado {response.status_code}"
                     )
                     return []
                 data = response.json()
@@ -254,25 +268,25 @@ def get_elevenlabs_voices(api_key: str) -> list[str]:
             if data.get("has_more") is not True or not isinstance(token, str) or not token:
                 break
             if token in seen_tokens:
-                logger.warning("ElevenLabs voice catalog repeated a page token")
+                logger.warning("el catálogo de voces de ElevenLabs repitió un token de página")
                 break
             seen_tokens.add(token)
             params["next_page_token"] = token
         else:
-            logger.warning("ElevenLabs voice catalog page limit reached; returning partial catalog")
+            logger.warning("se alcanzó el límite de páginas del catálogo de voces de ElevenLabs; se devuelve un catálogo parcial")
         return result
     except Exception as e:
-        logger.warning(f"ElevenLabs voices fetch failed: {str(e)}")
+        logger.warning(f"falló la obtención de voces de ElevenLabs: {str(e)}")
         return []
 
 
 def get_chatterbox_voices() -> list[str]:
-    """Return the configured Chatterbox voices.
+    """Devuelve las voces de Chatterbox configuradas.
 
-    Chatterbox is self-hosted, so there is no global voice catalog. Operators
-    list the voice names exposed by their server via ``[chatterbox] voices``
-    (a TOML array, or a comma-separated string). Each entry is normalised to
-    the ``chatterbox:<name>`` format used by the TTS dispatcher.
+    Chatterbox es autoalojado, así que no hay un catálogo de voces global. Los
+    operadores enumeran los nombres de voz que expone su servidor en ``[chatterbox]
+    voices`` (un array TOML o una cadena separada por comas). Cada entrada se normaliza
+    al formato ``chatterbox:<nombre>`` que usa el despachador del TTS.
     """
     voices = config.chatterbox.get("voices", []) or []
     if isinstance(voices, str):
@@ -284,7 +298,7 @@ def get_chatterbox_voices() -> list[str]:
             continue
         result.append(v if v.startswith("chatterbox:") else f"chatterbox:{v}")
     if not result:
-        # keep the dropdown usable even before any voice is configured
+        # mantiene el desplegable utilizable incluso antes de configurar ninguna voz
         result = ["chatterbox:default-Female"]
     return result
 
@@ -293,7 +307,9 @@ KOKORO_DEFAULT_VOICE = "af_heart"
 
 
 def _normalize_kokoro_voices(entries) -> list[str]:
-    """统一手工配置与服务端新旧格式，只接收真实 ID，避免把对象转成音色名。"""
+    """Unifica la configuración manual y los formatos nuevo y antiguo del servidor,
+    aceptando solo ID reales, para no convertir objetos en nombres de voz.
+    """
     if isinstance(entries, str):
         entries = entries.split(",")
     if not isinstance(entries, list):
@@ -312,10 +328,14 @@ def _normalize_kokoro_voices(entries) -> list[str]:
 
 
 def get_kokoro_voices(*, fallback: bool = True) -> list[str]:
-    """手工音色优先，否则查询服务器；UI 可禁用默认值以识别断线并保留选择。
+    """Tienen prioridad las voces manuales; si no, se consulta al servidor; la interfaz
+    puede desactivar el valor por defecto para detectar desconexiones y conservar la
+    selección.
 
-    旧版服务器返回字符串列表，新版返回包含 id 的对象列表。失败时不在服务层
-    缓存会话状态；由 WebUI 保留上次成功目录，避免不同用户/端点互相污染。
+    Los servidores antiguos devuelven una lista de cadenas y los nuevos una lista de
+    objetos con id. Si falla, la capa de servicio no guarda estado de sesión en caché;
+    la WebUI conserva el último catálogo correcto, para que distintos usuarios/endpoints
+    no se contaminen entre sí.
     """
     voices = _normalize_kokoro_voices(config.kokoro.get("voices"))
     if not voices:
@@ -335,25 +355,27 @@ def get_kokoro_voices(*, fallback: bool = True) -> list[str]:
                     listed = data.get("voices", []) if isinstance(data, dict) else data
                     voices = _normalize_kokoro_voices(listed)
                     if not voices:
-                        logger.warning("kokoro voice list contains no valid voice IDs")
+                        logger.warning("la lista de voces de Kokoro no contiene ID de voz válidos")
                 else:
                     logger.warning(
-                        f"kokoro voices request failed with status {response.status_code}"
+                        f"falló la petición de voces de Kokoro con el estado {response.status_code}"
                     )
             except Exception as e:
-                # 不输出 URL/异常正文，避免自托管地址的查询参数或认证信息进入日志。
-                logger.warning(f"kokoro voice list unavailable ({type(e).__name__})")
+                # No se muestran la URL ni el cuerpo de la excepción, para que los
+                # parámetros de consulta o la información de autenticación de la
+                # dirección autoalojada no lleguen al log.
+                logger.warning(f"lista de voces de Kokoro no disponible ({type(e).__name__})")
     return voices or ([f"kokoro:{KOKORO_DEFAULT_VOICE}"] if fallback else [])
 
 
 def get_fish_audio_voices() -> list[str]:
-    """Return configured Fish Audio voices.
+    """Devuelve las voces de Fish Audio configuradas.
 
-    Each entry follows the format ``fish_audio:<reference_id>:<display_name>``.
-    When ``reference_id`` is "default", Fish Audio's built-in default voice is
-    used (no ``reference_id`` is sent in the API request).  Operators can list
-    additional public or cloned voices via ``[fish_audio] voices`` in the
-    config file.
+    Cada entrada sigue el formato ``fish_audio:<reference_id>:<nombre_visible>``. Cuando
+    ``reference_id`` es "default", se usa la voz por defecto integrada de Fish Audio (no
+    se envía ``reference_id`` en la solicitud a la API). Los operadores pueden enumerar
+    voces públicas o clonadas adicionales en ``[fish_audio] voices`` del archivo de
+    configuración.
     """
     result = [
         "fish_audio:2324c907b9a94c64ab4afb941e5b3408:Clear Female-Female",
@@ -370,21 +392,21 @@ def get_fish_audio_voices() -> list[str]:
         if entry.startswith("fish_audio:"):
             result.append(entry)
         elif ":" in entry:
-            # "<reference_id>:<display_name>"
+            # "<reference_id>:<nombre_visible>"
             result.append(f"fish_audio:{entry}")
         else:
-            # bare reference_id
+            # reference_id sin más
             result.append(f"fish_audio:{entry}:{entry}")
     return result
 
 
 def get_voxcpm_voices(voice_id: str | None = None) -> list[str]:
-    """Return the ModelBest VoxCPM voice selected in the local configuration.
+    """Devuelve la voz VoxCPM de ModelBest seleccionada en la configuración local.
 
-    ModelBest accepts ``default`` when no explicit voice is selected. Voice
-    design is expressed in the input text and voice cloning requires a separate
-    reference-audio workflow, so the first integration deliberately keeps the
-    standard TTS selector to one configured voice id.
+    ModelBest acepta ``default`` cuando no hay una voz seleccionada explícitamente. El
+    diseño de voces se expresa en el texto de entrada y la clonación de voz requiere un
+    flujo aparte de audio de referencia, así que la primera integración mantiene
+    deliberadamente el selector TTS estándar con un único voice id configurado.
     """
     voice_id = str(
         voice_id
@@ -413,7 +435,7 @@ def get_all_azure_voices(filter_locals=None) -> list[str]:
     for item in _load_azure_voices():
         name = item["name"]
         gender = item["gender"]
-        # 应用过滤条件
+        # Aplica las condiciones de filtrado
         if filter_locals and any(
             name.lower().startswith(fl.lower()) for fl in filter_locals
         ):
@@ -430,8 +452,9 @@ def parse_voice_name(name: str):
     # zh-CN-YunxiNeural-Male
     # zh-CN-XiaoxiaoMultilingualNeural-V2-Female
     name = name.strip()
-    # Qualified IDs belong to their provider. Gender/style display labels are
-    # parsed by each provider adapter, not rewritten inside an opaque voice ID.
+    # Los ID cualificados pertenecen a su proveedor. Las etiquetas visibles de
+    # género/estilo las analiza el adaptador de cada proveedor, sin reescribirlas dentro
+    # de un voice ID opaco.
     if ":" not in name:
         name = name.removesuffix("-Female").removesuffix("-Male")
     return name
@@ -445,24 +468,26 @@ def is_azure_v2_voice(voice_name: str):
 
 
 def is_siliconflow_voice(voice_name: str):
-    """检查是否是硅基流动的声音"""
+    """Comprueba si es una voz de SiliconFlow"""
     return voice_name.startswith("siliconflow:")
 
 
 def is_gemini_voice(voice_name: str):
-    """检查是否是Gemini TTS的声音"""
+    """Comprueba si es una voz de Gemini TTS"""
     return voice_name.startswith("gemini:")
 
 
 def parse_gemini_voice_name(voice_name: str | None) -> str:
-    """从新旧 Gemini 下拉框值中提取 Google API 使用的预置音色名称。"""
+    """Extrae, de los valores nuevos y antiguos del desplegable de Gemini, el nombre de la
+    voz predefinida que usa la API de Google.
+    """
     if not is_gemini_voice(voice_name or ""):
         return ""
     return (voice_name or "").split(":", 1)[1].split("-", 1)[0].strip()
 
 
 def is_mimo_voice(voice_name: str):
-    """检查是否是 Xiaomi MiMo TTS 的声音"""
+    """Comprueba si es una voz de Xiaomi MiMo TTS"""
     return voice_name.startswith("mimo:")
 
 
@@ -476,11 +501,13 @@ def is_elevenlabs_voice(voice_name: str) -> bool:
 
 def get_elevenlabs_api_key() -> str:
     """
-    读取 ElevenLabs TTS 使用的 API Key。
+    Lee la clave API que usa el TTS de ElevenLabs.
 
-    配置文件优先，环境变量仅作为未配置时的后备来源。WebUI 和配乐功能已经
-    支持 ``ELEVENLABS_API_KEY``，TTS 必须使用相同规则，否则仅通过容器环境
-    变量部署时，音色列表可正常加载，真正合成语音却会误报未配置 Key。
+    Tiene prioridad el archivo de configuración, y la variable de entorno solo es un
+    respaldo cuando no está configurada. La WebUI y la función de música ya admiten
+    ``ELEVENLABS_API_KEY``, y el TTS debe usar la misma regla; si no, en despliegues
+    solo con variables de entorno del contenedor, la lista de voces se cargaría con
+    normalidad pero la síntesis de voz real informaría por error de que falta la clave.
     """
     configured_key = str(config.elevenlabs.get("api_key", "") or "").strip()
     return configured_key or os.getenv("ELEVENLABS_API_KEY", "").strip()
@@ -509,21 +536,24 @@ def get_fish_audio_api_key() -> str:
 
 def is_no_voice(voice_name: str | None) -> bool:
     """
-    判断用户是否明确选择了“无配音”模式。
+    Decide si el usuario ha elegido explícitamente el modo "sin locución".
 
-    这里刻意不把空字符串当成无配音：空 voice 更可能是配置损坏、旧版本
-    WebUI 状态丢失或接口参数缺失。只有明确的 sentinel 才进入静音分支，
-    这样可以避免把真实错误伪装成正常生成。
+    Aquí no se trata deliberadamente la cadena vacía como sin locución: una voz vacía es
+    más probable que sea una configuración dañada, una pérdida del estado de una WebUI
+    antigua o un parámetro de la interfaz que falta. Solo el centinela explícito entra
+    en la rama de silencio, para no disfrazar un error real de generación normal.
     """
     return str(voice_name or "").strip().lower() in _NO_VOICE_ALIASES
 
 
 def is_azure_v1_voice(voice_name: str | None) -> bool:
     """
-    检查是否属于 Azure TTS v1 (Edge TTS) 预置声音。
+    Comprueba si es una voz predefinida de Azure TTS v1 (Edge TTS).
 
-    第一版停顿标签（[pause: ...]）的分段合成链路仅针对 Edge TTS (Azure TTS v1)，
-    避免改变 Gemini、Fish Audio、SiliconFlow、Kokoro 等其他提供商的请求计费、频次与默认行为。
+    La primera versión de la cadena de síntesis por segmentos de las etiquetas de pausa
+    ([pause: ...]) solo es para Edge TTS (Azure TTS v1), para no cambiar la facturación,
+    la frecuencia ni el comportamiento por defecto de las solicitudes de otros
+    proveedores como Gemini, Fish Audio, SiliconFlow o Kokoro.
     """
     if not voice_name:
         return False
@@ -555,16 +585,20 @@ def is_azure_v1_voice(voice_name: str | None) -> bool:
 
 def estimate_no_voice_duration(text: str) -> float:
     """
-    为无配音模式估算一个稳定的视频时间轴长度。
+    Estima una longitud de línea de tiempo de vídeo estable para el modo sin locución.
 
-    无配音仍需要一个音频占位来驱动现有素材裁剪、字幕时间轴和最终合成。
-    估算策略尽量简单：
-    1. 中文等 CJK 字符按约 4.2 字/秒估算；
-    2. 英文/数字按约 2.7 词/秒估算；
-    3. 其他语种文字按约 4.0 字符/秒兜底估算，覆盖俄语、阿拉伯语、
-       日文假名、韩文等非 ASCII 文本；
-    4. 每个断句补一点停顿，让字幕切换不至于过于紧凑；
-    5. 最少 3 秒，避免极短脚本生成 0 秒音频。
+    Sin locución sigue haciendo falta un audio de marcador que mueva el recorte de
+    material, la línea de tiempo de subtítulos y la composición final existentes. La
+    estrategia de estimación es lo más simple posible:
+    1. Los caracteres CJK como el chino se estiman a unos 4,2 caracteres/segundo;
+    2. El inglés/los números a unas 2,7 palabras/segundo;
+    3. Los textos de otros idiomas a unos 4,0 caracteres/segundo como respaldo,
+       cubriendo textos no ASCII como ruso, árabe,
+       kana japonés o coreano;
+    4. Cada corte de frase añade una pequeña pausa, para que el cambio de subtítulos no
+       sea demasiado apretado;
+    5. Mínimo 3 segundos, para que los guiones muy cortos no generen audio de 0
+       segundos.
     """
     normalized_text = (text or "").strip()
     if not normalized_text:
@@ -575,8 +609,10 @@ def estimate_no_voice_duration(text: str) -> float:
     ascii_word_chars = sum(len(word) for word in re.findall(r"[A-Za-z0-9]+", normalized_text))
     other_text_chars = 0
     for char in normalized_text:
-        # Unicode category 以 L 开头表示各语种字母，N 表示数字。前面已经单独
-        # 统计了 CJK 和 ASCII 单词，这里只统计剩余文字，避免英文被重复计时。
+        # Las categorías Unicode que empiezan por L son letras de cualquier idioma y N
+        # son dígitos. Antes ya se han contado aparte los caracteres CJK y las palabras
+        # ASCII, así que aquí solo se cuenta el texto restante, para no contar dos veces
+        # el tiempo del inglés.
         category = unicodedata.category(char)
         if category.startswith(("L", "N")):
             other_text_chars += 1
@@ -592,10 +628,11 @@ def estimate_no_voice_duration(text: str) -> float:
 
 def generate_silent_audio(duration_seconds: float, output_file: str) -> bool:
     """
-    生成静音音频。
+    Genera audio silencioso.
 
-    支持直接生成 16-bit mono PCM WAV 音频（精准到单个样本，无编码延迟），
-    或通过 FFmpeg anullsrc 生成 MP3 音频（作为“无配音”模式的占位）。
+    Permite generar directamente audio WAV PCM de 16 bits mono (preciso a nivel de
+    muestra, sin retardo de codificación), o generar audio MP3 con anullsrc de FFmpeg
+    (como marcador del modo "sin locución").
     """
     ensure_file_path_exists(output_file)
     duration_seconds = max(
@@ -632,9 +669,9 @@ def generate_silent_audio(duration_seconds: float, output_file: str) -> bool:
     ]
 
     logger.info(
-        f"generating silent audio for no-voice mode, duration: {duration_seconds:.2f}s"
+        f"generando audio en silencio para el modo sin voz, duración: {duration_seconds:.2f}s"
     )
-    return _publish_tts_ffmpeg_output(command, output_file, "silent narration encode")
+    return _publish_tts_ffmpeg_output(command, output_file, "codificación de la narración en silencio")
 
 
 def _single_tts(
@@ -667,60 +704,61 @@ def _single_tts(
             voice_rate=voice_rate,
         )
     elif is_siliconflow_voice(voice_name):
-        # 从voice_name中提取模型和声音
-        # 格式: siliconflow:model:voice-Gender
+        # Extrae el modelo y la voz de voice_name
+        # Formato: siliconflow:model:voice-Gender
         parts = voice_name.split(":")
         if len(parts) >= 3:
             model = parts[1]
-            # 移除性别后缀，例如 "alex-Male" -> "alex"
+            # Quita el sufijo de género, por ejemplo "alex-Male" -> "alex"
             voice_with_gender = parts[2]
             voice = voice_with_gender.split("-")[0]
-            # 构建完整的voice参数，格式为 "model:voice"
+            # Construye el parámetro voice completo, con el formato "model:voice"
             full_voice = f"{model}:{voice}"
             return siliconflow_tts(
                 text, model, full_voice, voice_rate, voice_file, voice_volume
             )
         else:
-            logger.error(f"Invalid siliconflow voice name format: {voice_name}")
+            logger.error(f"formato de nombre de voz de SiliconFlow no válido: {voice_name}")
             return None
     elif is_gemini_voice(voice_name):
-        # 从voice_name中提取声音名称
-        # 格式: gemini:voice-Style；也继续兼容旧的 gemini:voice-Gender。
+        # Extrae el nombre de la voz de voice_name Formato: gemini:voice-Style; también
+        # se sigue admitiendo el antiguo gemini:voice-Gender.
         voice = parse_gemini_voice_name(voice_name)
         if voice:
             return gemini_tts(text, voice, voice_rate, voice_file, voice_volume)
         else:
-            logger.error(f"Invalid gemini voice name format: {voice_name}")
+            logger.error(f"formato de nombre de voz de Gemini no válido: {voice_name}")
             return None
     elif is_mimo_voice(voice_name):
-        # 从voice_name中提取声音名称
-        # 格式: mimo:voice-Gender；如果调用方已执行 parse_voice_name，
-        # 则可能是 mimo:voice。两种格式都兼容。
+        # Extrae el nombre de la voz de voice_name Formato: mimo:voice-Gender; si quien
+        # llama ya ha ejecutado parse_voice_name, puede ser mimo:voice. Se admiten ambos
+        # formatos.
         parts = voice_name.split(":")
         if len(parts) >= 2:
             voice_with_gender = parts[1]
             voice = voice_with_gender.split("-")[0]
             return mimo_tts(text, voice, voice_rate, voice_file, voice_volume)
         else:
-            logger.error(f"Invalid mimo voice name format: {voice_name}")
+            logger.error(f"formato de nombre de voz de MiMo no válido: {voice_name}")
             return None
     elif is_minimax_voice(voice_name):
         voice_id = voice_name.split(":", 1)[1].strip()
         if voice_id:
             return minimax_tts(text, voice_id, voice_rate, voice_file, voice_volume)
-        logger.error(f"Invalid MiniMax voice name format: {voice_name}")
+        logger.error(f"formato de nombre de voz de MiniMax no válido: {voice_name}")
         return None
     elif is_elevenlabs_voice(voice_name):
-        # 格式: elevenlabs:{voice_id}:{name}
+        # Formato: elevenlabs:{voice_id}:{name}
         parts = voice_name.split(":")
         if len(parts) >= 2:
             voice_id = parts[1]
             return elevenlabs_tts(text, voice_id, voice_file, voice_rate, voice_volume)
         else:
-            logger.error(f"Invalid elevenlabs voice name format: {voice_name}")
+            logger.error(f"formato de nombre de voz de ElevenLabs no válido: {voice_name}")
             return None
     elif is_chatterbox_voice(voice_name):
-        # 格式: chatterbox:<voice>，voice 可带显示用的 -Female/-Male 后缀
+        # Formato: chatterbox:<voice>; voice puede llevar el sufijo visible
+        # -Female/-Male
         parts = voice_name.split(":", 1)
         if len(parts) >= 2 and parts[1].strip():
             chatterbox_voice = parts[1].strip()
@@ -730,10 +768,10 @@ def _single_tts(
                 text, chatterbox_voice, voice_file, voice_rate, voice_volume
             )
         else:
-            logger.error(f"Invalid chatterbox voice name format: {voice_name}")
+            logger.error(f"formato de nombre de voz de Chatterbox no válido: {voice_name}")
             return None
     elif is_kokoro_voice(voice_name):
-        # 格式: kokoro:<voice>，voice 可带显示用的 -Female/-Male 后缀
+        # Formato: kokoro:<voice>; voice puede llevar el sufijo visible -Female/-Male
         parts = voice_name.split(":", 1)
         if len(parts) >= 2 and parts[1].strip():
             kokoro_voice = parts[1].strip()
@@ -743,7 +781,7 @@ def _single_tts(
                 text, kokoro_voice, voice_file, voice_rate, voice_volume
             )
         else:
-            logger.error(f"Invalid kokoro voice name format: {voice_name}")
+            logger.error(f"formato de nombre de voz de Kokoro no válido: {voice_name}")
             return None
     elif is_fish_audio_voice(voice_name):
         parts = voice_name.split(":")
@@ -766,13 +804,13 @@ def _single_tts(
                 prompt_audio=voxcpm_prompt_audio,
                 prompt_text=voxcpm_prompt_text,
             )
-        logger.error(f"Invalid VoxCPM voice name format: {voice_name}")
+        logger.error(f"formato de nombre de voz de VoxCPM no válido: {voice_name}")
         return None
     return azure_tts_v1(text, voice_name, voice_rate, voice_file)
 
 
 def _run_tts_ffmpeg(command: list[str], stage: str):
-    """Bound TTS FFmpeg work and reap the child on timeout."""
+    """Limita el trabajo de FFmpeg del TTS y recoge el proceso hijo al agotar el tiempo."""
     raw_timeout = config.app.get(
         "ffmpeg_tts_timeout_seconds",
         _DEFAULT_TTS_FFMPEG_TIMEOUT_SECONDS,
@@ -780,13 +818,13 @@ def _run_tts_ffmpeg(command: list[str], stage: str):
     try:
         timeout = float(raw_timeout)
     except (TypeError, ValueError) as exc:
-        raise ValueError("ffmpeg_tts_timeout_seconds must be positive") from exc
+        raise ValueError("ffmpeg_tts_timeout_seconds debe ser positivo") from exc
     if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError("ffmpeg_tts_timeout_seconds must be positive")
+        raise ValueError("ffmpeg_tts_timeout_seconds debe ser positivo")
 
     try:
-        # subprocess.run kills and waits for the child on timeout. Do not allow
-        # FFmpeg to wait for terminal input in an unattended generation task.
+        # subprocess.run mata y espera al hijo al agotar el tiempo. No se permite
+        # que FFmpeg espere entrada del terminal en una tarea de generación desatendida.
         return subprocess.run(
             command,
             capture_output=True,
@@ -797,16 +835,16 @@ def _run_tts_ffmpeg(command: list[str], stage: str):
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        logger.error(f"FFmpeg {stage} timed out after {timeout:g} seconds")
+        logger.error(f"FFmpeg agotó el tiempo en {stage} tras {timeout:g} segundos")
     except OSError as exc:
-        logger.error(f"failed to start FFmpeg {stage}: {exc}")
+        logger.error(f"no se pudo iniciar FFmpeg para {stage}: {exc}")
     return None
 
 
 def _publish_tts_ffmpeg_output(
     command: list[str], output_file: str, stage: str
 ) -> bool:
-    """Encode beside the destination and replace only after a complete output."""
+    """Codifica junto al destino y solo sustituye tras una salida completa."""
     output_dir = os.path.dirname(output_file) or "."
     with tempfile.TemporaryDirectory(
         prefix=".mpt-tts-audio-", dir=output_dir
@@ -819,41 +857,46 @@ def _publish_tts_ffmpeg_output(
             return False
         if result.returncode != 0:
             logger.error(
-                f"FFmpeg {stage} failed: "
+                f"FFmpeg falló en {stage}: "
                 f"{(result.stderr or result.stdout or '').strip()}"
             )
             return False
         if not os.path.exists(staged_output) or os.path.getsize(staged_output) == 0:
-            logger.error(f"FFmpeg {stage} produced no narration audio")
+            logger.error(f"FFmpeg no produjo audio de narración en {stage}")
             return False
         try:
             os.replace(staged_output, output_file)
         except OSError as exc:
-            logger.error(f"failed to publish {stage} audio: {exc}")
+            logger.error(f"no se pudo publicar el audio de {stage}: {exc}")
             return False
         return True
 
 
 
 def apply_audio_volume(audio_file: str, output_file: str, volume: float) -> bool:
-    """Encode narration export gain to a caller-owned destination."""
+    """Codifica la ganancia de exportación de la narración en un destino propiedad de quien
+    llama.
+    """
     if not math.isfinite(volume) or volume < 0:
-        raise ValueError("audio export volume must be finite and nonnegative")
+        raise ValueError("el volumen de exportación del audio debe ser finito y no negativo")
     ensure_file_path_exists(output_file)
     command = [
         utils.get_ffmpeg_binary(), "-nostdin", "-v", "error", "-y",
         "-i", audio_file, "-vn", "-af", f"volume={volume}",
         "-codec:a", "libmp3lame", "-q:a", "4",
     ]
-    return _publish_tts_ffmpeg_output(command, output_file, "audio export volume")
+    return _publish_tts_ffmpeg_output(command, output_file, "volumen de exportación del audio")
 
 def _concat_audio_files(audio_files: list[str], output_file: str) -> bool:
     """
-    使用 PCM 解码与统一重编码合并多个音频分段。
+    Fusiona varios segmentos de audio mediante decodificación PCM y una recodificación
+    común.
 
-    将所有输入分段统一转换为标准 PCM (24000Hz 16-bit mono) 样本进行无缝拼接，
-    最后一次性编码为目标文件（如 MP3），彻底解决因每个 MP3 片段编码器延迟与填充（delay/padding）
-    累积而导致的音画不同步及字幕漂移问题。
+    Convierte todos los segmentos de entrada en muestras PCM estándar (24000 Hz 16 bits
+    mono) para montarlos sin cortes, y al final los codifica de una vez en el archivo de
+    destino (como MP3), resolviendo de raíz la falta de sincronía entre audio e imagen y
+    la deriva de los subtítulos causadas por la acumulación del retardo y el relleno
+    (delay/padding) del codificador de cada fragmento MP3.
     """
     if not audio_files:
         return False
@@ -879,19 +922,19 @@ def _concat_audio_files(audio_files: list[str], output_file: str) -> bool:
                 chunk_frames = 0
                 while chunk := reader.readframes(8192):
                     if len(chunk) % 2:
-                        raise ValueError("incomplete PCM sample in narration chunk")
+                        raise ValueError("muestra PCM incompleta en el fragmento de narración")
                     combined_wave.writeframesraw(chunk)
                     chunk_frames += len(chunk) // 2
                 if not chunk_frames or chunk_frames != reader.getnframes():
-                    raise ValueError("empty or truncated narration chunk")
+                    raise ValueError("fragmento de narración vacío o truncado")
                 combined_frames += chunk_frames
 
             for idx, f in enumerate(audio_files):
                 if not os.path.exists(f) or os.path.getsize(f) == 0:
-                    logger.error(f"narration chunk is missing or empty: {f}")
+                    logger.error(f"el fragmento de narración falta o está vacío: {f}")
                     return False
 
-                # 检查是否已经是 24000Hz 16-bit mono WAV
+                # Comprueba si ya es WAV de 24000 Hz 16 bits mono
                 is_valid_pcm_wav = False
                 if f.lower().endswith(".wav"):
                     try:
@@ -905,12 +948,13 @@ def _concat_audio_files(audio_files: list[str], output_file: str) -> bool:
                                 append_pcm(wf)
                     except Exception as exc:
                         if is_valid_pcm_wav:
-                            logger.error(f"failed to stream PCM input: {exc}")
+                            logger.error(f"no se pudo transmitir la entrada PCM: {exc}")
                             return False
                         is_valid_pcm_wav = False
 
                 if not is_valid_pcm_wav:
-                    # 使用 FFmpeg 将输入文件解码为 24000Hz 16-bit mono PCM WAV
+                    # Usa FFmpeg para decodificar el archivo de entrada a WAV PCM de
+                    # 24000 Hz 16 bits mono
                     pcm_wav = os.path.join(concat_temp, f"chunk_{idx}.wav")
                     cmd = [
                         ffmpeg_binary,
@@ -929,7 +973,7 @@ def _concat_audio_files(audio_files: list[str], output_file: str) -> bool:
                         "pcm_s16le",
                         pcm_wav,
                     ]
-                    res = _run_tts_ffmpeg(cmd, "pause audio decode")
+                    res = _run_tts_ffmpeg(cmd, "decodificación del audio con pausas")
                     if res is None:
                         return False
                     if res.returncode == 0 and os.path.exists(pcm_wav):
@@ -937,14 +981,14 @@ def _concat_audio_files(audio_files: list[str], output_file: str) -> bool:
                             with wave.open(pcm_wav, "rb") as wf:
                                 append_pcm(wf)
                         except Exception as e:
-                            logger.error(f"failed to read decoded pcm wav: {e}")
+                            logger.error(f"no se pudo leer el WAV PCM decodificado: {e}")
                             return False
                     else:
-                        logger.error(f"failed to decode audio chunk with ffmpeg: {res.stderr}")
+                        logger.error(f"no se pudo decodificar el fragmento de audio con ffmpeg: {res.stderr}")
                         return False
 
         if not combined_frames:
-            logger.error("no valid audio samples to concatenate")
+            logger.error("no hay muestras de audio válidas que concatenar")
             return False
 
         if output_file.lower().endswith(".wav"):
@@ -965,7 +1009,7 @@ def _concat_audio_files(audio_files: list[str], output_file: str) -> bool:
             "4",
         ]
         return _publish_tts_ffmpeg_output(
-            command, output_file, "pause audio encode"
+            command, output_file, "codificación del audio con pausas"
         )
 
 
@@ -977,8 +1021,10 @@ def _tts_with_pauses(
     voice_volume: float = 1.0,
 ) -> Union[SubMaker, None]:
     """
-    处理包含停顿标签（如 [pause: 2s] / [pausa: 1.5s] / [停顿: 3秒]）的脚本合成。
-    分段生成语音和精确的 PCM 静音，基于真实解码样本计算字幕偏移，并在末尾执行单次统一编码。
+    Sintetiza guiones que contienen etiquetas de pausa (como [pause: 2s] / [pausa: 1.5s]
+    / [停顿: 3秒]). Genera la voz por segmentos con silencios PCM precisos, calcula el
+    desplazamiento de los subtítulos a partir de las muestras decodificadas reales y
+    hace una única codificación común al final.
     """
     segments = utils.parse_script_with_pauses(text)
     if not segments:
@@ -1023,11 +1069,13 @@ def _tts_with_pauses(
                     wf.setframerate(SAMPLE_RATE)
                     wf.writeframes(b"\x00\x00" * num_silent_samples)
 
-                # 同样触发 generate_silent_audio，保证单测中若 mock 了该方法依然能被捕获调用
+                # También se llama a generate_silent_audio, para que si un test unitario
+                # lo sustituye con un mock se siga capturando la llamada
                 generate_silent_audio(pause_duration, silence_wav)
 
                 actual_pause_duration = pause_duration
-                # 如果单测 mock 了 get_audio_duration，优先读取 mock 实际返回的时长
+                # Si un test unitario sustituye get_audio_duration con un mock, se lee
+                # primero la duración que devuelve realmente el mock
                 mock_check_duration = get_audio_duration(silence_wav)
                 if mock_check_duration > 0 and abs(mock_check_duration - pause_duration) > 0.05:
                     actual_pause_duration = mock_check_duration
@@ -1051,7 +1099,7 @@ def _tts_with_pauses(
                 )
                 if not chunk_submaker or not os.path.exists(chunk_audio_file) or os.path.getsize(chunk_audio_file) == 0:
                     logger.error(
-                        f"failed to synthesize speech chunk (audio missing or empty): {speech_text[:50]}"
+                        f"no se pudo sintetizar el fragmento de voz (audio ausente o vacío): {speech_text[:50]}"
                     )
                     return None
 
@@ -1074,12 +1122,12 @@ def _tts_with_pauses(
                     "pcm_s16le",
                     chunk_wav,
                 ]
-                res = _run_tts_ffmpeg(cmd, "speech chunk decode")
+                res = _run_tts_ffmpeg(cmd, "decodificación del fragmento de voz")
                 if res is None:
                     return None
                 if res.returncode != 0 or not os.path.exists(chunk_wav) or os.path.getsize(chunk_wav) == 0:
                     logger.error(
-                        f"failed to decode speech chunk audio to PCM WAV: {speech_text[:50]}, "
+                        f"no se pudo decodificar el audio del fragmento de voz a WAV PCM: {speech_text[:50]}, "
                         f"error: {(res.stderr or res.stdout or '').strip()}"
                     )
                     return None
@@ -1089,20 +1137,21 @@ def _tts_with_pauses(
                         chunk_samples = wf.getnframes()
                 except Exception as e:
                     logger.error(
-                        f"failed to read decoded speech wave: {speech_text[:50]}, error: {e}"
+                        f"no se pudo leer la onda de voz decodificada: {speech_text[:50]}, error: {e}"
                     )
                     return None
 
                 if chunk_samples <= 0:
                     logger.error(
-                        f"decoded speech chunk has no audio samples: {speech_text[:50]}"
+                        f"el fragmento de voz decodificado no tiene muestras de audio: {speech_text[:50]}"
                     )
                     return None
 
-                # 字幕偏移直接依据实际样本数精确计算，不存在 MP3 帧累积漂移
+                # El desplazamiento de los subtítulos se calcula con exactitud a partir
+                # del número real de muestras, sin la deriva acumulada de las tramas MP3
                 current_offset_seconds = cumulative_samples / float(SAMPLE_RATE)
 
-                # 1. 迁移 cues (edge_tts 7.x)
+                # 1. Migra las cues (edge_tts 7.x)
                 if hasattr(chunk_submaker, "cues") and chunk_submaker.cues:
                     offset_td = timedelta(seconds=current_offset_seconds)
                     for cue in chunk_submaker.cues:
@@ -1114,7 +1163,7 @@ def _tts_with_pauses(
                         )
                         combined_submaker.cues.append(shifted_cue)
 
-                # 2. 迁移 legacy subs/offset
+                # 2. Migra los subs/offset legacy
                 if hasattr(chunk_submaker, "subs") and chunk_submaker.subs:
                     combined_submaker.subs.extend(chunk_submaker.subs)
                 if hasattr(chunk_submaker, "offset") and chunk_submaker.offset:
@@ -1128,7 +1177,7 @@ def _tts_with_pauses(
                 cumulative_samples += chunk_samples
 
         if not _concat_audio_files(audio_chunk_files, voice_file):
-            logger.error("failed to concatenate audio chunks with pauses")
+            logger.error("no se pudieron concatenar los fragmentos de audio con pausas")
             return None
 
         combined_submaker.duration = cumulative_samples / float(SAMPLE_RATE)
@@ -1145,7 +1194,8 @@ def tts(
     voxcpm_prompt_audio: bytes | None = None,
     voxcpm_prompt_text: str = "",
 ) -> Union[SubMaker, None]:
-    # 无停顿标签时，原样直通原始文本，避免无意义的正则处理或空白截断
+    # Sin etiquetas de pausa se pasa el texto original tal cual, sin procesamiento de
+    # regex inútil ni recorte de espacios
     if not utils.has_pause_tags(text):
         return _single_tts(
             text=text,
@@ -1158,7 +1208,8 @@ def tts(
             voxcpm_prompt_text=voxcpm_prompt_text,
         )
 
-    # 仅 Azure TTS v1 (Edge TTS) 且脚本包含停顿标签时进入分段合成
+    # Solo se entra en la síntesis por segmentos con Azure TTS v1 (Edge TTS) y un guion
+    # con etiquetas de pausa
     if is_azure_v1_voice(voice_name):
         return _tts_with_pauses(
             text=text,
@@ -1168,8 +1219,9 @@ def tts(
             voice_volume=voice_volume,
         )
 
-    # 其他声音提供商（如 Gemini、Fish Audio、SiliconFlow、Kokoro）包含停顿标签时，
-    # 清理停顿标签后以单次请求合成
+    # Cuando otros proveedores de voz (como Gemini, Fish Audio, SiliconFlow o Kokoro)
+    # reciben etiquetas de pausa, se eliminan las etiquetas y se sintetiza con una sola
+    # solicitud
     clean_text = utils.remove_pause_tags(text)
     return _single_tts(
         text=clean_text,
@@ -1184,13 +1236,15 @@ def tts(
 
 
 def convert_rate_to_percent(rate: float) -> str:
-    # edge-tts requires a sign-prefixed percentage (e.g. "+0%", "-20%").
-    # Rounding can yield 0 for rates near but not equal to 1.0 (e.g. 1.004,
-    # 0.997); those must still be returned as "+0%", not the unsigned "0%"
-    # which edge-tts rejects with ValueError: Invalid rate '0%'.
-    # API 或批处理调用可能传入 0、0.0、None 或无法转换的空值；这些值不代表
-    # 合法语速，直接计算会变成 -100% 或抛异常。这里统一回退到正常语速，
-    # 避免生成极慢音频或让 TTS 流程在边界输入下失败。
+    # edge-tts requiere un porcentaje con prefijo de signo (p. ej. "+0%", "-20%"). El
+    # redondeo puede dar 0 con velocidades cercanas pero no iguales a 1.0 (p. ej. 1.004,
+    # 0.997); esas deben seguir devolviéndose como "+0%", no como el "0%" sin signo
+    # que edge-tts rechaza con ValueError: Invalid rate '0%'. La API o las llamadas por
+    # lotes pueden pasar 0, 0.0, None o valores vacíos que no se pueden convertir; esos
+    # valores no representan una velocidad válida, y calcular con ellos daría -100% o
+    # lanzaría una excepción. Aquí se vuelve siempre a la velocidad normal, para no
+    # generar audio extremadamente lento ni hacer fallar el flujo TTS con entradas
+    # límite.
     try:
         rate = float(rate)
     except (TypeError, ValueError):
@@ -1205,11 +1259,11 @@ def convert_rate_to_percent(rate: float) -> str:
 
 def ensure_file_path_exists(file_path: str) -> None:
     """
-    确保输出文件所在目录一定存在。
+    Asegura que el directorio del archivo de salida existe.
 
-    这里单独做一层兜底，是因为 edge_tts 7.x 在真正发起网络请求之前，
-    就会先打开目标音频文件；如果目录不存在，会直接因为本地文件路径报错，
-    从而掩盖真正的 TTS 行为结果。
+    Esta protección va aparte porque edge_tts 7.x abre el archivo de audio de destino
+    antes de lanzar la solicitud de red real; si el directorio no existe, falla
+    directamente por la ruta local del archivo, ocultando el resultado real del TTS.
     """
     dir_path = os.path.dirname(file_path)
     if dir_path:
@@ -1218,11 +1272,13 @@ def ensure_file_path_exists(file_path: str) -> None:
 
 def ensure_legacy_submaker_fields(sub_maker: SubMaker) -> SubMaker:
     """
-    为项目里仍然沿用旧字幕结构的调用方补齐兼容字段。
+    Completa los campos de compatibilidad para los llamadores del proyecto que siguen
+    usando la estructura de subtítulos antigua.
 
-    edge_tts 7.x 的 `SubMaker` 主要暴露 `cues/get_srt()`，但项目里 Azure v2、
-    Gemini、SiliconFlow 这些路径仍然会直接读写 `subs/offset`。这里统一补齐，
-    避免升级 edge_tts 后这些非 edge 路径被连带破坏。
+    El `SubMaker` de edge_tts 7.x expone sobre todo `cues/get_srt()`, pero en el
+    proyecto las rutas de Azure v2, Gemini y SiliconFlow siguen leyendo y escribiendo
+    directamente `subs/offset`. Aquí se completan siempre, para que actualizar edge_tts
+    no rompa de paso estas rutas que no son de edge.
     """
     if not hasattr(sub_maker, "subs"):
         sub_maker.subs = []
@@ -1235,42 +1291,54 @@ def populate_legacy_submaker_with_full_text(
     sub_maker: SubMaker, text: str, audio_duration_seconds: float
 ) -> SubMaker:
     """
-    用整段文本填充项目历史沿用的 `subs/offset` 字幕结构。
+    Rellena con el texto completo la estructura de subtítulos `subs/offset` que el
+    proyecto usa históricamente.
 
-    背景：
-    1. edge_tts 7.x 的 `SubMaker` 不再提供旧版本里的 `create_sub()`；
-    2. 项目里 Gemini、SiliconFlow 等非 edge 路径依然需要返回一个
-       带 `subs/offset` 的对象，供后续统一计算音频时长和生成字幕；
-    3. 对于拿不到逐词边界的 TTS 服务，需要至少按脚本断句切成多个片段，
-       这样后续 `subtitle_provider=edge` 的聚合逻辑才能继续工作，而不是
-       因为整段文本无法和脚本断句逐行匹配而回退 Whisper。
+    Contexto:
+    1. El `SubMaker` de edge_tts 7.x ya no ofrece el `create_sub()` de las versiones
+       antiguas;
+    2. En el proyecto, las rutas que no son de edge como Gemini o SiliconFlow siguen
+       necesitando devolver un
+       objeto con `subs/offset`, para calcular después de forma común la duración del
+       audio y generar los subtítulos;
+    3. Para los servicios TTS que no dan límites palabra a palabra, hay que dividir al
+       menos el guion en varios fragmentos por frases,
+       para que la lógica de agregación posterior de `subtitle_provider=edge` pueda
+       seguir funcionando, en lugar de
+       volver a Whisper porque el texto entero no se puede hacer coincidir línea a línea
+       con las frases del guion.
 
     Args:
-        sub_maker: 需要写入兼容字段的字幕对象
-        text: 原始脚本文本
-        audio_duration_seconds: 音频总时长，单位秒
+        sub_maker: objeto de subtítulos en el que escribir los campos de compatibilidad
+        text: texto original del guion
+        audio_duration_seconds: duración total del audio, en segundos
 
     Returns:
-        已填充兼容字幕数据的 SubMaker 对象
+        Objeto SubMaker con los datos de subtítulos de compatibilidad rellenados
     """
     sub_maker = ensure_legacy_submaker_fields(sub_maker)
 
-    # 清空旧值，避免调用方重复复用对象时出现脏数据叠加。
+    # Vacía los valores antiguos, para que no se acumulen datos sucios si quien llama
+    # reutiliza el objeto.
     sub_maker.subs = []
     sub_maker.offset = []
 
-    # 与 create_subtitle() 使用同一套脚本清理：`---`、`***` 这类 Markdown
-    # 分隔行不会被朗读，若参与按字符比例分配，会占用一段音频时长，导致
-    # 后续字幕提前出现，或最后一句字幕在音频结束前就消失。
+    # Usa la misma limpieza del guion que create_subtitle(): las líneas separadoras
+    # Markdown como `---` o `***` no se leen, y si participaran en el reparto
+    # proporcional por caracteres ocuparían un tramo de audio, haciendo que los
+    # subtítulos siguientes aparecieran antes o que el último subtítulo desapareciera
+    # antes de que termine el audio.
     normalized_text = utils.normalize_script_for_subtitle_matching(text or "").strip()
     if not normalized_text:
         return sub_maker
 
     audio_duration_100ns = max(int(audio_duration_seconds * 10000000), 1)
 
-    # Gemini / SiliconFlow 这类路径拿不到逐词边界时，仍然尽量沿用项目
-    # 原来的“按标点断句 + 按字符数比例分配时长”的策略。这样既能让
-    # create_subtitle() 匹配脚本断句，也能避免再次回退 Whisper。
+    # Cuando rutas como Gemini / SiliconFlow no obtienen límites palabra a palabra, se
+    # sigue usando en lo posible la estrategia original del proyecto de "dividir por
+    # puntuación + repartir la duración proporcionalmente al número de caracteres". Así
+    # create_subtitle() puede hacer coincidir las frases del guion y se evita volver
+    # otra vez a Whisper.
     sentences = utils.split_string_by_punctuations(normalized_text)
     if not sentences:
         sentences = [normalized_text]
@@ -1287,8 +1355,10 @@ def populate_legacy_submaker_with_full_text(
         if not cleaned_sentence:
             continue
 
-        # 前面的句子按字符数比例分配时长，最后一句兜底吃掉剩余时长，
-        # 避免整数取整导致总时长丢失或字幕结束时间短于音频。
+        # Las frases anteriores reparten la duración proporcionalmente al número de
+        # caracteres, y la última se queda con la duración restante como respaldo, para
+        # que el redondeo entero no pierda duración total ni haga que los subtítulos
+        # terminen antes que el audio.
         if index == len(sentences) - 1:
             sentence_end = audio_duration_100ns
         else:
@@ -1310,16 +1380,19 @@ def create_edge_tts_communicate(
     text: str, voice_name: str, rate_str: str
 ) -> edge_tts.Communicate:
     """
-    按当前已安装的 edge_tts 版本构造 Communicate 对象。
+    Construye el objeto Communicate según la versión de edge_tts instalada.
 
-    背景：
-    1. 主线代码已经升级到 edge_tts 7.x，并使用 `boundary` 参数拿到更细的边界事件；
-    2. 但 Windows 便携包如果更新失败，现场环境可能仍然停留在旧版 edge_tts；
-    3. 旧版 `Communicate.__init__()` 不接受 `boundary`，会直接抛出
-       `unexpected keyword argument 'boundary'`，导致整个 TTS 链路失败。
+    Contexto:
+    1. El código principal ya se ha actualizado a edge_tts 7.x y usa el parámetro
+       `boundary` para obtener eventos de límite más detallados;
+    2. Pero si falla la actualización del paquete portátil de Windows, el entorno puede
+       seguir con un edge_tts antiguo;
+    3. El `Communicate.__init__()` antiguo no acepta `boundary` y lanza directamente
+       `unexpected keyword argument 'boundary'`, haciendo fallar toda la cadena TTS.
 
-    因此这里先根据构造函数签名探测当前版本支持的参数，再决定是否传入
-    `boundary`，让同一份代码同时兼容旧版和新版依赖。
+    Por eso aquí se detectan primero, por la firma del constructor, los parámetros que
+    admite la versión actual, y luego se decide si pasar `boundary`, para que el mismo
+    código sea compatible tanto con la dependencia antigua como con la nueva.
     """
     communicate_kwargs = {"rate": rate_str}
     communicate_signature = inspect.signature(edge_tts.Communicate)
@@ -1332,18 +1405,22 @@ def create_edge_tts_communicate(
 
 def get_edge_tts_timeout_seconds() -> Union[float, None]:
     """
-    获取 Azure TTS V1 单次流式请求的超时时间。
+    Obtiene el tiempo de espera de una solicitud en streaming de Azure TTS V1.
 
-    背景：
-    Edge consumer TTS 在网络不通、服务端限流、voice 与文本语言不匹配等场景下，
-    可能长时间卡在 `stream_sync()` 内部，日志只停留在 `start`。这里提供一个
-    默认超时，避免 WebUI 任务长期无反馈。
+    Contexto:
+    Con Edge consumer TTS, ante problemas de red, límites del servidor o una voz cuyo
+    idioma no coincide con el texto, puede quedarse mucho tiempo atascado dentro de
+    `stream_sync()`, con el log parado en `start`. Aquí se da un tiempo de espera por
+    defecto, para que las tareas de la WebUI no se queden mucho tiempo sin respuesta.
 
-    使用方式：
-    - 默认 30 秒，覆盖常见短视频脚本的首包等待时间；
-    - 如用户处于慢网络或代理环境，可在 `config.toml` 里设置
-      `edge_tts_timeout = 60`；
-    - 设置为 0 或负数表示显式禁用超时，保留完全向后兼容。
+    Uso:
+    - Por defecto 30 segundos, que cubre la espera del primer paquete de los guiones de
+      vídeo corto habituales;
+    - Si el usuario está en una red lenta o detrás de un proxy, puede poner en
+      `config.toml`
+      `edge_tts_timeout = 60`;
+    - Un valor 0 o negativo desactiva explícitamente el tiempo de espera, manteniendo la
+      compatibilidad total hacia atrás.
     """
     raw_timeout = config.app.get(
         "edge_tts_timeout", _DEFAULT_EDGE_TTS_TIMEOUT_SECONDS
@@ -1352,8 +1429,8 @@ def get_edge_tts_timeout_seconds() -> Union[float, None]:
         timeout_seconds = float(raw_timeout)
     except (TypeError, ValueError):
         logger.warning(
-            "invalid edge_tts_timeout: "
-            f"{raw_timeout}, fallback to {_DEFAULT_EDGE_TTS_TIMEOUT_SECONDS}s"
+            "edge_tts_timeout no válido: "
+            f"{raw_timeout}, se usa {_DEFAULT_EDGE_TTS_TIMEOUT_SECONDS}s"
         )
         timeout_seconds = _DEFAULT_EDGE_TTS_TIMEOUT_SECONDS
 
@@ -1367,17 +1444,21 @@ def _stream_edge_tts_sync_with_timeout(
     communicate, on_chunk, timeout_seconds: float
 ) -> None:
     """
-    带总超时地消费 edge_tts 7.x 的同步流。
+    Consume el flujo síncrono de edge_tts 7.x con un tiempo de espera total.
 
-    实现原因：
-    `stream_sync()` 本身是阻塞迭代器，网络层卡住时主线程无法及时恢复。
-    这里把阻塞迭代放到 daemon 线程中，主线程通过 Queue 获取 chunk，
-    到达超时时间后直接抛出 TimeoutError，让外层重试和错误日志继续工作。
+    Motivo:
+    `stream_sync()` es en sí un iterador bloqueante, y si la capa de red se atasca el
+    hilo principal no puede recuperarse a tiempo. Aquí la iteración bloqueante va en un
+    hilo daemon y el hilo principal obtiene los chunks mediante una Queue; al llegar al
+    tiempo de espera lanza directamente TimeoutError, para que los reintentos y los logs
+    de error de la capa exterior sigan funcionando.
 
-    注意：
-    直接消费 SDK 的异步流，绕过 stream_sync 内部的无界队列。队列只保留
-    一块数据；超时或回调失败会取消异步生产者并关闭网络流。仅支持同步流的
-    适配器在阻塞读取返回后协作退出，不会继续累积已被放弃的数据。
+    Nota:
+    Se consume directamente el flujo asíncrono del SDK, saltándose la cola ilimitada
+    interna de stream_sync. La cola solo guarda un bloque de datos; un tiempo agotado o
+    un fallo del callback cancela el productor asíncrono y cierra el flujo de red. Los
+    adaptadores que solo admiten flujo síncrono salen de forma cooperativa cuando vuelve
+    la lectura bloqueante, sin seguir acumulando datos ya descartados.
     """
     stream_queue = queue.Queue(maxsize=1)
     stopped = threading.Event()
@@ -1399,7 +1480,7 @@ def _stream_edge_tts_sync_with_timeout(
                 stream_queue.put_nowait(item)
                 return True
             except queue.Full:
-                # Keep the loop cancellable while waiting for the consumer.
+                # Mantiene el bucle cancelable mientras espera al consumidor.
                 await asyncio.sleep(0.01)
         return False
 
@@ -1421,8 +1502,9 @@ def _stream_edge_tts_sync_with_timeout(
 
     def _produce_chunks():
         nonlocal producer_loop, producer_task
-        # The SDK's stream_sync() has its own unbounded queue/executor. Using
-        # its async source directly lets cancellation reach the network read.
+        # El stream_sync() del SDK tiene su propia cola/ejecutor ilimitados. Usar
+        # directamente su fuente asíncrona permite que la cancelación llegue a la
+        # lectura de red.
         if callable(getattr(communicate, "stream", None)):
             producer_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(producer_loop)
@@ -1437,8 +1519,8 @@ def _stream_edge_tts_sync_with_timeout(
                 producer_loop.run_until_complete(producer_loop.shutdown_asyncgens())
                 producer_loop.close()
             return
-        # Compatibility for stream_sync-only adapters: cooperative termination
-        # after a blocked read returns, with the same bounded mailbox.
+        # Compatibilidad con adaptadores que solo tienen stream_sync: terminación
+        # cooperativa cuando vuelve una lectura bloqueada, con el mismo buzón acotado.
         stream = None
         try:
             stream = communicate.stream_sync()
@@ -1462,7 +1544,7 @@ def _stream_edge_tts_sync_with_timeout(
             remaining_seconds = deadline - time.monotonic()
             if remaining_seconds <= 0:
                 raise TimeoutError(
-                    f"edge_tts stream timed out after {timeout_seconds:g}s"
+                    f"el flujo de edge_tts agotó el tiempo tras {timeout_seconds:g}s"
                 )
             try:
                 item_type, payload = stream_queue.get(
@@ -1482,23 +1564,25 @@ def _stream_edge_tts_sync_with_timeout(
             try:
                 producer_loop.call_soon_threadsafe(producer_task.cancel)
             except RuntimeError:
-                pass  # The producer already finished and closed its loop.
+                pass  # El productor ya terminó y cerró su bucle.
 
 
 def stream_edge_tts_chunks(
     communicate, on_chunk, timeout_seconds: Union[float, None] = None
 ) -> None:
     """
-    统一消费 edge_tts 的同步流和旧版异步流。
+    Consume de forma común el flujo síncrono de edge_tts y el flujo asíncrono antiguo.
 
-    edge_tts 7.x 提供 `stream_sync()`，可以在同步函数里直接迭代；
-    更早的版本通常只有异步 `stream()`。为了让 `azure_tts_v1()` 在
-    旧依赖残留场景下仍能继续工作，这里统一做一层流式兼容。
+    edge_tts 7.x ofrece `stream_sync()`, que se puede iterar directamente en una función
+    síncrona; las versiones anteriores solo suelen tener el `stream()` asíncrono. Para
+    que `azure_tts_v1()` siga funcionando cuando quedan dependencias antiguas, aquí se
+    hace una capa común de compatibilidad de streaming.
 
     Args:
-        communicate: edge_tts.Communicate 实例
-        on_chunk: 每拿到一个事件块时执行的回调
-        timeout_seconds: 单次流式请求总超时；为 None 时不启用超时。
+        communicate: instancia de edge_tts.Communicate
+        on_chunk: callback que se ejecuta con cada bloque de eventos recibido
+        timeout_seconds: tiempo de espera total de una solicitud en streaming; con None
+        no se activa el tiempo de espera.
     """
     if hasattr(communicate, "stream_sync"):
         if timeout_seconds:
@@ -1512,14 +1596,16 @@ def stream_edge_tts_chunks(
         return
 
     if not hasattr(communicate, "stream"):
-        raise AttributeError("edge_tts communicate object has no stream method")
+        raise AttributeError("el objeto communicate de edge_tts no tiene el método stream")
 
     async def _consume_async_stream():
         async for chunk in communicate.stream():
             on_chunk(chunk)
 
-    # 这里显式创建独立事件循环，而不是复用外部上下文，目的是避免
-    # 在同步调用栈里遇到“当前线程没有事件循环”或跨线程复用循环的问题。
+    # Aquí se crea explícitamente un bucle de eventos propio en lugar de reutilizar el
+    # contexto exterior, para no encontrarse en una pila de llamadas síncrona con
+    # problemas como "el hilo actual no tiene bucle de eventos" o la reutilización de un
+    # bucle entre hilos.
     loop = asyncio.new_event_loop()
     try:
         if timeout_seconds:
@@ -1541,11 +1627,13 @@ def azure_tts_v1(
     for i in range(3):
         temp_path = None
         try:
-            logger.info(f"start, voice name: {voice_name}, try: {i + 1}")
+            logger.info(f"inicio, nombre de voz: {voice_name}, intento: {i + 1}")
 
-            # 这里同时兼容 edge_tts 7.x 和旧版便携包里可能残留的老依赖：
-            # 1. 新版支持 `boundary` + `stream_sync()`
-            # 2. 旧版不支持 `boundary`，且通常只暴露异步 `stream()`
+            # Aquí se admiten a la vez edge_tts 7.x y las dependencias antiguas que
+            # puedan quedar en el paquete portátil:
+            # 1. La versión nueva admite `boundary` + `stream_sync()`
+            # 2. La versión antigua no admite `boundary`, y normalmente solo expone el
+            #    `stream()` asíncrono
             ensure_file_path_exists(voice_file)
             communicate = create_edge_tts_communicate(text, voice_name, rate_str)
             sub_maker = edge_tts.SubMaker()
@@ -1562,40 +1650,43 @@ def azure_tts_v1(
                     if chunk_type == "audio":
                         file.write(chunk["data"])
                     elif chunk_type in ["WordBoundary", "SentenceBoundary"]:
-                        # 无论来自 7.x 的同步流，还是旧版异步流，只要事件结构
-                        # 里仍有边界信息，就统一喂给 SubMaker，保证后续字幕链路
-                        # 仍然走项目现有逻辑。
+                        # Venga del flujo síncrono de 7.x o del flujo asíncrono antiguo,
+                        # si la estructura del evento sigue teniendo información de
+                        # límites se pasa siempre al SubMaker, para que la cadena de
+                        # subtítulos posterior siga usando la lógica existente del
+                        # proyecto.
                         sub_maker.feed(chunk)
 
                 stream_edge_tts_chunks(
                     communicate, _handle_chunk, timeout_seconds=timeout_seconds
                 )
 
-            # Edge can finish a stream with timing events but no audio payload.
-            # Those events produce a nonempty SRT, yet the MP3 is unplayable.
+            # Edge puede terminar un flujo con eventos de tiempos pero sin carga de
+            # audio. Esos eventos producen un SRT no vacío, pero el MP3 no se puede
+            # reproducir.
             if os.path.getsize(temp_path) == 0:
-                logger.warning("failed, edge tts stream contained no audio")
+                logger.warning("fallo, el flujo de Edge TTS no contenía audio")
                 continue
 
             if not sub_maker.get_srt():
-                logger.warning("failed, sub_maker.get_srt() is empty")
+                logger.warning("fallo, sub_maker.get_srt() está vacío")
                 continue
 
-            # Audio and its timing belong to this same completed attempt.
-            # Failed retries must not replace previously successful narration.
+            # El audio y sus tiempos pertenecen a este mismo intento completado. Los
+            # reintentos fallidos no deben sustituir una narración correcta anterior.
             os.replace(temp_path, voice_file)
             temp_path = None
-            logger.info(f"completed, output file: {voice_file}")
+            logger.info(f"completado, archivo de salida: {voice_file}")
             return sub_maker
         except Exception as e:
-            logger.error(f"failed, error: {str(e)}")
+            logger.error(f"fallo, error: {str(e)}")
         finally:
             if temp_path is not None:
                 try:
                     os.remove(temp_path)
                 except OSError as remove_error:
                     logger.warning(
-                        "failed to remove temporary Edge TTS audio: "
+                        "no se pudo eliminar el audio temporal de Edge TTS: "
                         f"{temp_path}, error: {remove_error}"
                     )
     return None
@@ -1610,29 +1701,32 @@ def siliconflow_tts(
     voice_volume: float = 1.0,
 ) -> Union[SubMaker, None]:
     """
-    使用硅基流动的API生成语音
+    Genera voz con la API de SiliconFlow
 
     Args:
-        text: 要转换为语音的文本
-        model: 模型名称，如 "FunAudioLLM/CosyVoice2-0.5B"
-        voice: 声音名称，如 "FunAudioLLM/CosyVoice2-0.5B:alex"
-        voice_rate: 语音速度，范围[0.25, 4.0]
-        voice_file: 输出的音频文件路径
-        voice_volume: 语音音量，范围[0.6, 5.0]，需要转换为硅基流动的增益范围[-10, 10]
+        text: texto que se va a convertir en voz
+        model: nombre del modelo, como "FunAudioLLM/CosyVoice2-0.5B"
+        voice: nombre de la voz, como "FunAudioLLM/CosyVoice2-0.5B:alex"
+        voice_rate: velocidad de la voz, rango [0.25, 4.0]
+        voice_file: ruta del archivo de audio de salida
+        voice_volume: volumen de la voz, rango [0.6, 5.0]; hay que convertirlo al rango
+        de ganancia de SiliconFlow [-10, 10]
 
     Returns:
-        SubMaker对象或None
+        Objeto SubMaker o None
     """
     text = text.strip()
     api_key = config.siliconflow.get("api_key", "")
 
     if not api_key:
-        logger.error("SiliconFlow API key is not set")
+        logger.error("la API Key de SiliconFlow no está configurada")
         return None
 
-    # voice_volume 是线性倍数，硅基流动的 gain 单位是 dB，范围 [-10, 10]。
-    # 默认 1.0 对应 0 dB；2.0 约为 +6 dB，0.6 约为 -4.4 dB。直接相减会把
-    # 2 倍音量当作 +1 dB，试听音量与最终视频的线性混音结果明显不一致。
+    # voice_volume es un multiplicador lineal, y el gain de SiliconFlow está en dB, con
+    # rango [-10, 10]. El valor por defecto 1.0 corresponde a 0 dB; 2.0 es
+    # aproximadamente +6 dB y 0.6 aproximadamente -4,4 dB. Restar directamente trataría
+    # un volumen doble como +1 dB, y el volumen de la vista previa diferiría claramente
+    # del resultado de la mezcla lineal del vídeo final.
     if voice_volume is None:
         voice_volume = 1.0
     if voice_volume <= 0:
@@ -1655,12 +1749,12 @@ def siliconflow_tts(
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-    for i in range(3):  # 尝试3次
+    for i in range(3):  # Lo intenta 3 veces
         temporary_audio = None
         response_accepted = False
         try:
             logger.info(
-                f"start siliconflow tts, model: {model}, voice: {voice}, try: {i + 1}"
+                f"inicio de SiliconFlow TTS, modelo: {model}, voz: {voice}, intento: {i + 1}"
             )
 
             response = trace_http_call(
@@ -1673,18 +1767,18 @@ def siliconflow_tts(
             )
 
             if 300 <= response.status_code < 400:
-                # Redirecting a speech POST may replay a billed synthesis or
-                # forward its input/credentials. Do not follow or resubmit it.
-                logger.error("TTS endpoint returned a redirect; stop speech retries")
+                # Redirigir un POST de voz puede repetir una síntesis facturada o
+                # reenviar su entrada/credenciales. No se sigue ni se vuelve a enviar.
+                logger.error("el endpoint de TTS devolvió una redirección; se detienen los reintentos de voz")
                 return None
             if response.status_code == 200:
                 response_accepted = True
                 if not response.content:
-                    logger.error("siliconflow tts returned empty audio")
+                    logger.error("SiliconFlow TTS devolvió audio vacío")
                     return None
-                # Decode a temporary file before publishing it. A 200 response
-                # may contain invalid audio, and must not destroy a previous
-                # successful narration at the same path.
+                # Decodifica un archivo temporal antes de publicarlo. Una respuesta 200
+                # puede contener audio no válido, y no debe destruir una narración
+                # correcta anterior en la misma ruta.
                 ensure_file_path_exists(voice_file)
                 with tempfile.NamedTemporaryFile(
                     dir=os.path.dirname(os.path.abspath(voice_file)),
@@ -1708,16 +1802,16 @@ def siliconflow_tts(
                         or not math.isfinite(audio_duration)
                         or audio_duration <= 0
                     ):
-                        raise ValueError("audio duration must be positive and finite")
+                        raise ValueError("la duración del audio debe ser positiva y finita")
                 except Exception as e:
-                    # A 200 response is not proof that the bytes contain usable
-                    # narration. Returning a fabricated duration lets an invalid
-                    # file advance into the costly video pipeline.
-                    logger.error(f"siliconflow tts returned invalid audio: {e}")
+                    # Una respuesta 200 no demuestra que los bytes contengan una
+                    # narración utilizable. Devolver una duración inventada deja que un
+                    # archivo no válido avance hasta el costoso flujo de vídeo.
+                    logger.error(f"SiliconFlow TTS devolvió audio no válido: {e}")
                     return None
 
                 os.replace(temporary_audio, voice_file)
-                logger.success(f"siliconflow tts succeeded: {voice_file}")
+                logger.success(f"SiliconFlow TTS completado: {voice_file}")
                 return populate_legacy_submaker_with_full_text(
                     sub_maker=sub_maker,
                     text=text,
@@ -1725,23 +1819,23 @@ def siliconflow_tts(
                 )
             else:
                 logger.error(
-                    f"siliconflow tts failed with status code {response.status_code}: {response.text}"
+                    f"SiliconFlow TTS falló con el código de estado {response.status_code}: {response.text}"
                 )
         except requests.exceptions.ConnectTimeout as e:
-            logger.warning(f"siliconflow tts could not connect, retrying: {e}")
+            logger.warning(f"SiliconFlow TTS no pudo conectar, reintentando: {e}")
         except requests.exceptions.RequestException as e:
-            # The server may have synthesized and charged for the POST even
-            # though its response was lost. A fresh POST could bill again.
+            # El servidor puede haber sintetizado y cobrado el POST aunque
+            # se perdiera su respuesta. Un POST nuevo podría volver a facturar.
             logger.error(
-                "siliconflow tts result is unconfirmed after a transport error; "
-                f"stop paid retries: {type(e).__name__}"
+                "el resultado de SiliconFlow TTS no está confirmado tras un error de transporte; "
+                f"se detienen los reintentos de pago: {type(e).__name__}"
             )
             return None
         except Exception as e:
-            logger.error(f"siliconflow tts failed: {str(e)}")
+            logger.error(f"SiliconFlow TTS falló: {str(e)}")
             if response_accepted:
-                # Retrying local processing cannot recover this accepted response
-                # and would submit another synthesis request.
+                # Reintentar el procesamiento local no puede recuperar esta respuesta
+                # aceptada y enviaría otra solicitud de síntesis.
                 return None
         finally:
             if temporary_audio and os.path.exists(temporary_audio):
@@ -1749,14 +1843,16 @@ def siliconflow_tts(
                     os.unlink(temporary_audio)
                 except OSError as cleanup_error:
                     logger.warning(
-                        f"failed to remove temporary siliconflow audio: {cleanup_error}"
+                        f"no se pudo eliminar el audio temporal de SiliconFlow: {cleanup_error}"
                     )
 
     return None
 
 
 def _build_azure_v2_ssml(text: str, voice_name: str, voice_rate: float) -> str:
-    """构造 Azure Speech V2 使用的 SSML，并安全规范化语速参数。"""
+    """Construye el SSML que usa Azure Speech V2, normalizando con seguridad el parámetro
+    de velocidad.
+    """
     try:
         normalized_rate = float(voice_rate)
     except (TypeError, ValueError):
@@ -1789,15 +1885,16 @@ def azure_tts_v2(
 ) -> Union[SubMaker, None]:
     voice_name = is_azure_v2_voice(voice_name)
     if not voice_name:
-        logger.error(f"invalid voice name: {voice_name}")
-        raise ValueError(f"invalid voice name: {voice_name}")
+        logger.error(f"nombre de voz no válido: {voice_name}")
+        raise ValueError(f"nombre de voz no válido: {voice_name}")
     text = text.strip()
     ssml = _build_azure_v2_ssml(text, voice_name, voice_rate)
 
     def _format_duration_to_offset(duration) -> int:
         if isinstance(duration, timedelta):
-            # Speech SDK durations are timedeltas; integer arithmetic retains
-            # all microseconds and also handles zero/exact-second durations.
+            # Las duraciones del Speech SDK son timedeltas; la aritmética entera
+            # conserva todos los microsegundos y también trata las duraciones cero/de
+            # segundos exactos.
             return ((duration.days * 86400 + duration.seconds) * 1000000
                     + duration.microseconds) * 10
         if isinstance(duration, int):
@@ -1810,7 +1907,7 @@ def azure_tts_v2(
         speech_synthesizer = None
         try:
             logger.info(
-                f"start, voice name: {voice_name}, rate: {voice_rate}, try: {i + 1}"
+                f"inicio, nombre de voz: {voice_name}, velocidad: {voice_rate}, intento: {i + 1}"
             )
 
             import azure.cognitiveservices.speech as speechsdk
@@ -1831,15 +1928,17 @@ def azure_tts_v2(
                 sub_maker.subs.append(evt.text)
                 sub_maker.offset.append((offset, offset + duration))
 
-            # Creates an instance of a speech config with specified subscription key and service region.
+            # Crea una instancia de configuración de voz con la clave de suscripción y
+            # la región de servicio indicadas.
             speech_key = config.azure.get("speech_key", "")
             service_region = config.azure.get("speech_region", "")
             if not speech_key or not service_region:
-                logger.error("Azure speech key or region is not set")
+                logger.error("la clave o la región de Azure Speech no están configuradas")
                 return None
 
-            # File and default-speaker output are mutually exclusive SDK modes.
-            # Let each attempt own a private file, never the last good export.
+            # La salida a archivo y al altavoz por defecto son modos del SDK mutuamente
+            # excluyentes. Cada intento es dueño de un archivo privado, nunca de la
+            # última exportación correcta.
             ensure_file_path_exists(voice_file)
             descriptor, temporary_audio = tempfile.mkstemp(
                 prefix=".azure-tts-", suffix=".mp3",
@@ -1868,36 +1967,39 @@ def azure_tts_v2(
                 speech_synthesizer_word_boundary_cb
             )
 
-            # speak_text_async() 不支持语速参数。使用 SSML prosody 后，试听和
-            # 正式生成都会按 WebUI/API 传入的 voice_rate 调整语速。
+            # speak_text_async() no admite el parámetro de velocidad. Con SSML prosody,
+            # tanto la vista previa como la generación definitiva ajustan la velocidad
+            # según el voice_rate que pasa la WebUI/API.
             result = speech_synthesizer.speak_ssml_async(ssml).get()
             if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
                 if os.path.getsize(temporary_audio) <= 0:
-                    logger.error("Azure completed without audio; preserve the previous export")
+                    logger.error("Azure terminó sin audio; se conserva la exportación anterior")
                     return None
-                # Release SDK file-output owners before publication, including
-                # on Windows where an open handle can prevent replacement.
+                # Libera los propietarios de la salida a archivo del SDK antes de
+                # publicar, incluido en Windows, donde un handle abierto puede impedir
+                # la sustitución.
                 speech_synthesizer = None
                 audio_config = None
                 os.replace(temporary_audio, voice_file)
                 temporary_audio = None
-                logger.success(f"azure v2 speech synthesis succeeded: {voice_file}")
+                logger.success(f"síntesis de voz de Azure v2 completada: {voice_file}")
                 return sub_maker
             elif result.reason == speechsdk.ResultReason.Canceled:
                 cancellation_details = result.cancellation_details
                 logger.error(
-                    f"azure v2 speech synthesis canceled: {cancellation_details.reason}"
+                    f"síntesis de voz de Azure v2 cancelada: {cancellation_details.reason}"
                 )
                 if cancellation_details.reason == speechsdk.CancellationReason.Error:
                     logger.error(
-                        f"azure v2 speech synthesis error: {cancellation_details.error_details}"
+                        f"error de síntesis de voz de Azure v2: {cancellation_details.error_details}"
                     )
-            logger.info(f"completed, output file: {voice_file}")
+            logger.info(f"completado, archivo de salida: {voice_file}")
         except Exception as e:
-            logger.error(f"failed, error: {str(e)}")
+            logger.error(f"fallo, error: {str(e)}")
         finally:
-            # Exceptions/cancellation can also leave the SDK output owner alive.
-            # Drop all file owners before attempting to remove its staged file.
+            # Las excepciones/cancelaciones también pueden dejar vivo al propietario de
+            # la salida del SDK. Se sueltan todos los propietarios del archivo antes de
+            # intentar eliminar su archivo temporal.
             speech_synthesizer = None
             audio_config = None
             if temporary_audio is not None:
@@ -1906,7 +2008,7 @@ def azure_tts_v2(
                 except FileNotFoundError:
                     pass
                 except OSError as exc:
-                    logger.warning(f"failed to remove staged Azure audio: {exc}")
+                    logger.warning(f"no se pudo eliminar el audio provisional de Azure: {exc}")
     return None
 
 
@@ -1918,17 +2020,17 @@ def gemini_tts(
     voice_volume: float = 1.0,
 ) -> Union[SubMaker, None]:
     """
-    使用Google Gemini TTS生成语音
-    
+    Genera voz con Google Gemini TTS
+
     Args:
-        text: 要转换的文本
-        voice_name: 语音名称，如 "Zephyr", "Puck" 等
-        voice_rate: 语音速率（当前未使用）
-        voice_file: 输出音频文件路径
-        voice_volume: 音频音量（当前未使用）
-        
+        text: texto que se va a convertir
+        voice_name: nombre de la voz, como "Zephyr", "Puck", etc.
+        voice_rate: velocidad de la voz (no se usa por ahora)
+        voice_file: ruta del archivo de audio de salida
+        voice_volume: volumen del audio (no se usa por ahora)
+
     Returns:
-        SubMaker对象或None
+        Objeto SubMaker o None
     """
     import base64
     import io
@@ -1941,10 +2043,10 @@ def gemini_tts(
     try:
         api_key = config.app.get("gemini_api_key", "")
         if not api_key:
-            logger.error("Gemini API key is not set")
+            logger.error("la API Key de Gemini no está configurada")
             return None
 
-        logger.info(f"start, voice name: {voice_name}, try: 1")
+        logger.info(f"inicio, nombre de voz: {voice_name}, intento: 1")
 
         generation_config = types.GenerateContentConfig(
             response_modalities=["AUDIO"],
@@ -1957,8 +2059,10 @@ def gemini_tts(
             ),
         )
 
-        # google-genai 使用统一 Client 调用文本和 TTS 模型。上下文管理器确保
-        # 请求结束后释放 HTTP 连接，同时保留原有 PCM 转码和字幕时间轴逻辑。
+        # google-genai usa un Client unificado para llamar a los modelos de texto y de
+        # TTS. El gestor de contexto garantiza que se libere la conexión HTTP al
+        # terminar la solicitud, conservando la lógica original de transcodificación PCM
+        # y de línea de tiempo de subtítulos.
         with genai.Client(api_key=api_key) as client:
             response = client.models.generate_content(
                 model="gemini-2.5-flash-preview-tts",
@@ -1966,12 +2070,12 @@ def gemini_tts(
                 config=generation_config,
             )
 
-        # 检查响应
+        # Comprueba la respuesta
         if not response.candidates or not response.candidates[0].content:
-            logger.error("No audio content received from Gemini TTS")
+            logger.error("no se recibió contenido de audio de Gemini TTS")
             return None
             
-        # 获取音频数据
+        # Obtiene los datos de audio
         audio_data = None
         for part in response.candidates[0].content.parts:
             if hasattr(part, 'inline_data') and part.inline_data:
@@ -1979,42 +2083,47 @@ def gemini_tts(
                 break
                 
         if not audio_data:
-            logger.error("No audio data found in response")
+            logger.error("no se encontraron datos de audio en la respuesta")
             return None
             
-        # 音频数据已经是原始字节，不需要base64解码
+        # Los datos de audio ya son bytes en bruto y no necesitan decodificación base64
         if isinstance(audio_data, str):
-            # 如果是字符串，则需要base64解码
+            # Si es una cadena, hay que decodificarla de base64
             audio_bytes = base64.b64decode(audio_data)
         else:
-            # 如果已经是字节，直接使用
+            # Si ya son bytes, se usan directamente
             audio_bytes = audio_data
         
-        # 尝试不同的音频格式 - Gemini可能返回不同的格式
+        # Prueba distintos formatos de audio; Gemini puede devolver formatos distintos
         audio_segment = None
         
-        # Gemini返回Linear PCM格式，按照文档参数解析
+        # Gemini devuelve formato Linear PCM; se analiza con los parámetros de la
+        # documentación
         try:
             audio_segment = AudioSegment.from_file(
                 io.BytesIO(audio_bytes), 
                 format="raw",
-                frame_rate=24000,  # Gemini TTS默认采样率
-                channels=1,        # 单声道
-                sample_width=2     # 16-bit
+                frame_rate=24000,  # Frecuencia de muestreo por defecto de Gemini TTS
+                channels=1,        # Mono
+                sample_width=2     # 16 bits
             )
         except Exception as e:
-            logger.error(f"Failed to load PCM audio: {e}")
+            logger.error(f"no se pudo cargar el audio PCM: {e}")
             return None
         
-        # API、CLI 或测试可以直接把尚不存在的嵌套目录作为输出位置。这里在
-        # 真正写文件前统一创建父目录，避免一次成功的 Gemini 请求最后因为
-        # 本地路径不存在而丢失结果，也让该 provider 与其他 TTS 实现行为一致。
+        # La API, la CLI o los tests pueden usar directamente como salida un directorio
+        # anidado que aún no existe. Aquí se crea siempre el directorio padre antes de
+        # escribir el archivo, para que una solicitud correcta a Gemini no pierda al
+        # final el resultado porque la ruta local no existe, y para que este proveedor
+        # se comporte igual que las demás implementaciones de TTS.
         ensure_file_path_exists(voice_file)
 
-        # pydub 会返回打开的输出文件对象。批量生成时若不主动关闭，文件描述符
-        # 会持续累积，并在 Windows 上增加后续覆盖或删除音频文件失败的概率。
+        # pydub devuelve un objeto de archivo de salida abierto. Si no se cierra
+        # explícitamente en la generación por lotes, los descriptores de archivo se van
+        # acumulando y en Windows aumenta la probabilidad de que falle después la
+        # sobrescritura o el borrado del archivo de audio.
         if len(audio_segment) <= 0:
-            raise ValueError("Gemini returned empty PCM audio")
+            raise ValueError("Gemini devolvió audio PCM vacío")
         temp_fd, temporary_audio = tempfile.mkstemp(
             prefix=".gemini-tts-", suffix=".mp3",
             dir=os.path.dirname(os.path.abspath(voice_file)),
@@ -2023,25 +2132,26 @@ def gemini_tts(
         exported_audio = audio_segment.export(temporary_audio, format="mp3")
         exported_audio.close()
         
-        # Gemini 拿不到 edge_tts 那种逐词边界事件，因此这里退回到
-        # 项目原有的 `subs/offset` 兼容结构，至少保证后续字幕与时长
-        # 计算链路可继续工作。
+        # Gemini no obtiene eventos de límite palabra a palabra como los de edge_tts,
+        # así que aquí se vuelve a la estructura de compatibilidad `subs/offset`
+        # original del proyecto, para que al menos la cadena posterior de subtítulos y
+        # cálculo de duración pueda seguir funcionando.
         sub_maker = ensure_legacy_submaker_fields(SubMaker())
-        audio_duration = len(audio_segment) / 1000.0  # 转换为秒
+        audio_duration = len(audio_segment) / 1000.0  # Convierte a segundos
         sub_maker = populate_legacy_submaker_with_full_text(
             sub_maker=sub_maker,
             text=text,
             audio_duration_seconds=audio_duration,
         )
         os.replace(temporary_audio, voice_file)
-        logger.info(f"completed, output file: {voice_file}")
+        logger.info(f"completado, archivo de salida: {voice_file}")
         return sub_maker
         
     except ImportError as e:
-        logger.error(f"Missing required package for Gemini TTS: {str(e)}. Please install: pip install pydub")
+        logger.error(f"falta un paquete necesario para Gemini TTS: {str(e)}. Instálalo con: pip install pydub")
         return None
     except Exception as e:
-        logger.error(f"Gemini TTS failed, error: {str(e)}")
+        logger.error(f"Gemini TTS falló, error: {str(e)}")
         return None
 
     finally:
@@ -2049,7 +2159,7 @@ def gemini_tts(
             try:
                 os.unlink(temporary_audio)
             except OSError as cleanup_error:
-                logger.warning(f"could not remove Gemini staging audio: {cleanup_error}")
+                logger.warning(f"no se pudo eliminar el audio provisional de Gemini: {cleanup_error}")
 
 
 def mimo_tts(
@@ -2060,32 +2170,35 @@ def mimo_tts(
     voice_volume: float = 1.0,
 ) -> Union[SubMaker, None]:
     """
-    使用 Xiaomi MiMo V2.5 TTS 生成语音。
+    Genera voz con Xiaomi MiMo V2.5 TTS.
 
-    官方接口兼容 OpenAI Chat Completions，但 TTS 有两个关键差异：
-    1. 待合成文本必须放在 `assistant` 消息里；
-    2. 音频以 `message.audio.data` 的 base64 字符串返回。
+    La interfaz oficial es compatible con OpenAI Chat Completions, pero el TTS tiene dos
+    diferencias clave:
+    1. El texto a sintetizar debe ir en el mensaje `assistant`;
+    2. El audio se devuelve como cadena base64 en `message.audio.data`.
 
-    MiMo 当前没有返回逐词时间轴，因此这里复用项目已有的 legacy
-    SubMaker 兜底方案：根据最终音频时长和脚本文本断句生成字幕时间轴。
+    MiMo no devuelve actualmente una línea de tiempo palabra a palabra, así que aquí se
+    reutiliza la solución de respaldo legacy SubMaker que ya tiene el proyecto: la línea
+    de tiempo de subtítulos se genera a partir de la duración final del audio y de las
+    frases del texto del guion.
     """
     from pydub import AudioSegment
 
     text = (text or "").strip()
     if not text:
-        logger.error("MiMo TTS text is empty")
+        logger.error("el texto de MiMo TTS está vacío")
         return None
 
     api_key = config.app.get("mimo_api_key", "")
     if not api_key:
-        logger.error("MiMo API key is not set")
+        logger.error("la API Key de MiMo no está configurada")
         return None
 
     base_url = config.app.get("mimo_base_url", "") or _MIMO_DEFAULT_BASE_URL
     model_name = config.app.get("mimo_tts_model_name", "") or _MIMO_DEFAULT_TTS_MODEL
     style_prompt = config.app.get(
         "mimo_tts_style_prompt",
-        "请用自然、清晰、适合短视频旁白的语气朗读。",
+        "Lee con un tono natural y claro, adecuado para la narración de vídeos cortos.",
     )
 
     _configure_pydub_ffmpeg(AudioSegment)
@@ -2093,12 +2206,12 @@ def mimo_tts(
     temporary_audio = None
     try:
         logger.info(
-            f"start mimo tts, model: {model_name}, voice: {voice_name}"
+            f"inicio de MiMo TTS, modelo: {model_name}, voz: {voice_name}"
         )
         ensure_file_path_exists(voice_file)
 
-        # A lost response may still have generated and billed the narration.
-        # Disable SDK retries as well as the outer retry loop.
+        # Una respuesta perdida puede haber generado y facturado ya la narración.
+        # Se desactivan los reintentos del SDK además del bucle de reintentos exterior.
         with OpenAI(
             api_key=api_key, base_url=base_url, max_retries=0, timeout=120.0
         ) as client:
@@ -2115,7 +2228,7 @@ def mimo_tts(
             )
 
         if not completion or not getattr(completion, "choices", None):
-            raise ValueError("MiMo TTS returned empty response")
+            raise ValueError("MiMo TTS devolvió una respuesta vacía")
 
         message = completion.choices[0].message
         audio = getattr(message, "audio", None)
@@ -2126,7 +2239,7 @@ def mimo_tts(
             audio_data = getattr(audio, "data", None)
 
         if not audio_data:
-            raise ValueError("MiMo TTS returned empty audio data")
+            raise ValueError("MiMo TTS devolvió datos de audio vacíos")
 
         audio_bytes = base64.b64decode(audio_data)
         audio_segment = AudioSegment.from_file(io.BytesIO(audio_bytes), format="wav")
@@ -2147,7 +2260,7 @@ def mimo_tts(
 
         audio_duration = len(audio_segment) / 1000.0
         if audio_duration <= 0:
-            raise ValueError("MiMo TTS returned empty audio")
+            raise ValueError("MiMo TTS devolvió audio vacío")
         sub_maker = ensure_legacy_submaker_fields(SubMaker())
         populated_sub_maker = populate_legacy_submaker_with_full_text(
             sub_maker=sub_maker,
@@ -2156,20 +2269,20 @@ def mimo_tts(
         )
         os.replace(temporary_audio, voice_file)
         temporary_audio = None
-        logger.success(f"mimo tts succeeded: {voice_file}")
+        logger.success(f"MiMo TTS completado: {voice_file}")
         logger.debug(
-            "mimo subtitle timeline generated, "
-            f"duration: {audio_duration:.3f}s, output_format: {output_format}"
+            "línea de tiempo de subtítulos de MiMo generada, "
+            f"duración: {audio_duration:.3f}s, output_format: {output_format}"
         )
         return populated_sub_maker
     except Exception as e:
-        logger.error(f"mimo tts failed: {str(e)}")
+        logger.error(f"MiMo TTS falló: {str(e)}")
     finally:
         if temporary_audio and os.path.exists(temporary_audio):
             try:
                 os.remove(temporary_audio)
             except OSError as cleanup_error:
-                logger.warning(f"failed to remove temporary MiMo audio: {cleanup_error}")
+                logger.warning(f"no se pudo eliminar el audio temporal de MiMo: {cleanup_error}")
 
     return None
 
@@ -2186,7 +2299,9 @@ def _resolve_minimax_tts_url(configured_url: str) -> str:
 
 
 def get_minimax_tts_api_key() -> str:
-    """返回 MiniMax TTS 的有效密钥，专用配置优先于 LLM 共享配置。"""
+    """Devuelve la clave válida de MiniMax TTS; la configuración propia tiene prioridad
+    sobre la compartida del LLM.
+    """
     return str(
         config.minimax_tts.get("api_key", "")
         or config.app.get("minimax_api_key", "")
@@ -2196,7 +2311,9 @@ def get_minimax_tts_api_key() -> str:
 
 
 def _infer_minimax_tts_url(base_url: str) -> str:
-    """根据 MiniMax LLM 地址推断同区域的 TTS 地址，无法识别时返回空值。"""
+    """Deduce la dirección TTS de la misma región a partir de la dirección del LLM de
+    MiniMax; si no se reconoce, devuelve un valor vacío.
+    """
     normalized_url = str(base_url or "").strip()
     if not normalized_url:
         return ""
@@ -2212,10 +2329,12 @@ def _infer_minimax_tts_url(base_url: str) -> str:
 
 def get_minimax_tts_endpoint() -> str:
     """
-    返回与当前有效密钥匹配的 MiniMax TTS 地址。
+    Devuelve la dirección de MiniMax TTS que corresponde a la clave válida actual.
 
-    独立配置 TTS Key 时尊重用户选择的 TTS 地址；复用 MiniMax LLM Key 时，
-    优先跟随 LLM Base URL 的区域，避免中国站 Key 被发送到国际站而返回 401。
+    Si se configura una clave TTS propia, se respeta la dirección TTS que eligió el
+    usuario; si se reutiliza la clave del LLM de MiniMax, se sigue primero la región de
+    la URL base del LLM, para que una clave del sitio de China no se envíe al sitio
+    internacional y devuelva 401.
     """
     dedicated_key = str(config.minimax_tts.get("api_key", "") or "").strip()
     if not dedicated_key:
@@ -2231,18 +2350,21 @@ def get_minimax_voice_catalog(
     voice_type: str = "all",
 ) -> list[dict[str, str]]:
     """
-    查询当前 MiniMax 账号可用的系统、克隆和生成音色。
+    Consulta las voces de sistema, clonadas y generadas disponibles en la cuenta actual
+    de MiniMax.
 
-    返回值统一为 voice_id、voice_name、voice_type 三个字段，调用方无需了解
-    MiniMax 按音色来源拆分数组的响应结构。查询失败时抛出异常，让 WebUI、
-    API 或 CLI 可以按各自交互方式展示明确错误，而不是静默返回空列表。
+    El valor devuelto tiene siempre los tres campos voice_id, voice_name y voice_type,
+    así que quien llama no necesita conocer la estructura de respuesta de MiniMax, que
+    separa los arrays según el origen de la voz. Si la consulta falla se lanza una
+    excepción, para que la WebUI, la API o la CLI muestren un error claro según su
+    propia forma de interacción, en lugar de devolver en silencio una lista vacía.
     """
     if voice_type not in {"system", "voice_cloning", "voice_generation", "all"}:
-        raise ValueError(f"Unsupported MiniMax voice type: {voice_type}")
+        raise ValueError(f"tipo de voz de MiniMax no admitido: {voice_type}")
 
     effective_api_key = str(api_key or get_minimax_tts_api_key()).strip()
     if not effective_api_key:
-        raise ValueError("MiniMax TTS API key is not set")
+        raise ValueError("la API Key de MiniMax TTS no está configurada")
 
     tts_endpoint = (
         _resolve_minimax_tts_url(endpoint)
@@ -2266,19 +2388,19 @@ def get_minimax_voice_catalog(
     )
     if response.status_code != 200:
         raise RuntimeError(
-            f"MiniMax get_voice failed with status {response.status_code}: "
+            f"MiniMax get_voice falló con el estado {response.status_code}: "
             f"{response.text[:200]}"
         )
 
     try:
         body = response.json()
     except ValueError as exc:
-        raise RuntimeError("MiniMax get_voice returned invalid JSON") from exc
+        raise RuntimeError("MiniMax get_voice devolvió JSON no válido") from exc
 
     base_resp = body.get("base_resp") or {}
     if base_resp.get("status_code") not in {0, "0"}:
-        status_message = str(base_resp.get("status_msg") or "unknown error")
-        raise RuntimeError(f"MiniMax get_voice failed: {status_message}")
+        status_message = str(base_resp.get("status_msg") or "error desconocido")
+        raise RuntimeError(f"MiniMax get_voice falló: {status_message}")
 
     catalog = []
     seen_voice_ids = set()
@@ -2301,29 +2423,33 @@ def get_minimax_voice_catalog(
                 }
             )
 
-    logger.info(f"loaded MiniMax voices: count={len(catalog)}, type={voice_type}")
+    logger.info(f"voces de MiniMax cargadas: count={len(catalog)}, type={voice_type}")
     return catalog
 
 
 def _validate_remote_tts_audio(file_path: str) -> None:
-    """Decode accepted audio fully before replacing a successful narration.
+    """Decodifica entero el audio aceptado antes de sustituir una narración correcta.
 
-    MoviePy's duration/initial frame probe does not validate later MP3 frames.
-    Reuse the bounded, self-contained FFmpeg audio validator without following
-    playlists or resubmitting an already accepted speech request.
+    La comprobación de duración/fotograma inicial de MoviePy no valida las tramas MP3
+    posteriores. Se reutiliza el validador de audio de FFmpeg acotado y autocontenido,
+    sin seguir listas de reproducción ni volver a enviar una solicitud de voz ya
+    aceptada.
     """
     try:
         bgm.validate_audio_file(file_path, timeout_seconds=120)
     except (bgm.BgmUploadError, bgm.BgmServiceError) as exc:
-        raise ValueError("TTS returned audio that could not be fully decoded") from exc
+        raise ValueError("el TTS devolvió audio que no se pudo decodificar por completo") from exc
 
 
 def _write_validated_minimax_audio(audio_bytes: bytes, voice_file: str) -> float:
     """
-    将 MiniMax 音频原子写入目标路径，并返回时长。
+    Escribe de forma atómica el audio de MiniMax en la ruta de destino y devuelve su
+    duración.
 
-    远端返回成功状态不代表音频一定完整。先在同目录临时文件中验证，再使用
-    os.replace 原子替换，可以避免解码失败或 MoviePy 无法读取时留下半成品。
+    Que el servidor devuelva un estado de éxito no significa que el audio esté completo.
+    Validarlo primero en un archivo temporal del mismo directorio y sustituirlo luego de
+    forma atómica con os.replace evita dejar archivos a medias si falla la
+    decodificación o MoviePy no puede leerlo.
     """
     ensure_file_path_exists(voice_file)
     output_dir = os.path.dirname(os.path.abspath(voice_file))
@@ -2338,10 +2464,11 @@ def _write_validated_minimax_audio(audio_bytes: bytes, voice_file: str) -> float
             output.write(audio_bytes)
 
         _validate_remote_tts_audio(temp_path)
-        # MiniMax's configured response container can differ from the caller's
-        # artifact extension (the task pipeline normally requests audio.mp3).
-        # Keep matching payloads byte-identical; transcode supported mismatches
-        # before publication so MIME/extension consumers see the promised codec.
+        # El contenedor de respuesta configurado de MiniMax puede diferir de la
+        # extensión del artefacto de quien llama (el flujo de tareas normalmente pide
+        # audio.mp3). Se mantienen idénticas byte a byte las cargas útiles que
+        # coinciden; las diferencias admitidas se transcodifican antes de publicar para
+        # que los consumidores de MIME/extensión vean el códec prometido.
         source_format = (
             "wav" if audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE"
             else "flac" if audio_bytes.startswith(b"fLaC")
@@ -2368,7 +2495,7 @@ def _write_validated_minimax_audio(audio_bytes: bytes, voice_file: str) -> float
             audio_clip.close()
 
         if not math.isfinite(audio_duration) or audio_duration <= 0:
-            raise ValueError("MiniMax TTS returned audio with an invalid duration")
+            raise ValueError("MiniMax TTS devolvió audio con una duración no válida")
 
         os.replace(temp_path, voice_file)
         return audio_duration
@@ -2378,20 +2505,20 @@ def _write_validated_minimax_audio(audio_bytes: bytes, voice_file: str) -> float
 
 
 def minimax_tts(text: str, voice_id: str, voice_rate: float, voice_file: str, voice_volume: float = 1.0) -> Union[SubMaker, None]:
-    """Generate speech with the synchronous MiniMax T2A HTTP API."""
+    """Genera voz con la API HTTP síncrona T2A de MiniMax."""
     text, voice_id = (text or "").strip(), (voice_id or "").strip()
     if not text or not voice_id:
-        logger.error("MiniMax TTS requires text and a voice ID")
+        logger.error("MiniMax TTS requiere texto y un ID de voz")
         return None
     settings = config.minimax_tts
     api_key = get_minimax_tts_api_key()
     if not api_key:
-        logger.error("MiniMax TTS API key is not set")
+        logger.error("la API Key de MiniMax TTS no está configurada")
         return None
     url = get_minimax_tts_endpoint()
     model = str(settings.get("model_id", MINIMAX_TTS_DEFAULT_MODEL) or MINIMAX_TTS_DEFAULT_MODEL).strip()
     if model not in MINIMAX_TTS_MODELS:
-        logger.error(f"Unsupported MiniMax TTS model: {model}")
+        logger.error(f"modelo de MiniMax TTS no admitido: {model}")
         return None
     try:
         speed = max(0.5, min(2.0, float(voice_rate or 1.0)))
@@ -2401,11 +2528,11 @@ def minimax_tts(text: str, voice_id: str, voice_rate: float, voice_file: str, vo
         bitrate = int(settings.get("bitrate", 128000) or 128000)
         channel = int(settings.get("channel", 1) or 1)
     except (TypeError, ValueError) as exc:
-        logger.error(f"Invalid MiniMax TTS audio setting: {str(exc)}")
+        logger.error(f"ajuste de audio de MiniMax TTS no válido: {str(exc)}")
         return None
     audio_format = str(settings.get("audio_format", "mp3") or "mp3").strip()
     if audio_format not in {"mp3", "wav", "flac"}:
-        logger.error(f"Unsupported MiniMax TTS audio format: {audio_format}; choose mp3, wav, or flac")
+        logger.error(f"formato de audio de MiniMax TTS no admitido: {audio_format}; elige mp3, wav o flac")
         return None
     payload = {
         "model": model, "text": text, "stream": False, "language_boost": "auto", "output_format": "hex",
@@ -2416,16 +2543,16 @@ def minimax_tts(text: str, voice_id: str, voice_rate: float, voice_file: str, vo
     for attempt in range(3):
         received_success = False
         try:
-            logger.info(f"start MiniMax TTS, model: {model}, voice: {voice_id}, try: {attempt + 1}")
+            logger.info(f"inicio de MiniMax TTS, modelo: {model}, voz: {voice_id}, intento: {attempt + 1}")
             response = trace_http_call(
                 "POST", requests.post, url, json=payload, headers=headers, allow_redirects=False, timeout=120)
             if 300 <= response.status_code < 400:
-                # Redirecting a speech POST may replay a billed synthesis or
-                # forward its input/credentials. Do not follow or resubmit it.
-                logger.error("TTS endpoint returned a redirect; stop speech retries")
+                # Redirigir un POST de voz puede repetir una síntesis facturada o
+                # reenviar su entrada/credenciales. No se sigue ni se vuelve a enviar.
+                logger.error("el endpoint de TTS devolvió una redirección; se detienen los reintentos de voz")
                 return None
             if response.status_code != 200:
-                logger.error(f"MiniMax TTS failed with status {response.status_code}: {response.text[:200]}")
+                logger.error(f"MiniMax TTS falló con el estado {response.status_code}: {response.text[:200]}")
                 continue
             received_success = True
             body = response.json()
@@ -2433,39 +2560,40 @@ def minimax_tts(text: str, voice_id: str, voice_rate: float, voice_file: str, vo
             base_resp = body.get("base_resp") or {}
             status_code = base_resp.get("status_code")
             if not isinstance(status_code, int) or isinstance(status_code, bool):
-                logger.error("MiniMax returned an unknown acceptance status; stop paid retries")
+                logger.error("MiniMax devolvió un estado de aceptación desconocido; se detienen los reintentos de pago")
                 return None
             if status_code != 0:
-                logger.error(f"MiniMax TTS returned an unsuccessful response: status_code={base_resp.get('status_code')}, audio_status={data.get('status')}")
+                logger.error(f"MiniMax TTS devolvió una respuesta fallida: status_code={base_resp.get('status_code')}, audio_status={data.get('status')}")
                 continue
             if data.get("status") != 2:
-                logger.error("MiniMax accepted the request but returned incomplete audio")
+                logger.error("MiniMax aceptó la petición pero devolvió audio incompleto")
                 return None
             audio_hex = data.get("audio")
             if not isinstance(audio_hex, str) or not audio_hex:
-                logger.error("MiniMax TTS returned empty audio data")
+                logger.error("MiniMax TTS devolvió datos de audio vacíos")
                 return None
             if len(audio_hex) > _MINIMAX_TTS_MAX_AUDIO_HEX_CHARS:
-                logger.error("MiniMax TTS returned audio data exceeding the supported size")
+                logger.error("MiniMax TTS devolvió datos de audio que superan el tamaño admitido")
                 return None
             audio_duration = _write_validated_minimax_audio(bytes.fromhex(audio_hex), voice_file)
-            logger.success(f"MiniMax TTS succeeded: {voice_file}")
+            logger.success(f"MiniMax TTS completado: {voice_file}")
             return populate_legacy_submaker_with_full_text(
                 ensure_legacy_submaker_fields(SubMaker()), text, audio_duration
             )
         except requests.exceptions.ConnectTimeout as exc:
-            logger.warning(f"MiniMax TTS could not connect, retrying: {exc}")
+            logger.warning(f"MiniMax TTS no pudo conectar, reintentando: {exc}")
         except requests.exceptions.RequestException as exc:
             logger.error(
-                "MiniMax TTS result is unconfirmed after a transport error; "
-                f"stop paid retries: {type(exc).__name__}"
+                "el resultado de MiniMax TTS no está confirmado tras un error de transporte; "
+                f"se detienen los reintentos de pago: {type(exc).__name__}"
             )
             return None
         except (OSError, ValueError, TypeError, AttributeError) as exc:
-            logger.error(f"MiniMax TTS failed: {str(exc)}")
+            logger.error(f"MiniMax TTS falló: {str(exc)}")
             if received_success:
-                # The request may already be billed, even if JSON/audio parsing
-                # or local file publication failed. Never regenerate it here.
+                # La solicitud puede estar ya facturada aunque haya fallado el análisis
+                # del JSON/audio o la publicación del archivo local. Aquí nunca se
+                # regenera.
                 return None
     return None
 
@@ -2480,12 +2608,12 @@ def elevenlabs_tts(
 ) -> Union[SubMaker, None]:
     text = (text or "").strip()
     if not text:
-        logger.error("ElevenLabs TTS text is empty")
+        logger.error("el texto de ElevenLabs TTS está vacío")
         return None
 
     api_key = get_elevenlabs_api_key()
     if not api_key:
-        logger.error("ElevenLabs API key is not set")
+        logger.error("la API Key de ElevenLabs no está configurada")
         return None
 
     if not model_id:
@@ -2507,13 +2635,14 @@ def elevenlabs_tts(
         },
     }
 
-    # The live v2 endpoint rejects speeds outside 0.7–1.2; v3 supports
-    # the wider REST range. Never silently clamp a selected UI/API speed.
+    # El endpoint v2 en producción rechaza velocidades fuera de 0,7–1,2; v3 admite el
+    # rango REST más amplio. Nunca se limita en silencio una velocidad elegida en la
+    # interfaz/API.
     minimum_speed, maximum_speed = (0.25, 4.0) if model_id == "eleven_v3" else (0.7, 1.2)
     speed_error = (
-        f"ElevenLabs model {model_id} speech speed must be a finite number "
-        f"from {minimum_speed} to {maximum_speed}; choose a supported speed "
-        "or use eleven_v3 for a wider range"
+        f"la velocidad de voz del modelo {model_id} de ElevenLabs debe ser un número finito "
+        f"de {minimum_speed} a {maximum_speed}; elige una velocidad admitida "
+        "o usa eleven_v3 para un rango más amplio"
     )
     try:
         speed = float(voice_rate) if voice_rate is not None else 1.0
@@ -2521,7 +2650,7 @@ def elevenlabs_tts(
         logger.error(speed_error)
         return None
     if speed != 1.0 and model_id in {"eleven_v4", "eleven_v4_turbo"}:
-        logger.error(f"ElevenLabs model {model_id} does not support speech speed; use 1.0 or a v2/v3 model")
+        logger.error(f"el modelo {model_id} de ElevenLabs no admite velocidad de voz; usa 1.0 o un modelo v2/v3")
         return None
     if not math.isfinite(speed) or not minimum_speed <= speed <= maximum_speed:
         logger.error(speed_error)
@@ -2529,7 +2658,8 @@ def elevenlabs_tts(
     if speed != 1.0:
         payload["voice_settings"]["speed"] = speed
 
-    # Errors where retrying will never help (auth/access/validation failures).
+    # Errores en los que reintentar nunca ayudará (fallos de
+    # autenticación/acceso/validación).
     _NON_RETRYABLE_CODES = {401, 403, 422}
     _NON_RETRYABLE_STATUSES = {"voice_disabled", "voice_access_denied", "unauthorized", "invalid_voice_settings"}
 
@@ -2537,7 +2667,7 @@ def elevenlabs_tts(
         response = None
         temp_path = None
         try:
-            logger.info(f"start elevenlabs tts, voice_id: {voice_id}, try: {i + 1}")
+            logger.info(f"inicio de ElevenLabs TTS, voice_id: {voice_id}, intento: {i + 1}")
             ensure_file_path_exists(voice_file)
 
             response = trace_http_call(
@@ -2550,9 +2680,9 @@ def elevenlabs_tts(
                 allow_redirects=False,
             )
             if 300 <= response.status_code < 400:
-                # A paid request may already have reached the provider. Do not
-                # follow the redirect with our key or resubmit the generation.
-                logger.error("ElevenLabs TTS returned a redirect; stop paid retries")
+                # Una solicitud de pago puede haber llegado ya al proveedor. No se sigue
+                # la redirección con nuestra clave ni se vuelve a enviar la generación.
+                logger.error("ElevenLabs TTS devolvió una redirección; se detienen los reintentos de pago")
                 return None
             if response.status_code != 200:
                 error_status = ""
@@ -2573,16 +2703,16 @@ def elevenlabs_tts(
 
                 if response.status_code in _NON_RETRYABLE_CODES or error_status in _NON_RETRYABLE_STATUSES:
                     logger.error(
-                        f"ElevenLabs TTS failed (non-retryable) — voice_id: {voice_id}, "
-                        f"status: {response.status_code}, error: {error_status or error_text}. "
-                        + (f"Check the selected model and speech speed: {error_text}"
+                        f"ElevenLabs TTS falló (sin reintento) — voice_id: {voice_id}, "
+                        f"estado: {response.status_code}, error: {error_status or error_text}. "
+                        + (f"Revisa el modelo elegido y la velocidad de voz: {error_text}"
                            if error_status == "invalid_voice_settings"
-                           else "Please select a different ElevenLabs voice.")
+                           else "Elige otra voz de ElevenLabs.")
                     )
                     return None
 
                 logger.error(
-                    f"elevenlabs tts failed with status {response.status_code}: {error_text}"
+                    f"ElevenLabs TTS falló con el estado {response.status_code}: {error_text}"
                 )
                 continue
 
@@ -2598,11 +2728,11 @@ def elevenlabs_tts(
                         continue
                     audio_bytes += len(chunk)
                     if audio_bytes > _ELEVENLABS_TTS_MAX_AUDIO_BYTES:
-                        logger.error("ElevenLabs TTS audio exceeds the 50 MB limit")
+                        logger.error("el audio de ElevenLabs TTS supera el límite de 50 MB")
                         return None
                     output.write(chunk)
             if audio_bytes == 0:
-                logger.error("ElevenLabs TTS returned no audio data")
+                logger.error("ElevenLabs TTS no devolvió datos de audio")
                 return None
 
             _validate_remote_tts_audio(temp_path)
@@ -2612,39 +2742,39 @@ def elevenlabs_tts(
             finally:
                 audio_clip.close()
             if not math.isfinite(audio_duration) or audio_duration <= 0:
-                logger.error("ElevenLabs TTS returned audio with invalid duration")
+                logger.error("ElevenLabs TTS devolvió audio con una duración no válida")
                 return None
 
             os.replace(temp_path, voice_file)
             temp_path = None
 
             sub_maker = ensure_legacy_submaker_fields(SubMaker())
-            logger.success(f"elevenlabs tts succeeded: {voice_file}")
+            logger.success(f"ElevenLabs TTS completado: {voice_file}")
             return populate_legacy_submaker_with_full_text(
                 sub_maker=sub_maker,
                 text=text,
                 audio_duration_seconds=audio_duration,
             )
         except requests.exceptions.ConnectTimeout as e:
-            logger.warning(f"elevenlabs tts could not connect, retrying: {e}")
+            logger.warning(f"ElevenLabs TTS no pudo conectar, reintentando: {e}")
         except requests.exceptions.RequestException as e:
             logger.error(
-                "elevenlabs tts result is unconfirmed after a transport error; "
-                f"stop paid retries: {type(e).__name__}"
+                "el resultado de ElevenLabs TTS no está confirmado tras un error de transporte; "
+                f"se detienen los reintentos de pago: {type(e).__name__}"
             )
             return None
         except Exception as e:
-            logger.error(f"elevenlabs tts failed: {str(e)}")
+            logger.error(f"ElevenLabs TTS falló: {str(e)}")
             if response is not None and response.status_code == 200:
-                # The provider may already have charged for a successful
-                # request. Retrying cannot repair a corrupt returned file.
+                # El proveedor puede haber cobrado ya una solicitud
+                # correcta. Reintentar no puede reparar un archivo devuelto dañado.
                 return None
         finally:
             if temp_path is not None:
                 try:
                     os.remove(temp_path)
                 except OSError as exc:
-                    logger.warning(f"failed to remove ElevenLabs TTS temp file: {exc}")
+                    logger.warning(f"no se pudo eliminar el archivo temporal de ElevenLabs TTS: {exc}")
             if response is not None:
                 response.close()
 
@@ -2661,12 +2791,13 @@ def _openai_compatible_tts(
     voice_rate: float,
     voice_file: str,
 ) -> Union[SubMaker, None]:
-    """Shared transport for self-hosted, OpenAI-compatible ``/audio/speech``
-    servers (Chatterbox, Kokoro, ...).
+    """Transporte compartido para servidores ``/audio/speech`` autoalojados y compatibles
+    con OpenAI (Chatterbox, Kokoro, ...).
 
-    Writes the returned audio to ``voice_file`` and builds the full-text
-    SubMaker: these servers return no word-level timestamps, so set
-    ``subtitle_provider = "whisper"`` for tighter subtitle sync.
+    Escribe el audio devuelto en ``voice_file`` y construye el SubMaker de texto
+    completo: estos servidores no devuelven marcas de tiempo por palabra, así que
+    configura ``subtitle_provider = "whisper"`` para una sincronización de subtítulos
+    más precisa.
     """
     url = f"{base_url}/audio/speech"
     headers = {"Content-Type": "application/json"}
@@ -2677,39 +2808,44 @@ def _openai_compatible_tts(
         "input": text,
         "voice": voice,
         "response_format": "mp3",
-        # OpenAI speech API accepts speed 0.25-4.0; MoneyPrinterTurbo's rate is a
-        # 1.0-centred multiplier, so it maps directly (clamped to the valid range).
+        # La API de voz de OpenAI acepta speed de 0,25 a 4,0; la velocidad de
+        # MoneyPrinterTurbo es un multiplicador centrado en 1,0, así que se asigna
+        # directamente (limitada al rango válido).
         "speed": max(0.25, min(4.0, float(voice_rate or 1.0))),
     }
-    # OpenAI speech 协议没有音量字段；最终混音阶段应用 voice_volume。
-    # speed 仅调节语速，不能作为音量参数使用。
+    # El protocolo de voz de OpenAI no tiene campo de volumen; voice_volume se aplica en
+    # la fase de mezcla final. speed solo ajusta la velocidad de la voz y no puede
+    # usarse como parámetro de volumen.
 
     for i in range(3):
         temporary_audio = None
         response_accepted = False
         try:
-            logger.info(f"start {provider} tts, voice: {voice}, try: {i + 1}")
+            logger.info(f"inicio de {provider} TTS, voz: {voice}, intento: {i + 1}")
             ensure_file_path_exists(voice_file)
 
             response = trace_http_call(
                 "POST", requests.post, url, json=payload, headers=headers, allow_redirects=False, timeout=120)
             if 300 <= response.status_code < 400:
-                # Redirecting a speech POST may replay a billed synthesis or
-                # forward its input/credentials. Do not follow or resubmit it.
-                logger.error("TTS endpoint returned a redirect; stop speech retries")
+                # Redirigir un POST de voz puede repetir una síntesis facturada o
+                # reenviar su entrada/credenciales. No se sigue ni se vuelve a enviar.
+                logger.error("el endpoint de TTS devolvió una redirección; se detienen los reintentos de voz")
                 return None
             if response.status_code != 200:
                 logger.error(
-                    f"{provider} tts failed with status {response.status_code}: {response.text[:200]}"
+                    f"{provider} TTS falló con el estado {response.status_code}: {response.text[:200]}"
                 )
                 continue
 
             response_accepted = True
             if not response.content:
-                raise ValueError(f"{provider} returned empty audio")
+                raise ValueError(f"{provider} devolvió audio vacío")
 
-            # 先写入同目录临时文件并真实解码，成功后才替换目标。失败不能破坏
-            # 已有试听/配音；先关闭文件再解码和替换，兼容 Windows 文件占用规则。
+            # Primero se escribe en un archivo temporal del mismo directorio y se
+            # decodifica de verdad, y solo si tiene éxito se sustituye el destino. Un
+            # fallo no puede romper una vista previa/locución existente; se cierra el
+            # archivo antes de decodificar y sustituir, por compatibilidad con las
+            # reglas de archivos en uso de Windows.
             with tempfile.NamedTemporaryFile(
                 dir=os.path.dirname(os.path.abspath(voice_file)),
                 suffix=".mp3", delete=False,
@@ -2724,41 +2860,45 @@ def _openai_compatible_tts(
             finally:
                 audio_clip.close()
             if not math.isfinite(audio_duration) or audio_duration <= 0:
-                raise ValueError(f"{provider} returned an invalid audio duration")
+                raise ValueError(f"{provider} devolvió una duración de audio no válida")
 
             sub_maker = ensure_legacy_submaker_fields(SubMaker())
             os.replace(temporary_audio, voice_file)
-            logger.success(f"{provider} tts succeeded: {voice_file}")
+            logger.success(f"{provider} TTS completado: {voice_file}")
             return populate_legacy_submaker_with_full_text(
                 sub_maker=sub_maker,
                 text=text,
                 audio_duration_seconds=audio_duration,
             )
         except requests.exceptions.ConnectTimeout:
-            # No connection was established; retrying cannot replay synthesis.
-            logger.warning(f"{provider} tts could not connect, retrying")
+            # No se llegó a establecer conexión; reintentar no puede repetir la
+            # síntesis.
+            logger.warning(f"{provider} TTS no pudo conectar, reintentando")
         except requests.exceptions.RequestException as exc:
-            # A lost response can follow successful remote synthesis. Keep the
-            # same acceptance boundary as hosted speech providers: do not POST
-            # again when the first request's outcome is unknown.
+            # Una respuesta perdida puede llegar tras una síntesis remota correcta. Se
+            # mantiene el mismo límite de aceptación que los proveedores de voz
+            # alojados: no se hace POST de nuevo cuando el resultado de la primera
+            # solicitud es desconocido.
             logger.error(
-                f"{provider} tts result is unconfirmed after a transport error; "
-                f"stop speech retries: {type(exc).__name__}"
+                f"el resultado de {provider} TTS no está confirmado tras un error de transporte; "
+                f"se detienen los reintentos de voz: {type(exc).__name__}"
             )
             return None
         except Exception as e:
-            logger.error(f"{provider} tts failed: {str(e)}")
+            logger.error(f"{provider} TTS falló: {str(e)}")
             if response_accepted:
-                # Retrying local processing cannot recover this accepted response
-                # and would submit another synthesis request.
+                # Reintentar el procesamiento local no puede recuperar esta respuesta
+                # aceptada y enviaría otra solicitud de síntesis.
                 return None
         finally:
             if temporary_audio and os.path.exists(temporary_audio):
                 try:
                     os.unlink(temporary_audio)
                 except OSError as exc:
-                    # 清理失败仍保持 TTS 的失败返回约定，不用次要异常掩盖原始原因。
-                    logger.warning(f"could not remove temporary {provider} audio: {exc}")
+                    # Aunque falle la limpieza se mantiene el contrato de retorno de
+                    # fallo del TTS, sin ocultar la causa original con una excepción
+                    # secundaria.
+                    logger.warning(f"no se pudo eliminar el audio temporal de {provider}: {exc}")
 
     return None
 
@@ -2771,28 +2911,28 @@ def chatterbox_tts(
     voice_volume: float = 1.0,
     model_id: str = "",
 ) -> Union[SubMaker, None]:
-    """Generate speech with a self-hosted Chatterbox TTS server.
+    """Genera voz con un servidor Chatterbox TTS autoalojado.
 
-    Chatterbox (Resemble AI, MIT) is an open-source, locally hosted TTS model
-    with zero-shot voice cloning — a self-hostable alternative to ElevenLabs.
-    This talks to an OpenAI-compatible ``/audio/speech`` endpoint, so it works
-    with the common community servers (e.g. devnen/Chatterbox-TTS-Server,
-    travisvn/chatterbox-tts-api). Configure ``[chatterbox] base_url`` (and an
-    optional ``api_key``).
+    Chatterbox (Resemble AI, MIT) es un modelo TTS de código abierto alojado en local
+    con clonación de voz zero-shot: una alternativa autoalojable a ElevenLabs. Habla con
+    un endpoint ``/audio/speech`` compatible con OpenAI, así que funciona con los
+    servidores habituales de la comunidad (p. ej. devnen/Chatterbox-TTS-Server,
+    travisvn/chatterbox-tts-api). Configura ``[chatterbox] base_url`` (y una ``api_key``
+    opcional).
 
-    Like ElevenLabs, Chatterbox does not return word-level timestamps, so the
-    subtitle path falls back to the full-text SubMaker. For tighter subtitle
-    sync set ``subtitle_provider = "whisper"``.
+    Igual que ElevenLabs, Chatterbox no devuelve marcas de tiempo por palabra, así que
+    la ruta de subtítulos vuelve al SubMaker de texto completo. Para una sincronización
+    de subtítulos más precisa configura ``subtitle_provider = "whisper"``.
     """
     text = (text or "").strip()
     if not text:
-        logger.error("Chatterbox TTS text is empty")
+        logger.error("el texto de Chatterbox TTS está vacío")
         return None
 
     base_url = (config.chatterbox.get("base_url", "") or "").strip().rstrip("/")
     if not base_url:
         logger.error(
-            "Chatterbox base_url is not set, please configure [chatterbox] base_url in config.toml"
+            "base_url de Chatterbox no está configurada; configura [chatterbox] base_url en config.toml"
         )
         return None
 
@@ -2813,37 +2953,40 @@ def kokoro_tts(
     voice_volume: float = 1.0,
     model_id: str = "",
 ) -> Union[SubMaker, None]:
-    """Generate speech with a self-hosted Kokoro TTS server.
+    """Genera voz con un servidor Kokoro TTS autoalojado.
 
-    Kokoro (hexgrad/Kokoro-82M, Apache-2.0 code and weights) is a small open
-    TTS model that runs well on CPU — a free, offline alternative to the
-    cloud voices. This talks to an OpenAI-compatible ``/audio/speech``
-    endpoint, so it works with the common servers (e.g. remsky/Kokoro-FastAPI
-    on port 8880). Configure ``[kokoro] base_url`` (ending in ``/v1``) and an
-    optional ``api_key``.
+    Kokoro (hexgrad/Kokoro-82M, código y pesos Apache-2.0) es un modelo TTS abierto
+    pequeño que funciona bien en CPU: una alternativa gratuita y sin conexión a las
+    voces en la nube. Habla con un endpoint ``/audio/speech`` compatible con OpenAI, así
+    que funciona con los servidores habituales (p. ej. remsky/Kokoro-FastAPI en el
+    puerto 8880). Configura ``[kokoro] base_url`` (terminada en ``/v1``) y una
+    ``api_key`` opcional.
 
-    Voice names are Kokoro's presets (``af_heart``, ``bf_emma``, ``hf_alpha``,
-    ...); their first letter is the language (a/b English, e Spanish, f French,
-    h Hindi, i Italian, p Portuguese, j Japanese, z Chinese), so pick a voice
-    that matches the script's language.
+    Los nombres de voz son los preajustes de Kokoro (``af_heart``, ``bf_emma``,
+    ``hf_alpha``, ...); su primera letra es el idioma (a/b inglés, e español, f francés,
+    h hindi, i italiano, p portugués, j japonés, z chino), así que elige una voz que
+    coincida con el idioma del guion.
 
-    Like Chatterbox, the OpenAI speech contract returns no word-level
-    timestamps, so the subtitle path falls back to the full-text SubMaker.
-    For tighter subtitle sync set ``subtitle_provider = "whisper"``.
+    Igual que Chatterbox, el contrato de voz de OpenAI no devuelve marcas de tiempo por
+    palabra, así que la ruta de subtítulos vuelve al SubMaker de texto completo. Para
+    una sincronización de subtítulos más precisa configura ``subtitle_provider =
+    "whisper"``.
     """
     text = (text or "").strip()
     if not text:
-        logger.error("Kokoro TTS text is empty")
+        logger.error("el texto de Kokoro TTS está vacío")
         return None
-    # 纯标点/表情没有可发音文字；真实服务可能以 HTTP 200 返回空 MP3，
-    # 提前终止可避免无效请求及 MoviePy 在解码空文件时的底层异常。
+    # Los signos de puntuación/emoticonos sin más no tienen texto pronunciable; el
+    # servicio real puede devolver un MP3 vacío con HTTP 200, y terminar antes evita
+    # solicitudes inútiles y la excepción de bajo nivel de MoviePy al decodificar un
+    # archivo vacío.
     if not any(character.isalnum() for character in text):
-        logger.error("Kokoro TTS text contains no speakable characters")
+        logger.error("el texto de Kokoro TTS no contiene caracteres pronunciables")
         return None
     base_url = (config.kokoro.get("base_url", "") or "").strip().rstrip("/")
     if not base_url:
         logger.error(
-            "Kokoro base_url is not set, please configure [kokoro] base_url in config.toml"
+            "base_url de Kokoro no está configurada; configura [kokoro] base_url en config.toml"
         )
         return None
     api_key = config.kokoro.get("api_key", "")
@@ -2854,7 +2997,7 @@ def kokoro_tts(
     )
 
 
-# Fish Audio supported models.
+# Modelos admitidos de Fish Audio.
 FISH_AUDIO_MODELS = ("s2.1-pro-free", "s2.1-pro", "s2-pro")
 FISH_AUDIO_DEFAULT_MODEL = "s2.1-pro-free"
 
@@ -2866,26 +3009,26 @@ def fish_audio_tts(
     voice_volume: float = 1.0,
     reference_id: str | None = None,
 ) -> Union[SubMaker, None]:
-    """Generate speech using Fish Audio TTS API.
+    """Genera voz con la API TTS de Fish Audio.
 
-    The model is read from ``config.fish_audio["model"]`` (single source of
-    truth).  ``reference_id`` selects a public or cloned voice; when *None*
-    Fish Audio's built-in default voice is used.
+    El modelo se lee de ``config.fish_audio["model"]`` (fuente única de verdad).
+    ``reference_id`` elige una voz pública o clonada; con *None* se usa la voz por
+    defecto integrada de Fish Audio.
 
-    ``voice_rate`` is mapped to the ``prosody.speed`` field (0.5–2.0) and
-    ``voice_volume`` is converted from a linear multiplier to dB for the
-    ``prosody.volume`` field (-20.0–20.0 dB).
+    ``voice_rate`` se asigna al campo ``prosody.speed`` (0,5–2,0) y ``voice_volume`` se
+    convierte de multiplicador lineal a dB para el campo ``prosody.volume`` (-20,0–20,0
+    dB).
     """
     text = (text or "").strip()
     if not text:
-        logger.error("Fish Audio TTS text is empty")
+        logger.error("el texto de Fish Audio TTS está vacío")
         return None
 
     api_key = get_fish_audio_api_key()
     if not api_key:
         logger.error(
-            "Fish Audio API key is not set. Please set it in config.toml "
-            "[fish_audio] or FISH_API_KEY environment variable."
+            "la API Key de Fish Audio no está configurada. Configúrala en config.toml "
+            "[fish_audio] o en la variable de entorno FISH_API_KEY."
         )
         return None
 
@@ -2895,19 +3038,19 @@ def fish_audio_tts(
     ).strip()
     if model_name not in FISH_AUDIO_MODELS:
         logger.warning(
-            f"Unknown Fish Audio model '{model_name}', falling back to "
+            f"modelo de Fish Audio desconocido '{model_name}', se usa "
             f"'{FISH_AUDIO_DEFAULT_MODEL}'"
         )
         model_name = FISH_AUDIO_DEFAULT_MODEL
 
-    # Map voice_rate → prosody.speed (0.5–2.0)
+    # Asigna voice_rate → prosody.speed (0,5–2,0)
     try:
         speed = max(0.5, min(2.0, float(voice_rate or 1.0)))
     except (TypeError, ValueError):
         speed = 1.0
 
-    # Map voice_volume (linear multiplier) → prosody.volume (dB, -20–20).
-    # A multiplier of 1.0 → 0 dB; 0.1 → -20 dB; 2.0 → +6 dB.
+    # Asigna voice_volume (multiplicador lineal) → prosody.volume (dB, -20–20).
+    # Un multiplicador de 1.0 → 0 dB; 0.1 → -20 dB; 2.0 → +6 dB.
     import math
     try:
         vol = float(voice_volume or 1.0)
@@ -2940,48 +3083,48 @@ def fish_audio_tts(
         received_success = False
         try:
             logger.info(
-                f"start fish audio tts, model: {model_name}, "
-                f"ref: {reference_id or 'default'}, try: {i + 1}"
+                f"inicio de Fish Audio TTS, modelo: {model_name}, "
+                f"ref: {reference_id or 'default'}, intento: {i + 1}"
             )
             ensure_file_path_exists(voice_file)
 
             response = trace_http_call(
                 "POST", requests.post, url, json=payload, headers=headers, allow_redirects=False, timeout=60)
             if 300 <= response.status_code < 400:
-                # Redirecting a speech POST may replay a billed synthesis or
-                # forward its input/credentials. Do not follow or resubmit it.
-                logger.error("TTS endpoint returned a redirect; stop speech retries")
+                # Redirigir un POST de voz puede repetir una síntesis facturada o
+                # reenviar su entrada/credenciales. No se sigue ni se vuelve a enviar.
+                logger.error("el endpoint de TTS devolvió una redirección; se detienen los reintentos de voz")
                 return None
             if response.status_code == 401:
                 logger.error(
-                    "Fish Audio TTS failed: Invalid API key (401). "
-                    "Check config.toml [fish_audio] api_key or FISH_API_KEY."
+                    "Fish Audio TTS falló: API Key no válida (401). "
+                    "Revisa api_key en [fish_audio] de config.toml o FISH_API_KEY."
                 )
                 return None
             if response.status_code == 402:
                 logger.error(
-                    "Fish Audio TTS failed: Insufficient API credit (402). "
-                    "Please check your account balance at "
-                    "https://fish.audio/app/developers or verify your model and billing tier."
+                    "Fish Audio TTS falló: crédito de API insuficiente (402). "
+                    "Revisa el saldo de tu cuenta en "
+                    "https://fish.audio/app/developers o verifica tu modelo y tu nivel de facturación."
                 )
                 return None
             if response.status_code == 429:
                 logger.warning(
-                    "Fish Audio TTS rate limited (429), retrying..."
+                    "Fish Audio TTS limitó la frecuencia (429), reintentando..."
                 )
                 continue
             if response.status_code != 200:
                 logger.error(
-                    f"fish audio tts failed with status "
+                    f"Fish Audio TTS falló con el estado "
                     f"{response.status_code}: {response.text[:200]}"
                 )
                 continue
             received_success = True
 
-            # Validate response contains audio data
+            # Valida que la respuesta contenga datos de audio
             if not response.content or len(response.content) < 100:
                 logger.error(
-                    "Fish Audio TTS returned empty or invalid audio data"
+                    "Fish Audio TTS devolvió datos de audio vacíos o no válidos"
                 )
                 return None
 
@@ -3000,28 +3143,28 @@ def fish_audio_tts(
             finally:
                 audio_clip.close()
             if not math.isfinite(audio_duration) or audio_duration <= 0:
-                raise ValueError("Fish Audio returned an invalid audio duration")
+                raise ValueError("Fish Audio devolvió una duración de audio no válida")
 
             sub_maker = ensure_legacy_submaker_fields(SubMaker())
             os.replace(temporary_audio, voice_file)
-            logger.success(f"fish audio tts succeeded: {voice_file}")
+            logger.success(f"Fish Audio TTS completado: {voice_file}")
             return populate_legacy_submaker_with_full_text(
                 sub_maker=sub_maker,
                 text=text,
                 audio_duration_seconds=audio_duration,
             )
         except requests.exceptions.ConnectTimeout as e:
-            logger.warning(f"fish audio tts could not connect, retrying: {e}")
+            logger.warning(f"Fish Audio TTS no pudo conectar, reintentando: {e}")
         except requests.exceptions.RequestException as e:
             logger.error(
-                "fish audio tts result is unconfirmed after a transport error; "
-                f"stop paid retries: {type(e).__name__}"
+                "el resultado de Fish Audio TTS no está confirmado tras un error de transporte; "
+                f"se detienen los reintentos de pago: {type(e).__name__}"
             )
             return None
         except Exception as e:
-            logger.error(f"fish audio tts failed: {str(e)}")
+            logger.error(f"Fish Audio TTS falló: {str(e)}")
             if received_success:
-                # A successful provider response may already have been billed.
+                # Una respuesta correcta del proveedor puede haberse facturado ya.
                 return None
         finally:
             if temporary_audio and os.path.exists(temporary_audio):
@@ -3029,21 +3172,21 @@ def fish_audio_tts(
                     os.unlink(temporary_audio)
                 except OSError as cleanup_error:
                     logger.warning(
-                        f"failed to remove temporary Fish Audio file: {cleanup_error}"
+                        f"no se pudo eliminar el archivo temporal de Fish Audio: {cleanup_error}"
                     )
 
     return None
 
 
 def _iter_voxcpm_sse_events(response):
-    """Yield bounded SSE events without Requests' unbounded line buffer."""
+    """Produce eventos SSE acotados sin el búfer de líneas ilimitado de Requests."""
     def lines():
         pending = bytearray()
         skip_lf = False
         for chunk in response.iter_content(chunk_size=64 * 1024):
             if not chunk:
                 continue
-            # Consume the optional LF after a CR, even across transport chunks.
+            # Consume el LF opcional tras un CR, incluso entre fragmentos de transporte.
             if skip_lf:
                 skip_lf = False
                 if chunk.startswith(b"\n"):
@@ -3058,7 +3201,7 @@ def _iter_voxcpm_sse_events(response):
                 else:
                     payload, terminated = piece, False
                 if len(pending) + len(payload) > _VOXCPM_SSE_MAX_EVENT_BYTES:
-                    raise ValueError("VoxCPM SSE line exceeds the size limit")
+                    raise ValueError("la línea SSE de VoxCPM supera el límite de tamaño")
                 pending.extend(payload)
                 if terminated:
                     yield bytes(pending).decode("utf-8")
@@ -3071,9 +3214,9 @@ def _iter_voxcpm_sse_events(response):
         try:
             event = json.loads("\n".join(data))
         except (TypeError, ValueError) as exc:
-            raise ValueError("VoxCPM returned invalid SSE event data") from exc
+            raise ValueError("VoxCPM devolvió datos de evento SSE no válidos") from exc
         if not isinstance(event, dict):
-            raise ValueError("VoxCPM returned a non-object SSE event")
+            raise ValueError("VoxCPM devolvió un evento SSE que no es un objeto")
         return event
 
     event_data = []
@@ -3081,7 +3224,7 @@ def _iter_voxcpm_sse_events(response):
     first_line = True
     for line in lines():
         if first_line:
-            # SSE UTF-8 decoding ignores one BOM at the start of the stream.
+            # La decodificación UTF-8 de SSE ignora un BOM al principio del flujo.
             line = line.removeprefix("\ufeff")
             first_line = False
         if not line:
@@ -3094,29 +3237,29 @@ def _iter_voxcpm_sse_events(response):
             data = line.removeprefix("data:").strip()
             event_bytes += len(data.encode("utf-8")) + 1
             if event_bytes > _VOXCPM_SSE_MAX_EVENT_BYTES:
-                raise ValueError("VoxCPM SSE event exceeds the size limit")
+                raise ValueError("el evento SSE de VoxCPM supera el límite de tamaño")
             event_data.append(data)
     if event_data:
         yield parse_event(event_data)
 
 
 def prepare_voxcpm_reference_audio(uploaded_audio: bytes, suffix: str = "") -> bytes:
-    """Convert an uploaded reference clip into ModelBest's bounded WAV payload.
+    """Convierte un clip de referencia subido en la carga útil WAV acotada de ModelBest.
 
-    The WebUI keeps the returned bytes only in its current session and passes a
-    copy to the request that needs it. Temporary source and converted files are
-    always scoped to this function, including FFmpeg timeouts and failures.
+    La WebUI solo conserva los bytes devueltos en su sesión actual y pasa una copia a la
+    solicitud que los necesita. Los archivos temporales de origen y convertidos están
+    siempre limitados a esta función, incluidos los tiempos agotados y fallos de FFmpeg.
     """
     if not isinstance(uploaded_audio, bytes) or not uploaded_audio:
-        raise ValueError("reference audio is empty")
+        raise ValueError("el audio de referencia está vacío")
     if len(uploaded_audio) > VOXCPM_REFERENCE_AUDIO_MAX_UPLOAD_BYTES:
-        raise ValueError("reference audio upload exceeds 20 MiB")
+        raise ValueError("el audio de referencia subido supera 20 MiB")
 
     normalized_suffix = str(suffix or "").lower()
     if normalized_suffix and not normalized_suffix.startswith("."):
         normalized_suffix = f".{normalized_suffix}"
     if normalized_suffix.removeprefix(".") not in VOXCPM_REFERENCE_AUDIO_FILE_TYPES:
-        raise ValueError("unsupported reference audio format")
+        raise ValueError("formato de audio de referencia no admitido")
 
     try:
         with tempfile.TemporaryDirectory(prefix="voxcpm-reference-") as temp_dir:
@@ -3154,7 +3297,7 @@ def prepare_voxcpm_reference_audio(uploaded_audio: bytes, suffix: str = "") -> b
             )
             if result.returncode != 0 or not os.path.isfile(output_path):
                 raise ValueError(
-                    "reference audio must contain a decodable audio stream"
+                    "el audio de referencia debe contener una pista de audio decodificable"
                 )
 
             with open(output_path, "rb") as converted:
@@ -3164,22 +3307,22 @@ def prepare_voxcpm_reference_audio(uploaded_audio: bytes, suffix: str = "") -> b
                 or len(wav_audio) > VOXCPM_REFERENCE_AUDIO_MAX_WAV_BYTES
             ):
                 raise ValueError(
-                    "converted reference audio exceeds ModelBest's 5 MiB limit"
+                    "el audio de referencia convertido supera el límite de 5 MiB de ModelBest"
                 )
 
             try:
                 with wave.open(io.BytesIO(wav_audio), "rb") as wav_file:
                     if wav_file.getnframes() <= 0:
-                        raise ValueError("reference audio is empty")
+                        raise ValueError("el audio de referencia está vacío")
             except wave.Error as exc:
                 raise ValueError(
-                    "reference audio conversion did not produce a valid WAV"
+                    "la conversión del audio de referencia no produjo un WAV válido"
                 ) from exc
             return wav_audio
     except subprocess.TimeoutExpired as exc:
-        raise ValueError("reference audio conversion timed out") from exc
+        raise ValueError("la conversión del audio de referencia agotó el tiempo") from exc
     except OSError as exc:
-        raise ValueError("failed to convert reference audio") from exc
+        raise ValueError("no se pudo convertir el audio de referencia") from exc
 
 
 def _encode_voxcpm_audio_data_uri(
@@ -3189,21 +3332,22 @@ def _encode_voxcpm_audio_data_uri(
     if audio_bytes is None:
         return None
     if not isinstance(audio_bytes, bytes) or not audio_bytes:
-        raise ValueError(f"{field_name} audio is empty")
+        raise ValueError(f"el audio {field_name} está vacío")
     if len(audio_bytes) > VOXCPM_REFERENCE_AUDIO_MAX_WAV_BYTES:
-        raise ValueError(f"{field_name} audio exceeds ModelBest's 5 MiB limit")
+        raise ValueError(f"el audio {field_name} supera el límite de 5 MiB de ModelBest")
     try:
         with wave.open(io.BytesIO(audio_bytes), "rb") as wav_file:
             frame_count = wav_file.getnframes()
             if frame_count <= 0:
-                raise ValueError(f"{field_name} audio is empty")
+                raise ValueError(f"el audio {field_name} está vacío")
             expected_bytes = frame_count * wav_file.getnchannels() * wav_file.getsampwidth()
-            # WAV headers can advertise frames that are not in the upload.
-            # Bound the read by the existing upload cap even for forged counts.
+            # Las cabeceras WAV pueden anunciar fotogramas que no están en la subida. Se
+            # limita la lectura por el límite de subida existente incluso con recuentos
+            # falsificados.
             if expected_bytes > len(audio_bytes) or len(wav_file.readframes(frame_count)) != expected_bytes:
-                raise ValueError(f"{field_name} audio contains truncated PCM frames")
+                raise ValueError(f"el audio {field_name} contiene tramas PCM truncadas")
     except wave.Error as exc:
-        raise ValueError(f"{field_name} audio must be a valid WAV") from exc
+        raise ValueError(f"el audio {field_name} debe ser un WAV válido") from exc
     return "data:audio/wav;base64," + base64.b64encode(audio_bytes).decode("ascii")
 
 
@@ -3217,24 +3361,24 @@ def voxcpm_tts(
     prompt_audio: bytes | None = None,
     prompt_text: str = "",
 ) -> Union[SubMaker, None]:
-    """Generate speech through ModelBest's VoxCPM Audio Speech API.
+    """Genera voz a través de la API Audio Speech de VoxCPM de ModelBest.
 
-    ModelBest always streams Base64-encoded WAV chunks through SSE. The
-    assembled WAV is decoded and exported to the project's requested output
-    format so that the regular subtitle and video paths remain unchanged.
-    ModelBest does not define a numeric speed field, so ``voice_rate`` is not
-    sent. ``voice_volume`` is applied later by MoneyPrinterTurbo's video mixer.
+    ModelBest siempre transmite fragmentos WAV codificados en Base64 mediante SSE. El
+    WAV ensamblado se decodifica y se exporta al formato de salida que pide el proyecto,
+    para que las rutas normales de subtítulos y vídeo no cambien. ModelBest no define un
+    campo numérico de velocidad, así que ``voice_rate`` no se envía. ``voice_volume`` lo
+    aplica después el mezclador de vídeo de MoneyPrinterTurbo.
     """
     from pydub import AudioSegment
 
     text = (text or "").strip()
     if not text:
-        logger.error("VoxCPM TTS text is empty")
+        logger.error("el texto de VoxCPM TTS está vacío")
         return None
 
     api_key = str(config.voxcpm.get("api_key", "") or "").strip()
     if not api_key:
-        logger.error("VoxCPM API key is not set")
+        logger.error("la API Key de VoxCPM no está configurada")
         return None
 
     base_url = str(
@@ -3243,7 +3387,7 @@ def voxcpm_tts(
     ).strip().rstrip("/")
     model_id = str(config.voxcpm.get("model_id", "") or "").strip()
     if not model_id:
-        logger.error("VoxCPM model ID is not set")
+        logger.error("el ID de modelo de VoxCPM no está configurado")
         return None
     voice_id = str(voice_id or VOXCPM_DEFAULT_VOICE).strip() or VOXCPM_DEFAULT_VOICE
 
@@ -3262,7 +3406,7 @@ def voxcpm_tts(
     }
     prompt_text = str(prompt_text or "").strip()
     if bool(prompt_audio) != bool(prompt_text):
-        logger.error("VoxCPM prompt audio and prompt text must be provided together")
+        logger.error("el audio y el texto de referencia de VoxCPM deben indicarse juntos")
         return None
     try:
         encoded_reference_audio = _encode_voxcpm_audio_data_uri(
@@ -3274,7 +3418,7 @@ def voxcpm_tts(
             "prompt",
         )
     except ValueError as exc:
-        logger.error(f"VoxCPM audio prompt is invalid: {exc}")
+        logger.error(f"el audio de referencia de VoxCPM no es válido: {exc}")
         return None
     if encoded_reference_audio:
         payload["ref_audio"] = encoded_reference_audio
@@ -3288,8 +3432,8 @@ def voxcpm_tts(
         response = None
         try:
             logger.info(
-                f"start VoxCPM TTS, model: {model_id}, voice: {voice_id}, "
-                f"try: {attempt + 1}"
+                f"inicio de VoxCPM TTS, modelo: {model_id}, voz: {voice_id}, "
+                f"intento: {attempt + 1}"
             )
             response = trace_http_call(
                 "POST", requests.post,
@@ -3301,13 +3445,13 @@ def voxcpm_tts(
                 timeout=(10, 120),
             )
             if 300 <= response.status_code < 400:
-                # Redirecting a speech POST may replay a billed synthesis or
-                # forward its input/credentials. Do not follow or resubmit it.
-                logger.error("TTS endpoint returned a redirect; stop speech retries")
+                # Redirigir un POST de voz puede repetir una síntesis facturada o
+                # reenviar su entrada/credenciales. No se sigue ni se vuelve a enviar.
+                logger.error("el endpoint de TTS devolvió una redirección; se detienen los reintentos de voz")
                 return None
             if response.status_code != 200:
                 logger.error(
-                    f"VoxCPM TTS failed with status {response.status_code}: "
+                    f"VoxCPM TTS falló con el estado {response.status_code}: "
                     f"{response.text[:200]}"
                 )
                 if response.status_code in _VOXCPM_NON_RETRYABLE_STATUS_CODES:
@@ -3324,28 +3468,28 @@ def voxcpm_tts(
                 if event_type == "speech.audio.delta":
                     encoded_chunk = event.get("audio")
                     if not isinstance(encoded_chunk, str) or not encoded_chunk:
-                        raise ValueError("VoxCPM returned an empty audio chunk")
+                        raise ValueError("VoxCPM devolvió un fragmento de audio vacío")
                     try:
                         chunk = base64.b64decode(encoded_chunk, validate=True)
                     except (ValueError, TypeError) as exc:
-                        raise ValueError("VoxCPM returned invalid Base64 audio") from exc
+                        raise ValueError("VoxCPM devolvió audio Base64 no válido") from exc
                     total_audio_bytes += len(chunk)
                     if total_audio_bytes > _VOXCPM_TTS_MAX_AUDIO_BYTES:
-                        raise ValueError("VoxCPM generated audio exceeds the size limit")
+                        raise ValueError("el audio generado por VoxCPM supera el límite de tamaño")
                     audio_chunks.append(chunk)
                 elif event_type == "speech.audio.done":
                     completed = True
                     break
 
             if not completed:
-                raise ValueError("VoxCPM stream ended before speech.audio.done")
+                raise ValueError("el flujo de VoxCPM terminó antes de speech.audio.done")
             audio_bytes = b"".join(audio_chunks)
             if not audio_bytes:
-                raise ValueError("VoxCPM returned no audio data")
+                raise ValueError("VoxCPM no devolvió datos de audio")
 
             audio_segment = AudioSegment.from_file(io.BytesIO(audio_bytes), format="wav")
             if len(audio_segment) <= 0:
-                raise ValueError("VoxCPM returned an empty WAV")
+                raise ValueError("VoxCPM devolvió un WAV vacío")
 
             ensure_file_path_exists(voice_file)
             output_format = utils.parse_extension(voice_file) or "mp3"
@@ -3363,33 +3507,35 @@ def voxcpm_tts(
             finally:
                 audio_clip.close()
             if not math.isfinite(audio_duration) or audio_duration <= 0:
-                raise ValueError("VoxCPM produced an invalid audio duration")
+                raise ValueError("VoxCPM produjo una duración de audio no válida")
 
             sub_maker = ensure_legacy_submaker_fields(SubMaker())
             os.replace(temporary_audio, voice_file)
-            logger.success(f"VoxCPM TTS succeeded: {voice_file}")
+            logger.success(f"VoxCPM TTS completado: {voice_file}")
             return populate_legacy_submaker_with_full_text(
                 sub_maker=sub_maker,
                 text=text,
                 audio_duration_seconds=audio_duration,
             )
         except requests.exceptions.ConnectTimeout as exc:
-            logger.error(f"VoxCPM TTS connection timed out: {exc}")
-            # A timeout before POST returns is safe to retry only when no
-            # response has been received. Never resubmit after SSE started.
+            logger.error(f"la conexión de VoxCPM TTS agotó el tiempo: {exc}")
+            # Un tiempo agotado antes de que vuelva el POST solo es seguro de reintentar
+            # cuando no se ha recibido ninguna respuesta. Nunca se vuelve a enviar una
+            # vez empezado el SSE.
             if response is not None:
                 return None
             if attempt < 2:
                 time.sleep(_VOXCPM_RETRY_DELAY_SECONDS[attempt])
         except requests.RequestException as exc:
-            # The server may have generated speech before a read timeout or
-            # stream disconnect. Resubmitting can create duplicate work.
-            logger.error(f"VoxCPM TTS request outcome is unconfirmed: {exc}")
+            # El servidor puede haber generado la voz antes de un tiempo de lectura
+            # agotado o de una desconexión del flujo. Volver a enviar puede crear
+            # trabajo duplicado.
+            logger.error(f"el resultado de la petición de VoxCPM TTS no está confirmado: {exc}")
             return None
         except Exception as exc:
-            # Invalid SSE/WAV data and local conversion failures are deterministic;
-            # retrying the same response cannot repair them.
-            logger.error(f"VoxCPM TTS failed: {exc}")
+            # Los datos SSE/WAV no válidos y los fallos de conversión local son
+            # deterministas; reintentar la misma respuesta no puede repararlos.
+            logger.error(f"VoxCPM TTS falló: {exc}")
             return None
         finally:
             close_response = getattr(response, "close", None)
@@ -3399,20 +3545,22 @@ def voxcpm_tts(
                 try:
                     os.unlink(temporary_audio)
                 except OSError as exc:
-                    logger.warning(f"could not remove temporary VoxCPM audio: {exc}")
+                    logger.warning(f"no se pudo eliminar el audio temporal de VoxCPM: {exc}")
 
     return None
 
 
 def _format_text(text: str) -> str:
     """
-    清理字幕对齐前的脚本文本。
+    Limpia el texto del guion antes de alinear los subtítulos.
 
-    这里不能只在 LLM 生成阶段处理，因为用户也可能手动粘贴脚本，或通过
-    API 直接传入包含 Markdown 标记的文本。TTS 通常不会朗读 `---`、
-    `___`、`***` 这类分隔符行，也不会朗读 `_` 这种强调标记；如果字幕
-    对齐仍保留这些字符，`create_subtitle()` 会一直等待不存在的 cue，
-    最终导致字幕文件缺失并在 Whisper fallback 校正时补出全 0 时间轴。
+    Esto no se puede tratar solo en la fase de generación del LLM, porque el usuario
+    también puede pegar el guion a mano o pasar directamente por la API un texto con
+    marcas Markdown. El TTS normalmente no lee líneas separadoras como `---`, `___` o
+    `***`, ni marcas de énfasis como `_`; si la alineación de subtítulos conservara
+    estos caracteres, `create_subtitle()` esperaría para siempre cues que no existen, y
+    al final faltaría el archivo de subtítulos y la corrección de respaldo de Whisper
+    añadiría líneas de tiempo a cero.
     """
     text = utils.remove_pause_tags(text or "")
     text = text.replace("[", " ")
@@ -3426,11 +3574,12 @@ def _format_text(text: str) -> str:
 
 def _build_subtitle_formatter():
     """
-    返回统一的 SRT 行格式化函数。
+    Devuelve la función común de formato de líneas SRT.
 
-    这里单独拆成一个小工具，是为了让 edge_tts 7.x 的 cues 路径
-    和项目原有的 legacy `subs/offset` 路径共用同一套字幕落盘格式，
-    避免两套逻辑各自产生细微格式差异。
+    Va aparte como pequeña utilidad para que la ruta de cues de edge_tts 7.x y la ruta
+    legacy `subs/offset` original del proyecto compartan el mismo formato de guardado de
+    subtítulos, evitando que dos lógicas distintas produzcan pequeñas diferencias de
+    formato.
     """
 
     def formatter(idx: int, start_time: float, end_time: float, sub_text: str) -> str:
@@ -3441,17 +3590,20 @@ def _build_subtitle_formatter():
     return formatter
 
 
-# 阿拉伯语变音符号和 Tatweel 拉长符在 edge-tts 返回文本中可能出现，
-# 这些字符不影响语义，但会导致脚本文本和字幕 cue 字符串精确匹配失败。
+# Los diacríticos del árabe y el alargamiento Tatweel pueden aparecer en el texto que
+# devuelve edge-tts; no afectan al significado, pero hacen fallar la coincidencia exacta
+# entre el texto del guion y las cadenas de las cues de subtítulos.
 _ARABIC_DIACRITICS = re.compile("[\u0610-\u061A\u064B-\u065F\u0670\u0640\u06D6-\u06ED]")
 
 
 def _normalize_arabic(text: str) -> str:
-    """统一阿拉伯语常见字母变体，提升字幕 cue 与脚本行的匹配容错率。
+    """Unifica las variantes de letras habituales del árabe, para tolerar mejor la
+    correspondencia entre las cues de subtítulos y las líneas del guion.
 
-    edge-tts 对阿拉伯语可能返回与原脚本不同的字母形态，例如把 أ/إ/آ
-    归一成 ا，或者携带变音符号。这里仅在最后一层匹配兜底中使用，
-    不改变原始字幕文本，避免影响最终展示内容。
+    edge-tts puede devolver para el árabe formas de letras distintas a las del guion
+    original, por ejemplo normalizando أ/إ/آ a ا, o con diacríticos. Esto solo se usa
+    como último respaldo de la correspondencia, sin cambiar el texto original de los
+    subtítulos, para no afectar al contenido que se muestra al final.
     """
     text = _ARABIC_DIACRITICS.sub("", text)
     for src, dst in (
@@ -3467,16 +3619,20 @@ def _normalize_arabic(text: str) -> str:
 
 def _match_script_line(script_lines: list[str], current_text: str, sub_index: int) -> str:
     """
-    尝试把当前累计的字幕文本，与脚本中的某一条标准断句匹配起来。
+    Intenta hacer coincidir el texto de subtítulo acumulado con una de las frases
+    estándar del guion.
 
-    这里复用了项目原有的“按标点拆脚本，再逐段比对”的思路：
-    1. 优先精确匹配；
-    2. 再做一次去标点和 Markdown `_` 格式符后的匹配；
-    3. 最后做一次阿拉伯语字符形态归一化匹配。
+    Aquí se reutiliza la idea original del proyecto de "dividir el guion por puntuación
+    y comparar fragmento a fragmento":
+    1. Primero coincidencia exacta;
+    2. Luego una coincidencia tras quitar la puntuación y los símbolos de formato
+       Markdown `_`;
+    3. Por último una coincidencia tras normalizar las formas de las letras árabes.
 
-    这样可以兼容：
-    - TTS 返回里可能缺失或单独拆分的标点；
-    - 中文场景下词边界和脚本文本不完全一一对应的情况。
+    Así se admiten:
+    - La puntuación que puede faltar o venir separada en lo que devuelve el TTS;
+    - Los casos en chino en que los límites de palabra no corresponden exactamente uno a
+      uno con el texto del guion.
     """
     if len(script_lines) <= sub_index:
         return ""
@@ -3492,8 +3648,10 @@ def _match_script_line(script_lines: list[str], current_text: str, sub_index: in
     if current_text_normalized == target_line_normalized:
         return target_line.strip()
 
-    # 最后一层阿拉伯语容错：edge-tts 返回的字母形态、变音符号或 Tatweel
-    # 可能和脚本不同。只在常规匹配失败后归一化比较，非阿拉伯语文本不会受影响。
+    # Última capa de tolerancia para el árabe: las formas de letras, los diacríticos o
+    # el Tatweel que devuelve edge-tts pueden diferir del guion. Solo se normaliza y
+    # compara tras fallar la correspondencia normal, así que los textos que no son en
+    # árabe no se ven afectados.
     current_ar = re.sub(r"[_\W]+", "", _normalize_arabic(current_text))
     target_ar = re.sub(r"[_\W]+", "", _normalize_arabic(comparison_target))
     if current_ar and current_ar == target_ar:
@@ -3503,7 +3661,7 @@ def _match_script_line(script_lines: list[str], current_text: str, sub_index: in
 
 
 def _write_subtitle_items(sub_items: list[str], subtitle_file: str) -> bool:
-    """Publish a complete, parseable SRT without destroying earlier captions."""
+    """Publica un SRT completo y analizable sin destruir los subtítulos anteriores."""
     try:
         ensure_file_path_exists(subtitle_file)
         with staged_subtitle_file(subtitle_file) as staged:
@@ -3511,15 +3669,15 @@ def _write_subtitle_items(sub_items: list[str], subtitle_file: str) -> bool:
                 file.write("\n".join(sub_items) + "\n")
             sbs = moviepy_subtitles(staged)
             if not sbs:
-                raise ValueError("subtitle output contains no cues")
+                raise ValueError("la salida de subtítulos no contiene entradas")
             duration = max(tb for ((ta, tb), txt) in sbs)
             os.replace(staged, subtitle_file)
         logger.info(
-            f"completed, subtitle file created: {subtitle_file}, duration: {duration}"
+            f"completado, archivo de subtítulos creado: {subtitle_file}, duración: {duration}"
         )
         return True
     except Exception as e:
-        logger.error(f"failed, error: {str(e)}")
+        logger.error(f"fallo, error: {str(e)}")
         return False
 
 
@@ -3527,18 +3685,22 @@ def _build_subtitle_items_from_edge_cues(
     sub_maker: SubMaker, script_lines: list[str]
 ) -> list[str]:
     """
-    将 edge_tts 7.x 的细粒度 `cues` 聚合为按脚本断句的 SRT 片段。
+    Agrupa las `cues` detalladas de edge_tts 7.x en fragmentos SRT según las frases del
+    guion.
 
-    背景：
-    edge_tts 7.x 的 `SubMaker.get_srt()` 更偏向逐词/逐短语的时间轴。
-    对英文做逐词高亮尚可，但中文短视频字幕如果直接照搬，会出现
-    “金钱 / 是 / 一种 / 社会 / 工具” 这种阅读体验很差的效果。
+    Contexto:
+    `SubMaker.get_srt()` de edge_tts 7.x tiende a líneas de tiempo palabra a palabra o
+    frase corta a frase corta. Para resaltar palabra a palabra en inglés vale, pero si
+    los subtítulos de vídeos cortos se copiaran tal cual, aparecerían cosas como "El /
+    dinero / es / una / herramienta / social", con una experiencia de lectura muy mala.
 
-    实现策略：
-    1. 逐个消费 cues 中的 `content`；
-    2. 累积成一段候选文本；
-    3. 当候选文本与脚本里当前目标断句匹配时，收敛为一个完整字幕段；
-    4. 使用第一条 cue 的开始时间和最后一条 cue 的结束时间，保证时间轴连续。
+    Estrategia de implementación:
+    1. Consumir uno a uno los `content` de las cues;
+    2. Acumularlos en un texto candidato;
+    3. Cuando el texto candidato coincide con la frase de destino actual del guion,
+       cerrarlo como un fragmento de subtítulo completo;
+    4. Usar el tiempo de inicio de la primera cue y el de fin de la última, para que la
+       línea de tiempo sea continua.
     """
     formatter = _build_subtitle_formatter()
     sub_items = []
@@ -3572,7 +3734,7 @@ def _build_subtitle_items_from_edge_cues(
 
     if current_text.strip():
         logger.warning(
-            f"edge cues still have unmatched text after aggregation: {current_text}"
+            f"las entradas de Edge aún tienen texto sin emparejar tras la agregación: {current_text}"
         )
 
     return sub_items
@@ -3582,10 +3744,12 @@ def _build_subtitle_items_from_legacy_submaker(
     sub_maker: SubMaker, script_lines: list[str]
 ) -> list[str]:
     """
-    将项目原有 `subs/offset` 结构聚合为按脚本断句的 SRT 片段。
+    Agrupa la estructura `subs/offset` original del proyecto en fragmentos SRT según las
+    frases del guion.
 
-    这部分保留了原来的核心思路，只是拆成独立函数，便于与 edge_tts 7.x
-    的 cues 聚合逻辑共享同一套断句匹配与落盘流程。
+    Esta parte conserva la idea central original, solo que separada en una función
+    propia, para compartir con la lógica de agregación de cues de edge_tts 7.x el mismo
+    flujo de correspondencia de frases y guardado.
     """
     formatter = _build_subtitle_formatter()
     start_time = -1.0
@@ -3619,7 +3783,7 @@ def _build_subtitle_items_from_legacy_submaker(
 
     if sub_line.strip():
         logger.warning(
-            f"legacy subtitle items still have unmatched text after aggregation: {sub_line}"
+            f"los elementos de subtítulos antiguos aún tienen texto sin emparejar tras la agregación: {sub_line}"
         )
 
     return sub_items
@@ -3627,7 +3791,8 @@ def _build_subtitle_items_from_legacy_submaker(
 
 def _build_subtitle_items_from_edge_cues_words(sub_maker: SubMaker) -> list[str]:
     """
-    Directly format edge_tts cues into single-word / cue-level SRT items.
+    Formatea directamente las cues de edge_tts en elementos SRT de una palabra / por
+    cue.
     """
     formatter = _build_subtitle_formatter()
     sub_items = []
@@ -3652,7 +3817,7 @@ def _build_subtitle_items_from_edge_cues_words(sub_maker: SubMaker) -> list[str]
 
 def _build_subtitle_items_from_legacy_submaker_words(sub_maker: SubMaker) -> list[str]:
     """
-    Directly format legacy submaker into single-word SRT items.
+    Formatea directamente el submaker legacy en elementos SRT de una palabra.
     """
     formatter = _build_subtitle_formatter()
     sub_items = []
@@ -3683,11 +3848,11 @@ def create_subtitle(
     word_level: bool = False,
 ):
     """
-    优化字幕文件
-    1. 将字幕文件按照标点符号分割成多行
-    2. 逐行匹配字幕文件中的文本
-    3. 生成新的字幕文件
-    如果 word_level 为 True，直接输出逐词单条字幕。
+    Optimiza el archivo de subtítulos
+    1. Divide el archivo de subtítulos en varias líneas según los signos de puntuación
+    2. Hace coincidir línea a línea el texto del archivo de subtítulos
+    3. Genera el nuevo archivo de subtítulos
+    Si word_level es True, se emite directamente un subtítulo por palabra.
     """
     text = _format_text(text)
     try:
@@ -3700,9 +3865,10 @@ def create_subtitle(
                 _write_subtitle_items(sub_items, subtitle_file)
                 return
 
-        # 只有符号的行（如 `* * *`、`———`、`• • •` 场景分隔）不会被朗读，
-        # 也不会得到任何词级时间轴；保留它们会让行数永远对不上，整段字幕
-        # 都无法生成。
+        # Las líneas formadas solo por símbolos (como los separadores de escena `* * *`,
+        # `———` o `• • •`) no se leen ni reciben ninguna línea de tiempo por palabra;
+        # conservarlas haría que el número de líneas nunca cuadrara y no se podría
+        # generar ningún subtítulo.
         script_lines = [
             line
             for line in utils.split_string_by_punctuations(text)
@@ -3717,24 +3883,24 @@ def create_subtitle(
 
         if len(sub_items) != len(script_lines):
             logger.warning(
-                f"failed, sub_items len: {len(sub_items)}, script_lines len: {len(script_lines)}"
+                f"fallo, longitud de sub_items: {len(sub_items)}, longitud de script_lines: {len(script_lines)}"
             )
             return
 
         _write_subtitle_items(sub_items, subtitle_file)
     except Exception as e:
-        logger.error(f"failed, error: {str(e)}")
+        logger.error(f"fallo, error: {str(e)}")
 
 
 def _get_audio_duration_from_submaker(sub_maker: SubMaker):
     """
-    获取音频时长
+    Obtiene la duración del audio
     """
     if hasattr(sub_maker, "duration") and getattr(sub_maker, "duration", 0) > 0:
         return float(getattr(sub_maker, "duration"))
 
-    # 优先兼容 edge_tts 7.x 的 cues 结构；
-    # 如果是项目里其他 TTS 手工填充的旧结构，则继续读取 offset。
+    # Primero se admite la estructura de cues de edge_tts 7.x; si es la estructura
+    # antigua que rellenan a mano otros TTS del proyecto, se sigue leyendo offset.
     if hasattr(sub_maker, "cues") and sub_maker.cues:
         return sub_maker.cues[-1].end.total_seconds()
 
@@ -3745,32 +3911,34 @@ def _get_audio_duration_from_submaker(sub_maker: SubMaker):
 
 def _get_audio_duration_from_file(audio_file: str) -> float:
     """
-    获取音频文件时长（支持 mp3/m4a/wav/aac 等 ffmpeg 可解码的格式）
+    Obtiene la duración de un archivo de audio (admite mp3/m4a/wav/aac y otros formatos
+    que ffmpeg puede decodificar)
     """
     if not os.path.exists(audio_file):
-        logger.error(f"audio file does not exist: {audio_file}")
+        logger.error(f"el archivo de audio no existe: {audio_file}")
         return 0.0
 
     try:
-        # Use moviepy (ffmpeg) to read the duration of any supported audio format
+        # Usa moviepy (ffmpeg) para leer la duración de cualquier formato de audio
+        # admitido
         with AudioFileClip(audio_file) as audio:
-            return audio.duration  # Duration in seconds
+            return audio.duration  # Duración en segundos
     except Exception as e:
-        logger.error(f"Failed to get audio duration from file: {str(e)}")
+        logger.error(f"no se pudo obtener la duración del audio del archivo: {str(e)}")
         return 0.0
 
 def get_audio_duration(target: Union[str, SubMaker]) -> float:
     """
-    获取音频时长
-    如果是SubMaker对象，则从SubMaker中获取时长
-    如果是音频文件路径，则从音频文件中获取时长（支持 mp3/m4a/wav 等格式）
+    Obtiene la duración del audio Si es un objeto SubMaker, la obtiene del SubMaker Si
+    es la ruta de un archivo de audio, la obtiene del archivo (admite mp3/m4a/wav y
+    otros formatos)
     """
     if isinstance(target, SubMaker):
         return _get_audio_duration_from_submaker(target)
     elif isinstance(target, str):
         return _get_audio_duration_from_file(target)
     else:
-        logger.error(f"Invalid target type: {type(target)}")
+        logger.error(f"tipo de destino no válido: {type(target)}")
         return 0.0
 
 if __name__ == "__main__":
@@ -3787,10 +3955,10 @@ if __name__ == "__main__":
 
         voice_names = [
             "zh-CN-XiaoxiaoMultilingualNeural",
-            # 女性
+            # mujer
             "zh-CN-XiaoxiaoNeural",
             "zh-CN-XiaoyiNeural",
-            # 男性
+            # hombre
             "zh-CN-YunyangNeural",
             "zh-CN-YunxiNeural",
         ]
@@ -3835,7 +4003,7 @@ if __name__ == "__main__":
             )
             create_subtitle(sub_maker=sub_maker, text=text, subtitle_file=subtitle_file)
             audio_duration = get_audio_duration(sub_maker)
-            print(f"voice: {voice_name}, audio duration: {audio_duration}s")
+            print(f"voz: {voice_name}, duración del audio: {audio_duration}s")
 
     loop = asyncio.get_event_loop_policy().get_event_loop()
     try:

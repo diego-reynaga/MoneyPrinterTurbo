@@ -12,13 +12,17 @@ from app.services import task as task_service
 
 
 def _response(payload, status_code=200):
-    """构造只暴露服务层实际使用字段的轻量 HTTP 响应。"""
+    """Construye una respuesta HTTP ligera que solo expone los campos que usa realmente la
+    capa de servicio.
+    """
     return SimpleNamespace(status_code=status_code, json=lambda: payload)
 
 
 @pytest.fixture(autouse=True)
 def restore_config():
-    """隔离全局配置，避免供应商测试影响其它 Provider 用例。"""
+    """Aísla la configuración global para que los tests de este proveedor no afecten a los
+    casos de otros proveedores.
+    """
     original_app = dict(config.app)
     original_proxy = dict(config.proxy)
     config.app.update(
@@ -170,7 +174,7 @@ def test_invalid_resolution_fails_before_paid_submission(invalid):
     with patch.object(metaso_minimax.requests, "post") as post:
         with pytest.raises(
             metaso_minimax.MetasoMiniMaxError,
-            match="Unsupported Metaso MiniMax resolution",
+            match="Resolución de Metaso MiniMax no admitida",
         ):
             metaso_minimax.generate_videos("city", 5)
     post.assert_not_called()
@@ -342,7 +346,7 @@ def test_on_demand_generation_stops_after_required_duration():
 @pytest.mark.parametrize("audio_duration", [float("nan"), float("inf"), None, "bad"])
 def test_on_demand_rejects_invalid_audio_duration_before_submission(audio_duration):
     with patch.object(metaso_minimax, "generate_videos") as generate:
-        with pytest.raises(metaso_minimax.MetasoMiniMaxError, match="audio duration"):
+        with pytest.raises(metaso_minimax.MetasoMiniMaxError, match="duración del audio"):
             material.download_videos(
                 task_id="metaso-invalid-audio",
                 search_terms=["one", "two"],
@@ -356,7 +360,7 @@ def test_on_demand_rejects_invalid_audio_duration_before_submission(audio_durati
 @pytest.mark.parametrize("clip_duration", [0, -1, None, "bad", float("nan")])
 def test_on_demand_rejects_invalid_clip_duration_before_submission(clip_duration):
     with patch.object(metaso_minimax, "generate_videos") as generate:
-        with pytest.raises(metaso_minimax.MetasoMiniMaxError, match="clip duration"):
+        with pytest.raises(metaso_minimax.MetasoMiniMaxError, match="duración del clip"):
             material.download_videos(
                 task_id="metaso-invalid-clip",
                 search_terms=["one", "two"],
@@ -406,7 +410,7 @@ def test_task_preflight_rejects_missing_key_before_script_generation():
         result = task_service.start("metaso-preflight", params, stop_at="materials")
 
     assert result["failed_stage"] == "preflight"
-    assert "Metaso MiniMax requires an API key" in result["error"]
+    assert "Metaso MiniMax requiere una API Key" in result["error"]
     generate_script.assert_not_called()
 
 

@@ -1,4 +1,6 @@
-"""Do not submit raw audio formats the local validation path cannot decode."""
+"""No envía formatos de audio en bruto que la ruta de validación local no pueda
+decodificar.
+"""
 
 import io
 import wave
@@ -32,7 +34,7 @@ def test_pcm_setting_fails_before_paid_submission(tmp_path):
 
 def test_native_container_validator_rejects_headerless_pcm(tmp_path):
     output = tmp_path / "speech.mp3"
-    with pytest.raises(ValueError, match="fully decoded"):
+    with pytest.raises(ValueError, match="decodificar por completo"):
         voice._write_validated_minimax_audio(_pcm(), str(output))
     assert not output.exists()
 

@@ -8,7 +8,9 @@ from app.utils.logging_utils import get_logging_options, set_logging_options
 
 
 def test_logging_form_applies_runtime_and_persisted_settings():
-    """真实执行设置弹窗的 Streamlit 控件，修改等级及追踪后无需重启。"""
+    """Ejecuta de verdad los controles de Streamlit del diálogo de ajustes; tras cambiar el
+    nivel y el rastreo no hace falta reiniciar.
+    """
     previous = get_logging_options()
     diagnostics = {}
     try:
@@ -20,7 +22,7 @@ def test_logging_form_applies_runtime_and_persisted_settings():
                 "app",
                 dict(config.app, llm_provider="openai", openai_api_key=""),
             ),
-            patch.object(config, "ui", dict(config.ui, language="en")),
+            patch.object(config, "ui", dict(config.ui, language="es")),
             patch.object(config, "try_save_config", return_value=True),
         ):
             app = AppTest.from_file(
@@ -32,14 +34,14 @@ def test_logging_form_applies_runtime_and_persisted_settings():
             assert not app.exception
             app.selectbox(key="diagnostic_log_level").select("ERROR")
             app.checkbox(key="diagnostic_log_requests").check()
-            button = next(b for b in app.button if b.label == "Apply logging settings")
+            button = next(b for b in app.button if b.label == "Aplicar ajustes de registro")
             button.click().run()
             assert not app.exception
             assert get_logging_options() == ("ERROR", True)
             assert diagnostics == {"log_level": "ERROR", "log_requests": True}
             app.checkbox(key="diagnostic_log_requests").uncheck()
             next(
-                b for b in app.button if b.label == "Apply logging settings"
+                b for b in app.button if b.label == "Aplicar ajustes de registro"
             ).click().run()
             assert not app.exception
             assert get_logging_options() == ("ERROR", False)

@@ -8,7 +8,7 @@ on:
 
 jobs:
   tests:
-    name: Python ${{ matrix.python-version }} tests
+    name: Tests con Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -34,52 +34,52 @@ jobs:
       MPT_TEST_REDIS_DB: 15
 
     steps:
-      - name: Check out repository
+      - name: Descargar el repositorio
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install uv
+      - name: Instalar uv
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
 
-      - name: Install dependencies
+      - name: Instalar dependencias
         run: uv sync --frozen --python ${{ matrix.python-version }}
 
-      - name: Compile Python sources
+      - name: Compilar el código Python
         run: uv run --no-sync python -m compileall app cli.py main.py webui test docs/skill
 
-      - name: Lint Python sources
+      - name: Revisar el estilo del código Python
         if: matrix.python-version == '3.11'
         run: uv run --no-sync ruff check app cli.py main.py webui test docs/skill
 
-      - name: Run unit tests with coverage
-        # pytest 兼容现有 unittest.TestCase，同时会收集仓库中的 pytest 风格
-        # 测试，避免测试文件已存在但 CI 没有真正执行。
+      - name: Ejecutar los tests unitarios con cobertura
+        # pytest es compatible con los unittest.TestCase existentes y además recoge los
+        # tests de estilo pytest del repositorio, para que no haya archivos de test que la CI no ejecute.
         run: uv run --no-sync python -X utf8 -m coverage run -m pytest -q test
 
-      # Keep the legacy suite's portable media backend selection unchanged.
-      # Native project rendering is a separate mandatory pass after installing
-      # system tools; append its coverage before enforcing the shared threshold.
-      - name: Install FFmpeg for native revision-rendering tests
+      # Se mantiene sin cambios la elección del backend multimedia portátil de la suite antigua.
+      # El renderizado nativo de proyectos es una pasada obligatoria aparte tras instalar
+      # las herramientas del sistema; su cobertura se añade antes de aplicar el umbral común.
+      - name: Instalar FFmpeg para los tests nativos de renderizado de revisiones
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      - name: Run native revision-rendering tests
+      - name: Ejecutar los tests nativos de renderizado de revisiones
         run: >-
           uv run --no-sync python -X utf8 -m coverage run --append -m pytest -q
           test/services/test_video_project.py test/services/test_minimax_output_container.py
 
-      - name: Report test coverage
+      - name: Informar de la cobertura de los tests
         run: uv run --no-sync python -m coverage report
 
-      - name: Export coverage report
+      - name: Exportar el informe de cobertura
         run: uv run --no-sync python -m coverage xml
 
-      - name: Upload coverage report
+      - name: Subir el informe de cobertura
         uses: actions/upload-artifact@v4
         with:
           name: coverage-python-${{ matrix.python-version }}
@@ -87,31 +87,31 @@ jobs:
           retention-days: 7
 
   windows-smoke:
-    name: Windows smoke tests
+    name: Tests de humo en Windows
     runs-on: windows-latest
     timeout-minutes: 30
 
     steps:
-      - name: Check out repository
+      - name: Descargar el repositorio
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install uv
+      - name: Instalar uv
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
 
-      - name: Install dependencies
+      - name: Instalar dependencias
         run: uv sync --frozen --python 3.11
 
-      - name: Compile Python sources
+      - name: Compilar el código Python
         run: uv run --no-sync python -m compileall app cli.py main.py webui test docs/skill
 
-      - name: Run core service smoke tests
+      - name: Ejecutar los tests de humo de los servicios principales
         run: >-
           uv run --no-sync python -X utf8 -m pytest -q
           test/services/test_config.py

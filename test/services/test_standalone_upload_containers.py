@@ -35,8 +35,8 @@ def test_standalone_uploads_still_decode_and_use_content_detection(standalone_me
     audio, video = standalone_media
     bgm.validate_audio_file(str(audio))
     material_upload._validate_video(str(video))
-    # TTS/media validators have historically detected actual containers rather
-    # than forcing a demuxer solely from the filename extension.
+    # Históricamente, los validadores de TTS/medios han detectado el contenedor real en
+    # lugar de forzar un demuxer solo a partir de la extensión del nombre de archivo.
     renamed_audio = audio.with_suffix(".mp3")
     renamed_video = video.with_suffix(".mov")
     shutil.copyfile(audio, renamed_audio)

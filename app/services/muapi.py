@@ -1,9 +1,9 @@
-"""MuAPI asynchronous text-to-video client.
+"""Cliente asíncrono de texto a vídeo de MuAPI.
 
-The provider-specific submit/poll protocol lives here so the material service
-only needs to deal with ``MaterialInfo`` and local downloads.  MuAPI jobs are
-billable once accepted, so submission is deliberately never retried when the
-response is ambiguous.
+El protocolo de envío/sondeo propio del proveedor vive aquí para que el servicio de
+material solo tenga que tratar con ``MaterialInfo`` y descargas locales. Los trabajos de
+MuAPI se facturan en cuanto se aceptan, así que el envío no se reintenta nunca a
+propósito cuando la respuesta es ambigua.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from app.models.schema import MaterialInfo, VideoAspect
 
 
 DEFAULT_BASE_URL = "https://api.muapi.ai/api/v1"
-# The budget Seedance Lite route supports the three MoneyPrinterTurbo aspect
-# ratios, 3-12 second clips, and 480p/720p/1080p output.
+# La ruta económica Seedance Lite admite las tres relaciones de aspecto de
+# MoneyPrinterTurbo, clips de 3 a 12 segundos y salida a 480p/720p/1080p.
 DEFAULT_ENDPOINT = "seedance-lite-t2v"
 DEFAULT_RESOLUTION = "480p"
 DEFAULT_MIN_DURATION_SECONDS = 3
@@ -45,7 +45,7 @@ TERMINAL_FAILURE_STATUSES = frozenset(
 
 
 class MuAPIError(RuntimeError):
-    """Deterministic configuration, request, or response error."""
+    """Error determinista de configuración, solicitud o respuesta."""
 
     def __init__(self, message: str, task_id: str = ""):
         super().__init__(message)
@@ -53,15 +53,17 @@ class MuAPIError(RuntimeError):
 
 
 class MuAPIUnconfirmedTaskError(MuAPIError):
-    """The remote job may exist, but its final state cannot be confirmed."""
+    """Puede que el trabajo remoto exista, pero no se puede confirmar su estado final."""
 
 
 class MuAPIDownloadError(MuAPIError):
-    """A billable job completed, but its output could not be downloaded."""
+    """Un trabajo facturable terminó, pero no se pudo descargar su resultado."""
 
 
 def get_api_key(settings: Mapping[str, Any] | None = None) -> str:
-    """Read the dedicated MuAPI key, then the provider-specific environment key."""
+    """Lee la clave propia de MuAPI y, si no, la variable de entorno específica del
+    proveedor.
+    """
     settings = config.app if settings is None else settings
     configured = str(settings.get("muapi_api_key", "") or "").strip()
     environment_key = os.getenv("MUAPI_API_KEY", "").strip()
@@ -78,7 +80,7 @@ def _base_url() -> str:
     ).strip().rstrip("/")
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise MuAPIError("muapi_base_url must be an absolute HTTP(S) URL")
+        raise MuAPIError("muapi_base_url debe ser una URL HTTP(S) absoluta")
     return value
 
 
@@ -86,12 +88,12 @@ def _endpoint() -> str:
     value = str(
         config.app.get("muapi_video_endpoint", DEFAULT_ENDPOINT) or DEFAULT_ENDPOINT
     ).strip().strip("/")
-    # The setting is a path below /api/v1, never an arbitrary URL.  This keeps
-    # credentials in the configured MuAPI host and makes the generated request
-    # straightforward to audit.
+    # La opción es una ruta bajo /api/v1, nunca una URL arbitraria. Así las credenciales
+    # se quedan en el host de MuAPI configurado y la solicitud generada es fácil de
+    # auditar.
     if not value or "://" in value or "?" in value or "#" in value:
         raise MuAPIError(
-            "muapi_video_endpoint must be a non-empty relative endpoint path"
+            "muapi_video_endpoint debe ser una ruta de endpoint relativa no vacía"
         )
     return value
 
@@ -125,8 +127,8 @@ def _duration_bounds() -> tuple[int, int]:
         try:
             value = int(config.app.get(key, default))
         except (TypeError, ValueError, OverflowError):
-            # TOML accepts `inf`; int(inf) raises OverflowError, which is not
-            # a provider error and would abort the task with a traceback.
+            # TOML acepta `inf`; int(inf) lanza OverflowError, que no es un error del
+            # proveedor y abortaría la tarea con una traza.
             return default
         return value if value >= 1 else default
 
@@ -197,30 +199,30 @@ def generate_videos(
     minimum_duration: int,
     video_aspect: VideoAspect = VideoAspect.portrait,
 ) -> list[MaterialInfo]:
-    """Submit one MuAPI text-to-video job and wait for its downloadable output."""
+    """Envía un trabajo de texto a vídeo a MuAPI y espera su resultado descargable."""
     api_key = get_api_key()
     if not api_key:
-        raise MuAPIError("MuAPI video generation requires a MuAPI API key")
+        raise MuAPIError("La generación de vídeo con MuAPI necesita una clave API de MuAPI")
 
     term = str(search_term or "").strip()
     if not term:
-        raise MuAPIError("MuAPI search term must not be empty")
+        raise MuAPIError("El término de búsqueda de MuAPI no puede estar vacío")
 
     try:
         aspect = VideoAspect(video_aspect)
     except (TypeError, ValueError) as exc:
-        raise MuAPIError("MuAPI video aspect is invalid") from exc
+        raise MuAPIError("La relación de aspecto del vídeo de MuAPI no es válida") from exc
     try:
         requested_duration = max(int(minimum_duration), 1)
     except (TypeError, ValueError, OverflowError) as exc:
-        raise MuAPIError("MuAPI clip duration must be a positive integer") from exc
+        raise MuAPIError("La duración del clip de MuAPI debe ser un entero positivo") from exc
     minimum, maximum = _duration_bounds()
     duration = min(max(requested_duration, minimum), maximum)
     if duration != requested_duration:
         logger.info(
-            "muapi clip duration clamped to the configured endpoint range: "
+            "duración del clip de muapi ajustada al rango del endpoint configurado: "
             f"requested={requested_duration}s, using={duration}s "
-            f"(configured {minimum}-{maximum}s)"
+            f"(configurado {minimum}-{maximum}s)"
         )
 
     base_url = _base_url()
@@ -234,12 +236,13 @@ def generate_videos(
     }
     headers = {"x-api-key": api_key, "Content-Type": "application/json"}
     logger.info(
-        "generating video with MuAPI: "
+        "generando vídeo con MuAPI: "
         f"endpoint={endpoint}, term={term!r}, duration={duration}s"
     )
 
-    # A timeout or 5xx after POST may mean that MuAPI accepted and billed the
-    # job.  Retrying the submission could create a second paid generation.
+    # Un tiempo de espera o un 5xx tras el POST pueden significar que MuAPI aceptó y
+    # facturó el trabajo. Reintentar el envío podría crear una segunda generación de
+    # pago.
     try:
         response = trace_http_call(
             "POST", requests.post,
@@ -253,8 +256,8 @@ def generate_videos(
         )
     except Exception as exc:
         raise MuAPIUnconfirmedTaskError(
-            "MuAPI submission returned no response; a paid task may already "
-            "exist remotely: "
+            "El envío a MuAPI no devolvió respuesta; puede que ya exista "
+            "una tarea de pago en remoto: "
             f"error={type(exc).__name__}, detail={_redact_secret(exc, api_key)}"
         ) from exc
 
@@ -262,35 +265,35 @@ def generate_videos(
     if 300 <= status_code < 400:
         location = getattr(response, "headers", {}).get("Location", "")
         raise MuAPIUnconfirmedTaskError(
-            "MuAPI submission returned an unexpected redirect; the paid task "
-            "state is unknown: "
+            "El envío a MuAPI devolvió una redirección inesperada; el estado de la tarea "
+            "de pago es desconocido: "
             f"HTTP {status_code}, location={_redact_secret(location, api_key)}"
         )
     if status_code >= 500:
         raise MuAPIUnconfirmedTaskError(
-            f"MuAPI submission failed with HTTP {status_code}; a paid task may "
-            "already exist remotely"
+            f"El envío a MuAPI falló con HTTP {status_code}; puede que ya exista "
+            "una tarea de pago en remoto"
         )
     if not 200 <= status_code < 300:
         raise MuAPIError(
-            "MuAPI video generation request rejected: "
+            "Solicitud de generación de vídeo de MuAPI rechazada: "
             f"HTTP {status_code}, {_response_error(response, api_key)}"
         )
     try:
         body = response.json()
     except Exception as exc:
         raise MuAPIUnconfirmedTaskError(
-            "MuAPI submission returned an unreadable response; a paid task may "
-            f"already exist remotely: error={type(exc).__name__}"
+            "El envío a MuAPI devolvió una respuesta ilegible; puede que ya exista "
+            f"una tarea de pago en remoto: error={type(exc).__name__}"
         ) from exc
     task_id = str(
         body.get("request_id") or body.get("id") or ""
     ).strip() if isinstance(body, dict) else ""
     if not task_id:
         raise MuAPIUnconfirmedTaskError(
-            "MuAPI accepted the submission without returning a request id"
+            "MuAPI aceptó el envío sin devolver un id de solicitud"
         )
-    logger.info(f"MuAPI video task created: id={task_id}")
+    logger.info(f"Tarea de vídeo de MuAPI creada: id={task_id}")
 
     task = _wait_for_task(
         task_id=task_id,
@@ -310,7 +313,7 @@ def generate_videos(
             break
     if not video_url:
         raise MuAPIError(
-            f"MuAPI task completed without a downloadable video: id={task_id}",
+            f"La tarea de MuAPI terminó sin un vídeo descargable: id={task_id}",
             task_id=task_id,
         )
 
@@ -360,8 +363,8 @@ def _wait_for_task(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise MuAPIUnconfirmedTaskError(
-                "MuAPI task is still running after the configured local wait "
-                f"timeout: id={task_id}",
+                "La tarea de MuAPI sigue en curso tras el tiempo de espera local "
+                f"configurado: id={task_id}",
                 task_id=task_id,
             )
 
@@ -380,8 +383,8 @@ def _wait_for_task(
             if 300 <= status_code < 400:
                 location = getattr(response, "headers", {}).get("Location", "")
                 raise MuAPIUnconfirmedTaskError(
-                    "MuAPI polling returned an unexpected redirect; the paid "
-                    "task state is unknown: "
+                    "El sondeo de MuAPI devolvió una redirección inesperada; el estado de la "
+                    "tarea de pago es desconocido: "
                     f"HTTP {status_code}, location={_redact_secret(location, api_key)}",
                     task_id=task_id,
                 )
@@ -391,7 +394,7 @@ def _wait_for_task(
                 )
             if not 200 <= status_code < 300:
                 raise MuAPIUnconfirmedTaskError(
-                    "MuAPI task status is unknown: "
+                    "El estado de la tarea de MuAPI es desconocido: "
                     f"http_status={status_code}, "
                     f"detail={_response_error(response, api_key)}",
                     task_id=task_id,
@@ -399,14 +402,14 @@ def _wait_for_task(
             body = response.json()
             if not isinstance(body, dict):
                 raise MuAPIUnconfirmedTaskError(
-                    "MuAPI task status response is malformed", task_id=task_id
+                    "La respuesta de estado de la tarea de MuAPI está mal formada", task_id=task_id
                 )
         except MuAPIUnconfirmedTaskError:
             raise
         except Exception as exc:
             if not _is_retryable_error(exc):
                 raise MuAPIUnconfirmedTaskError(
-                    "MuAPI polling failed and the task state is unknown: "
+                    "Falló el sondeo de MuAPI y el estado de la tarea es desconocido: "
                     f"error={type(exc).__name__}, "
                     f"detail={_redact_secret(exc, api_key)}",
                     task_id=task_id,
@@ -415,20 +418,20 @@ def _wait_for_task(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise MuAPIUnconfirmedTaskError(
-                    "MuAPI task is still running after the configured local wait "
-                    f"timeout: id={task_id}",
+                    "La tarea de MuAPI sigue en curso tras el tiempo de espera local "
+                    f"configurado: id={task_id}",
                     task_id=task_id,
                 ) from exc
             consecutive_failures += 1
             if consecutive_failures > MAX_POLL_RETRIES:
                 raise MuAPIUnconfirmedTaskError(
-                    "MuAPI polling failed after retries; the paid task may still "
-                    f"be running remotely: id={task_id}",
+                    "El sondeo de MuAPI falló tras los reintentos; la tarea de pago puede seguir "
+                    f"en curso en remoto: id={task_id}",
                     task_id=task_id,
                 ) from exc
             delay = min(RETRY_BASE_SECONDS * consecutive_failures, remaining)
             logger.warning(
-                "MuAPI polling hit a transient error; retrying the same task: "
+                "El sondeo de MuAPI encontró un error pasajero; se reintenta la misma tarea: "
                 f"id={task_id}, attempt={consecutive_failures}/{MAX_POLL_RETRIES}, "
                 f"retry_in={delay:.1f}s"
             )
@@ -441,22 +444,22 @@ def _wait_for_task(
             return body
         if status in TERMINAL_FAILURE_STATUSES:
             logger.error(
-                "MuAPI task did not produce a video: "
+                "La tarea de MuAPI no produjo ningún vídeo: "
                 f"id={task_id}, status={status}, "
                 f"detail={_redact_secret(body.get('error'), api_key)}"
             )
             return None
         if status not in ACTIVE_STATUSES:
             raise MuAPIUnconfirmedTaskError(
-                f"MuAPI returned an unknown task status: id={task_id}, "
+                f"MuAPI devolvió un estado de tarea desconocido: id={task_id}, "
                 f"status={status!r}",
                 task_id=task_id,
             )
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise MuAPIUnconfirmedTaskError(
-                "MuAPI task is still running after the configured local wait "
-                f"timeout: id={task_id}",
+                "La tarea de MuAPI sigue en curso tras el tiempo de espera local "
+                f"configurado: id={task_id}",
                 task_id=task_id,
             )
         time.sleep(min(poll_interval, remaining))

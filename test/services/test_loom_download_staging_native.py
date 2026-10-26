@@ -59,8 +59,8 @@ def test_native_concurrent_downloads_use_distinct_staging_files(tmp_path):
     try:
         first.start()
         assert first_chunk.wait(5)
-        # The first request has already opened its real staging file by the
-        # time it waits for the final response chunk.
+        # La primera solicitud ya ha abierto su archivo temporal real cuando espera el
+        # último fragmento de la respuesta.
         import time
 
         deadline = time.monotonic() + 5

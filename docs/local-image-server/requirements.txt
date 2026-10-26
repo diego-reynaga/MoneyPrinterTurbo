@@ -1,4 +1,4 @@
-# install torch for your gpu first, e.g. CUDA 12.8:
+# instala primero torch para tu GPU, p. ej. CUDA 12.8:
 # pip install torch --index-url https://download.pytorch.org/whl/cu128
 diffusers
 transformers

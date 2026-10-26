@@ -32,24 +32,30 @@ SUPPORTED_RESOLUTIONS = frozenset({"480p", "720p", "1080p"})
 
 
 class VolcEngineSeedanceError(RuntimeError):
-    """确定性的配置、请求或响应错误。"""
+    """Error determinista de configuración, solicitud o respuesta."""
 
     def __init__(self, message: str, task_id: str = ""):
         super().__init__(message)
-        # 只要远端任务已经创建，所有错误类型都统一携带任务 ID。上层无需
-        # 根据异常子类分别维护恢复逻辑，WebUI/API 也能稳定展示排障依据。
+        # Una vez creada la tarea remota, todos los tipos de error llevan el ID de la
+        # tarea. La capa superior no necesita mantener lógica de recuperación según la
+        # subclase de excepción, y la WebUI/API pueden mostrar de forma estable los
+        # datos para diagnosticar.
         self.task_id = task_id
 
 
 class VolcEngineSeedanceUnconfirmedTaskError(VolcEngineSeedanceError):
-    """远端可能已创建付费任务，但本机无法确认其最终状态。"""
+    """Puede que se haya creado una tarea de pago remota, pero no se puede confirmar su
+    estado final desde aquí.
+    """
 
     def __init__(self, message: str, task_id: str = ""):
         super().__init__(message, task_id=task_id)
 
 
 class VolcEngineSeedanceDownloadError(VolcEngineSeedanceError):
-    """远端付费任务已成功，但生成的视频未能下载到本机。"""
+    """La tarea de pago remota terminó bien, pero el vídeo generado no pudo descargarse a
+    este equipo.
+    """
 
     def __init__(self, message: str, task_id: str):
         super().__init__(message, task_id=task_id)
@@ -57,11 +63,13 @@ class VolcEngineSeedanceDownloadError(VolcEngineSeedanceError):
 
 def get_api_key(settings: Mapping[str, Any] | None = None) -> str:
     """
-    按明确且唯一的优先级读取方舟凭据。
+    Lee las credenciales de Ark con una prioridad clara y única.
 
-    Seedance 专用配置优先级最高；唯一支持的运行时环境变量是语义明确的
-    ``VOLCENGINE_ARK_API_KEY``。历史 ``volcengine_api_key`` 只作为共享配置
-    兜底，避免已经接入方舟大模型的用户升级后必须重复填写同一把 Key。
+    La configuración propia de Seedance tiene la prioridad más alta; la única variable
+    de entorno admitida en tiempo de ejecución es ``VOLCENGINE_ARK_API_KEY``, de
+    significado claro. El histórico ``volcengine_api_key`` solo sirve como respaldo
+    compartido, para que los usuarios que ya usan los modelos de Ark no tengan que
+    volver a escribir la misma clave al actualizar.
     """
     settings = config.app if settings is None else settings
     configured = str(settings.get("volcengine_seedance_api_key", "") or "").strip()
@@ -92,12 +100,14 @@ def _resolution() -> str:
     configured = config.app.get("volcengine_seedance_resolution", DEFAULT_RESOLUTION)
     value = str(configured).strip().lower()
     if value not in SUPPORTED_RESOLUTIONS:
-        # 分辨率会直接影响付费任务的规格。无效值不能静默回退到最高默认
-        # 分辨率。配置项缺失时由 get 使用默认值；一旦用户显式写入空值、
-        # None、0 等非法值也必须报错，否则仍可能产生超出预期的费用。
+        # La resolución afecta directamente a la especificación de la tarea de pago. Un
+        # valor no válido no puede volver en silencio a la resolución más alta por
+        # defecto. Si la opción falta, get usa el valor por defecto; pero si el usuario
+        # escribe explícitamente un vacío, None, 0 u otro valor no válido, debe dar
+        # error, o podría generar un coste mayor del esperado.
         supported = ", ".join(sorted(SUPPORTED_RESOLUTIONS))
         raise VolcEngineSeedanceError(
-            f"Unsupported Seedance resolution {value!r}; expected one of: {supported}"
+            f"Resolución de Seedance no admitida {value!r}; se esperaba una de: {supported}"
         )
     return value
 
@@ -124,8 +134,8 @@ def _duration_bounds() -> tuple[int, int]:
         try:
             value = int(config.app.get(key, default))
         except (TypeError, ValueError, OverflowError):
-            # TOML accepts `inf`; int(inf) raises OverflowError, which is not
-            # a provider error and would abort the task with a traceback.
+            # TOML acepta `inf`; int(inf) lanza OverflowError, que no es un error del
+            # proveedor y abortaría la tarea con una traza.
             return default
         return value if value >= 1 else default
 
@@ -196,10 +206,12 @@ def _is_retryable_error(error: Exception) -> bool:
 
 
 def _rendition_size(aspect: VideoAspect, resolution: str) -> tuple[int, int]:
-    # 方舟的 480p 视频长边按编码对齐实际输出为 864，而不是数学换算得到的
-    # 854；720p 和 1080p 分别按官方比例输出 1280、1920。本机真实调用已
-    # 验证 480p 竖屏产物为 480x864。来源记录必须描述真实产物，否则后续
-    # 审计或素材诊断会看到与文件不一致的尺寸。
+    # En el vídeo 480p de Ark, el lado largo se alinea por codificación y la salida real
+    # es de 864, no los 854 del cálculo matemático; 720p y 1080p dan 1280 y 1920 según
+    # la proporción oficial. Una llamada real en este equipo verificó que el producto
+    # vertical a 480p es de 480x864. El registro de origen debe describir el producto
+    # real, o en auditorías o diagnósticos de material posteriores se verían tamaños que
+    # no coinciden con el archivo.
     short_edge = {"480p": 480, "720p": 720, "1080p": 1080}[resolution]
     long_edge = {"480p": 864, "720p": 1280, "1080p": 1920}[resolution]
     if aspect == VideoAspect.portrait:
@@ -214,36 +226,43 @@ def generate_videos(
     minimum_duration: int,
     video_aspect: VideoAspect = VideoAspect.portrait,
 ) -> list[MaterialInfo]:
-    """提交一个方舟 Seedance 文生视频任务，并等待可下载的结果地址。"""
+    """Envía una tarea de texto a vídeo Seedance de Ark y espera la dirección de un
+    resultado descargable.
+    """
     api_key = get_api_key()
     if not api_key:
         raise VolcEngineSeedanceError(
-            "Volcano Engine Seedance requires an Ark API key"
+            "Volcano Engine Seedance necesita una clave API de Ark"
         )
 
     term = str(search_term or "").strip()
     if not term:
-        # 空提示词可能来自上游脚本拆分异常。付费生成源不能把它提交到远端，
-        # 否则即使接口接受请求，也只会得到无法使用且已经计费的视频。
-        raise VolcEngineSeedanceError("Seedance search term must not be empty")
+        # Un prompt vacío puede venir de un fallo al dividir el guion en el paso
+        # anterior. Una fuente de generación de pago no puede enviarlo al servidor,
+        # porque aunque la interfaz acepte la solicitud solo daría un vídeo inutilizable
+        # y ya facturado.
+        raise VolcEngineSeedanceError("El término de búsqueda de Seedance no puede estar vacío")
 
     aspect = VideoAspect(video_aspect)
     try:
         requested_duration = max(int(minimum_duration), 1)
     except (TypeError, ValueError, OverflowError) as exc:
         raise VolcEngineSeedanceError(
-            "Seedance clip duration must be a positive integer"
+            "La duración del clip de Seedance debe ser un entero positivo"
         ) from exc
     minimum, maximum = _duration_bounds()
     duration = min(max(requested_duration, minimum), maximum)
     if duration != requested_duration:
-        # 生成比请求更长不会影响成片：剪辑流程仍按片段时长裁剪；生成比请求
-        # 更短只发生在请求超过模型上限时，此时也只能收敛到上限。其它付费视频源
-        # 都会说明这次收敛，否则用户无法解释成片片段为何比配置值短。
+        # Generar más de lo pedido no afecta al vídeo final: el montaje sigue recortando
+        # según la duración del clip; generar menos de lo pedido solo ocurre cuando la
+        # solicitud supera el máximo del modelo, y entonces solo se puede ajustar a ese
+        # máximo. Las demás fuentes de vídeo de pago explican este ajuste; si no, el
+        # usuario no podría entender por qué los clips del vídeo final son más cortos
+        # que lo configurado.
         logger.info(
-            "Seedance clip duration clamped to the configured model range: "
+            "Duración del clip de Seedance ajustada al rango del modelo configurado: "
             f"requested={requested_duration}s, using={duration}s "
-            f"(configured {minimum}-{maximum}s)"
+            f"(configurado {minimum}-{maximum}s)"
         )
     resolution = _resolution()
     payload = {
@@ -260,12 +279,14 @@ def generate_videos(
     }
     tasks_url = f"{_base_url()}/contents/generations/tasks"
     logger.info(
-        "generating video with Volcano Engine Seedance: "
+        "generando vídeo con Volcano Engine Seedance: "
         f"model={payload['model']}, term={term!r}, duration={duration}s"
     )
 
-    # 提交接口不做自动重试：超时或 5xx 可能发生在付费任务已经创建之后，
-    # 盲目重试会造成重复扣费。只有拿到明确拒绝响应时才判定为确定性失败。
+    # La interfaz de envío no se reintenta automáticamente: un tiempo de espera o un 5xx
+    # pueden ocurrir después de crearse la tarea de pago, y reintentar a ciegas cobraría
+    # dos veces. Solo se considera fallo determinista cuando hay una respuesta de
+    # rechazo explícita.
     try:
         response = trace_http_call(
             "POST", requests.post,
@@ -279,40 +300,40 @@ def generate_videos(
         )
     except Exception as exc:
         raise VolcEngineSeedanceUnconfirmedTaskError(
-            "Seedance submission returned no response; a paid task may already "
-            "exist remotely: "
+            "El envío a Seedance no devolvió respuesta; puede que ya exista "
+            "una tarea de pago en remoto: "
             f"error={type(exc).__name__}, detail={_redact_secret(exc, api_key)}"
         ) from exc
 
     status_code = _status_code(response)
     if 300 <= status_code < 400:
         raise VolcEngineSeedanceUnconfirmedTaskError(
-            "Seedance submission returned a redirect; the paid task state is "
-            "unknown and the request was not replayed"
+            "El envío a Seedance devolvió una redirección; el estado de la tarea de pago es "
+            "desconocido y la solicitud no se repitió"
         )
     if status_code >= 500:
         raise VolcEngineSeedanceUnconfirmedTaskError(
-            f"Seedance submission failed with HTTP {status_code}; a paid task may "
-            "already exist remotely"
+            f"El envío a Seedance falló con HTTP {status_code}; puede que ya exista "
+            "una tarea de pago en remoto"
         )
     if not 200 <= status_code < 300:
         raise VolcEngineSeedanceError(
-            "Seedance video generation request rejected: "
+            "Solicitud de generación de vídeo de Seedance rechazada: "
             f"HTTP {status_code}, {_response_error(response, api_key)}"
         )
     try:
         body = response.json()
     except Exception as exc:
         raise VolcEngineSeedanceUnconfirmedTaskError(
-            "Seedance submission returned an unreadable response; a paid task may "
-            f"already exist remotely: error={type(exc).__name__}"
+            "El envío a Seedance devolvió una respuesta ilegible; puede que ya exista "
+            f"una tarea de pago en remoto: error={type(exc).__name__}"
         ) from exc
     task_id = str(body.get("id") or "").strip() if isinstance(body, dict) else ""
     if not task_id:
         raise VolcEngineSeedanceUnconfirmedTaskError(
-            "Seedance accepted the submission without returning a task id"
+            "Seedance aceptó el envío sin devolver un id de tarea"
         )
-    logger.info(f"Volcano Engine Seedance task created: id={task_id}")
+    logger.info(f"Tarea de Volcano Engine Seedance creada: id={task_id}")
 
     task = _wait_for_task(
         task_id=task_id,
@@ -326,7 +347,7 @@ def generate_videos(
     video_url = content.get("video_url") if isinstance(content, dict) else None
     if not isinstance(video_url, str) or not video_url.startswith(("http://", "https://")):
         raise VolcEngineSeedanceError(
-            f"Seedance task succeeded without a downloadable video: id={task_id}",
+            f"La tarea de Seedance terminó bien pero sin un vídeo descargable: id={task_id}",
             task_id=task_id,
         )
 
@@ -374,14 +395,16 @@ def _wait_for_task(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise VolcEngineSeedanceUnconfirmedTaskError(
-                "Seedance task is still running after the configured local wait "
-                f"timeout: id={task_id}",
+                "La tarea de Seedance sigue en curso tras el tiempo de espera local "
+                f"configurado: id={task_id}",
                 task_id=task_id,
             )
 
-        # requests 的 connect/read timeout 分别计时，因此各使用剩余总时间的
-        # 一半。即使连接和读取都走到上限，单轮请求也不会有意超过总截止时间；
-        # 网络库仍可能有极小调度误差，下一处 deadline 检查会阻止再次重试。
+        # Los tiempos de espera de conexión y lectura de requests se cuentan por
+        # separado, así que cada uno usa la mitad del tiempo total restante. Aunque la
+        # conexión y la lectura lleguen al máximo, una vuelta no supera a propósito el
+        # plazo total; la librería de red aún puede tener un pequeño error de
+        # planificación, y la siguiente comprobación del plazo impide otro reintento.
         phase_timeout = max(min(remaining / 2.0, 30.0), 0.001)
         try:
             response = trace_http_call(
@@ -400,21 +423,21 @@ def _wait_for_task(
                 )
             if not 200 <= status_code < 300:
                 raise VolcEngineSeedanceUnconfirmedTaskError(
-                    "Seedance task status is unknown: "
+                    "El estado de la tarea de Seedance es desconocido: "
                     f"http_status={status_code}, detail={_response_error(response, api_key)}",
                     task_id=task_id,
                 )
             body = response.json()
             if not isinstance(body, dict):
                 raise VolcEngineSeedanceUnconfirmedTaskError(
-                    "Seedance task status response is malformed", task_id=task_id
+                    "La respuesta de estado de la tarea de Seedance está mal formada", task_id=task_id
                 )
         except VolcEngineSeedanceUnconfirmedTaskError:
             raise
         except Exception as exc:
             if not _is_retryable_error(exc):
                 raise VolcEngineSeedanceUnconfirmedTaskError(
-                    "Seedance polling failed and the paid task state is unknown: "
+                    "Falló el sondeo de Seedance y el estado de la tarea de pago es desconocido: "
                     f"error={type(exc).__name__}, detail={_redact_secret(exc, api_key)}",
                     task_id=task_id,
                 ) from exc
@@ -422,20 +445,20 @@ def _wait_for_task(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise VolcEngineSeedanceUnconfirmedTaskError(
-                    "Seedance task is still running after the configured local wait "
-                    f"timeout: id={task_id}",
+                    "La tarea de Seedance sigue en curso tras el tiempo de espera local "
+                    f"configurado: id={task_id}",
                     task_id=task_id,
                 ) from exc
             consecutive_failures += 1
             if consecutive_failures > MAX_POLL_RETRIES:
                 raise VolcEngineSeedanceUnconfirmedTaskError(
-                    "Seedance polling failed after retries; the paid task may still "
-                    f"be running remotely: id={task_id}",
+                    "El sondeo de Seedance falló tras los reintentos; la tarea de pago puede seguir "
+                    f"en curso en remoto: id={task_id}",
                     task_id=task_id,
                 ) from exc
             delay = min(RETRY_BASE_SECONDS * consecutive_failures, remaining)
             logger.warning(
-                "Seedance polling hit a transient error; retrying the same task: "
+                "El sondeo de Seedance encontró un error pasajero; se reintenta la misma tarea: "
                 f"id={task_id}, attempt={consecutive_failures}/{MAX_POLL_RETRIES}, "
                 f"retry_in={delay:.1f}s"
             )
@@ -448,21 +471,21 @@ def _wait_for_task(
             return body
         if status in TERMINAL_FAILURE_STATUSES:
             raise VolcEngineSeedanceError(
-                "Seedance task did not produce a video: "
+                "La tarea de Seedance no produjo ningún vídeo: "
                 f"id={task_id}, status={status}, "
                 f"detail={_redact_secret(body.get('error'), api_key)}",
                 task_id=task_id,
             )
         if status not in ACTIVE_STATUSES:
             raise VolcEngineSeedanceUnconfirmedTaskError(
-                f"Seedance returned an unknown task status: id={task_id}, status={status!r}",
+                f"Seedance devolvió un estado de tarea desconocido: id={task_id}, status={status!r}",
                 task_id=task_id,
             )
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise VolcEngineSeedanceUnconfirmedTaskError(
-                "Seedance task is still running after the configured local wait "
-                f"timeout: id={task_id}",
+                "La tarea de Seedance sigue en curso tras el tiempo de espera local "
+                f"configurado: id={task_id}",
                 task_id=task_id,
             )
         time.sleep(min(poll_interval, remaining))

@@ -27,8 +27,10 @@ def test_looped_background_music_fades_only_at_final_video_end(tmp_path):
         return float(np.sqrt(np.mean(window * window)))
     initial = rms(0.2, 0.4)
     assert initial > 0.02
-    # An interior point close to the first source's end must remain at full gain.
+    # Un punto interior cercano al final de la primera fuente debe mantener la ganancia
+    # completa.
     assert rms(1.7, 1.9) > initial * 0.85
     assert rms(3.7, 3.9) > initial * 0.85
-    # Only the final three seconds fade; the endpoint is quieter than its start.
+    # Solo se atenúan los últimos tres segundos; el punto final suena más bajo que su
+    # inicio.
     assert rms(7.7, 7.9) < initial * 0.15

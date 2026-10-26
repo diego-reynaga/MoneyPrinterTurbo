@@ -49,7 +49,7 @@ def _wav_bytes() -> bytes:
 
 
 def _run_webui_audio_block(uploaded_audio_file, task_dir, stage_dir):
-    """Execute the real generation handler's custom-audio upload branch."""
+    """Ejecuta la rama real de subida de audio personalizado del manejador de generación."""
     tree = ast.parse(WEBUI_MAIN.read_text(encoding="utf-8"))
     generation = next(
         node for node in tree.body

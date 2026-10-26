@@ -75,7 +75,7 @@ class TestVolcEngineSeedanceService(unittest.TestCase):
                     with self.assertRaises(seedance.VolcEngineSeedanceError) as raised:
                         seedance.generate_videos(invalid, 5)
 
-                self.assertIn("search term must not be empty", str(raised.exception))
+                self.assertIn("no puede estar vacío", str(raised.exception))
                 post.assert_not_called()
 
     def test_search_term_is_trimmed_consistently_in_request_and_source_record(self):
@@ -184,7 +184,7 @@ class TestVolcEngineSeedanceService(unittest.TestCase):
                         seedance.generate_videos("city", 5)
 
                 self.assertIn(
-                    "Unsupported Seedance resolution", str(raised.exception)
+                    "Resolución de Seedance no admitida", str(raised.exception)
                 )
                 post.assert_not_called()
 
@@ -260,12 +260,14 @@ class TestVolcEngineSeedanceService(unittest.TestCase):
         finally:
             logger.remove(handler_id)
 
-        # 用户请求 99 秒、实际提交 8 秒。其它付费视频源都会说明这次收敛，因此
-        # 日志必须同时带上请求值和提交值，否则成片片段比配置值短时无法解释。
+        # El usuario pide 99 segundos y se envían 8. Las demás fuentes de vídeo de pago
+        # explican este ajuste, así que el registro debe incluir tanto el valor pedido
+        # como el enviado; si no, no se puede explicar por qué los clips del vídeo final
+        # son más cortos que lo configurado.
         self.assertEqual(result[0].duration, 8)
         self.assertTrue(
             any(
-                "clamped" in message
+                "ajustada" in message
                 and "requested=99s" in message
                 and "using=8s" in message
                 for message in messages
@@ -303,7 +305,7 @@ class TestVolcEngineSeedanceService(unittest.TestCase):
             logger.remove(handler_id)
 
         self.assertFalse(
-            [message for message in messages if "clamped" in message], messages
+            [message for message in messages if "ajustada" in message], messages
         )
 
     def test_invalid_clip_duration_raises_seedance_error_without_paid_submission(self):
@@ -313,7 +315,7 @@ class TestVolcEngineSeedanceService(unittest.TestCase):
                     with self.assertRaises(seedance.VolcEngineSeedanceError) as raised:
                         seedance.generate_videos("city", invalid)
 
-                self.assertIn("clip duration", str(raised.exception))
+                self.assertIn("uración del clip", str(raised.exception))
                 post.assert_not_called()
 
     def test_rejected_submission_raises_clear_error_without_polling(self):
@@ -420,8 +422,9 @@ class TestVolcEngineSeedanceService(unittest.TestCase):
         self.assertEqual(raised.exception.task_id, "cgt-running")
 
     def test_network_retry_stops_when_total_run_deadline_is_reached(self):
-        # 第一次请求前仍有 59 秒；请求异常返回时总截止时间已经过去，不能继续
-        # 执行其余五次网络重试，也不能再进入退避 sleep。
+        # Antes de la primera solicitud quedan 59 segundos; cuando la solicitud vuelve
+        # con error, el plazo total ya ha pasado, así que no deben ejecutarse los otros
+        # cinco reintentos de red ni entrar en el sleep de espera.
         config.app["volcengine_seedance_run_timeout"] = 60
         clock = iter([0.0, 1.0, 61.0])
         with (
@@ -476,8 +479,10 @@ class TestVolcEngineSeedanceService(unittest.TestCase):
             }
         )
         running = self._response({"id": "cgt-running", "status": "running"})
-        # 第一次响应完成时只剩 0.25 秒，应只休眠剩余时间；下一轮在发起
-        # 网络请求前发现截止时间已过，避免额外一次远端请求。
+        # Cuando termina la primera respuesta solo quedan 0,25 segundos, así que solo
+        # debe dormir el tiempo restante; la siguiente vuelta detecta que el plazo ha
+        # pasado antes de lanzar la solicitud de red, evitando una solicitud remota
+        # extra.
         clock = iter([0.0, 59.0, 59.75, 60.1])
         with (
             patch.object(seedance.requests, "get", return_value=running) as get,
@@ -717,7 +722,7 @@ class TestVolcEngineSeedanceMaterialIntegration(unittest.TestCase):
                             max_clip_duration=5,
                         )
 
-                self.assertIn("audio duration", str(raised.exception))
+                self.assertIn("duración del audio", str(raised.exception))
                 generate.assert_not_called()
 
     def test_invalid_clip_duration_fails_before_paid_submission(self):
@@ -733,7 +738,7 @@ class TestVolcEngineSeedanceMaterialIntegration(unittest.TestCase):
                             max_clip_duration=clip_duration,
                         )
 
-                self.assertIn("clip duration", str(raised.exception))
+                self.assertIn("uración del clip", str(raised.exception))
                 generate.assert_not_called()
 
     def test_unconfirmed_task_stops_later_paid_submissions(self):
@@ -827,7 +832,7 @@ class TestVolcEngineSeedanceMaterialIntegration(unittest.TestCase):
             )
 
         self.assertEqual(result["failed_stage"], "preflight")
-        self.assertIn("Ark API key", result["error"])
+        self.assertIn("API Key de Ark", result["error"])
         generate_script.assert_not_called()
 
     def test_task_records_seedance_material_error_and_remote_task_id(self):
@@ -861,8 +866,10 @@ class TestVolcEngineSeedanceMaterialIntegration(unittest.TestCase):
             video_source="volcengine_seedance",
         )
         memory_state = sm.MemoryState()
-        # 终态失败和协议异常使用基础错误类型。这里验证它们与“状态未知”
-        # 异常保持同一恢复信息契约，不会在任务状态中丢失远端任务 ID。
+        # Los fallos en estado final y los errores de protocolo usan el tipo de error
+        # base. Aquí se verifica que mantienen el mismo contrato de información de
+        # recuperación que la excepción de "estado desconocido", sin perder el ID de la
+        # tarea remota en el estado de la tarea.
         error = seedance.VolcEngineSeedanceError(
             "remote task failed", task_id="cgt-terminal"
         )

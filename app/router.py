@@ -1,10 +1,9 @@
-"""Application configuration - root APIRouter
+"""Configuración de la aplicación - APIRouter raíz
 
-Defines all FastAPI application endpoints.
+Define todos los endpoints de la aplicación FastAPI.
 
-Resources:
+Recursos:
     1. https://fastapi.tiangolo.com/tutorial/bigger-applications
-
 """
 
 from fastapi import APIRouter

@@ -1,4 +1,4 @@
-"""Preserve usable results when a later video in the same task fails."""
+"""Conserva los resultados utilizables cuando falla un vídeo posterior de la misma tarea."""
 
 import os
 import tempfile
@@ -38,7 +38,7 @@ class TestPartialBatchResults(unittest.TestCase):
             output = Path(kwargs["output_file"])
             index = int(output.stem.split("-")[-1])
             if index == fail_at and failure_stage == "render":
-                # A leftover file must not be discovered as a completed result.
+                # Un archivo sobrante no debe detectarse como resultado completado.
                 output.write_bytes(b"incomplete encoder output")
                 raise OSError("simulated render failure")
             output.write_bytes(b"complete encoder output")

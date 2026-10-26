@@ -57,22 +57,26 @@ class TestUploadPostService(unittest.TestCase):
     )
     @patch("app.services.upload_post.requests.post")
     def test_unconfigured_service_skips_request(self, mock_post):
-        """功能未启用时不能意外上传文件或消耗第三方 API 配额。"""
+        """Si la función no está activada no se deben subir archivos por accidente ni
+        consumir cuota de API de terceros.
+        """
         result = UploadPostService().upload_video("/fake/v.mp4", "Title")
 
         self.assertFalse(result["success"])
-        self.assertIn("not configured", result["error"])
+        self.assertIn("no está configurado", result["error"])
         mock_post.assert_not_called()
 
     @patch("app.services.upload_post.config.app", _CONFIG_BASE)
     @patch("app.services.upload_post.os.path.exists", return_value=False)
     @patch("app.services.upload_post.requests.post")
     def test_missing_video_skips_request(self, mock_post, _exists):
-        """本地成片不存在时应在发起网络请求前返回明确错误。"""
+        """Si el vídeo final local no existe, debe devolverse un error claro antes de
+        lanzar solicitudes de red.
+        """
         result = UploadPostService().upload_video("/missing/v.mp4", "Title")
 
         self.assertFalse(result["success"])
-        self.assertIn("Video file not found", result["error"])
+        self.assertIn("No se encontró el archivo de vídeo", result["error"])
         mock_post.assert_not_called()
 
     @patch("app.services.upload_post.config.app", _CONFIG_BASE)
@@ -80,7 +84,9 @@ class TestUploadPostService(unittest.TestCase):
     @patch("builtins.open", mock_open(read_data=b"fake"))
     @patch("app.services.upload_post.requests.post")
     def test_upload_request_error_returns_failure(self, mock_post, _exists):
-        """网络异常需要转换为稳定结果，不能让发布失败中断视频生成任务。"""
+        """Las excepciones de red deben convertirse en un resultado estable; un fallo de
+        publicación no debe interrumpir la tarea de generación del vídeo.
+        """
         mock_post.side_effect = requests.exceptions.Timeout("upload timed out")
 
         result = UploadPostService().upload_video("/fake/v.mp4", "Title")
@@ -93,7 +99,7 @@ class TestUploadPostService(unittest.TestCase):
     @patch("builtins.open", mock_open(read_data=b"fake"))
     @patch("app.services.upload_post.requests.post")
     def test_upload_does_not_replay_video_on_redirect(self, mock_post, _exists):
-        """A 307 must not resend the video or API key to the redirect target."""
+        """Un 307 no debe reenviar el vídeo ni la clave API al destino de la redirección."""
         response = _mock_response()
         response.status_code = 307
         response.headers = {"Location": "https://other.example/upload"}
@@ -102,14 +108,16 @@ class TestUploadPostService(unittest.TestCase):
         result = UploadPostService().upload_video("/fake/v.mp4", "Title")
 
         self.assertFalse(result["success"])
-        self.assertIn("redirect", result["error"])
+        self.assertIn("redirección", result["error"])
         self.assertIs(mock_post.call_args.kwargs.get("allow_redirects"), False)
         response.json.assert_not_called()
 
     @patch("app.services.upload_post.config.app", _CONFIG_BASE)
     @patch("app.services.upload_post.requests.get")
     def test_check_status_returns_payload_or_network_failure(self, mock_get):
-        """状态查询成功和失败应使用与上传接口一致的返回约定。"""
+        """El éxito y el fallo de la consulta de estado deben usar el mismo contrato de
+        retorno que la interfaz de subida.
+        """
         response = _mock_response()
         response.json.return_value = {"success": True, "status": "processing"}
         mock_get.return_value = response
@@ -130,7 +138,9 @@ class TestUploadPostService(unittest.TestCase):
     @patch("builtins.open", mock_open(read_data=b"fake"))
     @patch("app.services.upload_post.requests.post")
     def test_upload_rejects_unexpected_json_shape(self, mock_post, _exists):
-        """A malformed provider payload must not abort subsequent video uploads."""
+        """Una carga útil mal formada del proveedor no debe abortar las subidas de vídeo
+        siguientes.
+        """
         response = _mock_response()
         response.json.return_value = ["unexpected"]
         mock_post.side_effect = [response, _mock_response()]
@@ -139,7 +149,7 @@ class TestUploadPostService(unittest.TestCase):
         result = service.upload_video("/fake/v.mp4", "Title")
 
         self.assertEqual(result["success"], False)
-        self.assertIn("invalid response", result["error"])
+        self.assertIn("respuesta no válida", result["error"])
         self.assertTrue(service.upload_video("/fake/next.mp4", "Next")["success"])
         self.assertEqual(mock_post.call_count, 2)
 
@@ -153,7 +163,7 @@ class TestUploadPostService(unittest.TestCase):
         result = UploadPostService().check_status("request-123")
 
         self.assertEqual(result["success"], False)
-        self.assertIn("invalid response", result["error"])
+        self.assertIn("respuesta no válida", result["error"])
 
     @patch("app.services.upload_post.config.app", _CONFIG_BASE)
     @patch("app.services.upload_post.os.path.exists", return_value=True)
@@ -167,14 +177,16 @@ class TestUploadPostService(unittest.TestCase):
         result = UploadPostService().upload_video("/fake/v.mp4", "Title")
 
         self.assertIs(result["success"], False)
-        self.assertIn("invalid response", result["error"])
+        self.assertIn("respuesta no válida", result["error"])
 
     @patch("app.services.upload_post.config.app", _CONFIG_BASE)
     @patch("app.services.upload_post.os.path.exists", return_value=True)
     @patch("builtins.open", mock_open(read_data=b"fake"))
     @patch("app.services.upload_post.requests.post")
     def test_sync_upload_reports_failed_platform(self, mock_post, _exists):
-        """Top-level success means accepted even when one platform failed."""
+        """El éxito de nivel superior significa aceptado aunque una plataforma haya
+        fallado.
+        """
         response = _mock_response()
         response.json.return_value = {
             "success": True,
@@ -200,7 +212,7 @@ class TestUploadPostService(unittest.TestCase):
     def test_upload_without_results_uses_request_id_to_confirm_status(
         self, mock_post, _exists
     ):
-        """A returned request ID is still an in-flight upload without results."""
+        """Un ID de solicitud devuelto sigue siendo una subida en curso sin resultados."""
         response = _mock_response()
         response.json.return_value = {"success": True, "request_id": "req-only"}
         mock_post.return_value = response
@@ -234,14 +246,16 @@ class TestUploadPostService(unittest.TestCase):
         )
 
         self.assertIs(result["success"], False)
-        self.assertIn("invalid platform results", result["error"])
+        self.assertIn("resultados de plataforma no válidos", result["error"])
 
     @patch("app.services.upload_post.config.app", _CONFIG_BASE)
     @patch("app.services.upload_post.os.path.exists", return_value=True)
     @patch("builtins.open", mock_open(read_data=b"fake"))
     @patch("app.services.upload_post.requests.post")
     def test_background_upload_waits_for_platform_results(self, mock_post, _exists):
-        """A 200 background acceptance must not become a completed cross-post."""
+        """Una aceptación en segundo plano con 200 no debe convertirse en una publicación
+        cruzada completada.
+        """
         response = _mock_response()
         response.json.return_value = {
             "success": True,
@@ -336,7 +350,7 @@ class TestUploadPostService(unittest.TestCase):
 
         self.assertIs(result["success"], False)
         self.assertEqual(result["request_id"], "req-slow")
-        self.assertIn("did not complete", result["error"])
+        self.assertIn("no se completó", result["error"])
         check_status.assert_called_once()
         clock.sleep.assert_not_called()
 

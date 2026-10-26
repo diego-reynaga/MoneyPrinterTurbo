@@ -15,7 +15,9 @@ from app.services import voice
 
 @pytest.mark.parametrize("outcome,strict,nested", [("completed", True, False), ("completed", True, True), ("completed", False, False), ("cancelled", False, False), ("error", False, False), ("empty", False, False)])
 def test_public_azure_file_output_preserves_last_success(tmp_path, outcome, strict, nested):
-    """Controlled documented SDK file/callback boundary; no real Azure call."""
+    """Límite controlado y documentado de archivo/callback del SDK; sin llamadas reales a
+    Azure.
+    """
     if not shutil.which("ffmpeg"):
         pytest.skip("native FFmpeg required")
     complete = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=880:duration=0.2", "-f", "mp3", "-"], capture_output=True, check=True).stdout

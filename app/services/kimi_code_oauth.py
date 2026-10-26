@@ -1,24 +1,24 @@
 """
-Kimi Code (Kimi subscription) OAuth device-flow support.
+Soporte del flujo de dispositivo OAuth de Kimi Code (suscripción de Kimi).
 
-Kimi Code plan subscribers do not pay per token: they authenticate once in the
-browser and third-party apps call the OpenAI-compatible coding endpoint with a
-Bearer token. This module implements the device authorization grant used by
-the Kimi Code CLI:
+Los suscriptores del plan Kimi Code no pagan por token: se autentican una vez en el
+navegador y las aplicaciones de terceros llaman al endpoint de programación compatible
+con OpenAI con un token Bearer. Este módulo implementa la concesión de autorización de
+dispositivo que usa la CLI de Kimi Code:
 
   1. POST {auth}/api/oauth/device_authorization  -> device_code + user_code
-  2. user opens {site}/code/authorize_device?user_code=... and approves
+  2. el usuario abre {site}/code/authorize_device?user_code=... y aprueba
   3. POST {auth}/api/oauth/token                 -> access_token (+ refresh_token)
-  4. call {api}/usages, {api}/messages with the access token
+  4. llamar a {api}/usages, {api}/messages con el access token
 
-Both regions are supported: China (auth.kimi.com / api.kimi.com) and Global
-(auth.kimi.ai / api.kimi.ai). Token bundles are persisted in the app config so
-a refresh survives restarts; access tokens expire after 15 minutes and are
-renewed transparently with the stored refresh token.
+Se admiten ambas regiones: China (auth.kimi.com / api.kimi.com) y Global (auth.kimi.ai /
+api.kimi.ai). Los paquetes de tokens se persisten en la configuración de la aplicación
+para que un refresh sobreviva a los reinicios; los access tokens caducan a los 15
+minutos y se renuevan de forma transparente con el refresh token guardado.
 
-Requests identify themselves genuinely as MoneyPrinterTurbo (X-Msh-* headers
-and User-Agent), following Kimi's third-party guideline to keep the tool's
-real client identity — the same shape CLIProxyAPI uses in production.
+Las solicitudes se identifican de verdad como MoneyPrinterTurbo (cabeceras X-Msh-* y
+User-Agent), siguiendo la guía de Kimi para terceros de mantener la identidad real del
+cliente de la herramienta, con la misma forma que usa CLIProxyAPI en producción.
 """
 
 import math
@@ -34,12 +34,12 @@ from app.utils.request_logging import trace_http_call
 from app import __version__
 from app.config import config
 
-# Public OAuth client id shipped by the Kimi Code CLI. There is no third-party
-# client registration today, so every integration with the device flow uses
-# this id (CLIProxyAPI and many others do the same); what identifies the
-# application is the genuine identity headers below, not the client id. A
-# dedicated MoneyPrinterTurbo client id can be set later through the
-# `kimi_code_client_id` config field once issued.
+# ID de cliente OAuth público que incluye la CLI de Kimi Code. Hoy no existe registro de
+# clientes de terceros, así que todas las integraciones con el flujo de dispositivo usan
+# este id (CLIProxyAPI y muchas otras hacen lo mismo); lo que identifica a la aplicación
+# son las cabeceras de identidad reales de abajo, no el client id. Más adelante, cuando
+# se emita, se podrá configurar un client id propio de MoneyPrinterTurbo con el campo de
+# configuración `kimi_code_client_id`.
 DEFAULT_CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098"
 
 DEFAULT_TIMEOUT_SECONDS = 300.0
@@ -57,45 +57,53 @@ _REGIONS = {
     },
 }
 
-# config.app keys used to persist the OAuth state
+# claves de config.app usadas para persistir el estado OAuth
 _K_REGION = "kimi_code_region"
 _K_CLIENT_ID = "kimi_code_client_id"
 _K_DEVICE_ID = "kimi_code_device_id"
 _K_ACCESS = "kimi_code_access_token"
 _K_REFRESH = "kimi_code_refresh_token"
-_K_EXPIRES_AT = "kimi_code_token_expires_at"  # unix seconds (float)
-_K_USER_CODE = "kimi_code_last_user_code"  # diagnostics only
+_K_EXPIRES_AT = "kimi_code_token_expires_at"  # segundos unix (float)
+_K_USER_CODE = "kimi_code_last_user_code"  # solo para diagnóstico
 
-# Refresh 60 seconds before actual expiry so a slow request never starts with
-# a token that dies mid-flight.
+# Se refresca 60 segundos antes de la caducidad real para que una solicitud lenta nunca
+# empiece con un token que muera a mitad de camino.
 _EXPIRY_MARGIN_SECONDS = 60.0
 
-# Kimi 会轮换 refresh token，同一个旧 token 只能成功续期一次。并发请求必须
-# 串行续期，否则第二个线程会拿着已轮换的旧 token 得到 invalid_grant。
+# Kimi rota el refresh token, y un mismo token antiguo solo puede renovarse una vez con
+# éxito. Las solicitudes concurrentes deben renovar en serie; si no, el segundo hilo
+# usaría el token antiguo ya rotado y obtendría invalid_grant.
 _refresh_lock = threading.Lock()
-# 网络请求不持有凭据锁；验证响应归属和写回必须在同一个临界区完成。
+# Las solicitudes de red no tienen el bloqueo de credenciales; la verificación de a
+# quién pertenece la respuesta y la escritura deben hacerse en la misma sección crítica.
 _credentials_lock = threading.RLock()
 _authorization_generation = 0
 
 
 def authorization_generation() -> int:
-    """返回登录／断开版本，供在途授权响应检查是否仍属于当前账号状态。"""
+    """Devuelve la versión de inicio de sesión/desconexión, para que las respuestas de
+    autorización en curso comprueben si siguen perteneciendo al estado de cuenta actual.
+    """
     with _credentials_lock:
         return _authorization_generation
 
 
 def _cfg(key, default=""):
-    # 读路径必须合并排队中的非阻塞更新：视频任务持有配置锁期间，_set 的写入
-    # 只进入队列，直接读 config.app 会看不到刚完成的登录或 refresh 结果，
-    # 导致已授权被误判为未授权、或用已轮换的旧 refresh token 重复续期。
+    # La ruta de lectura debe fusionar las actualizaciones no bloqueantes en cola:
+    # mientras una tarea de vídeo tiene el bloqueo de configuración, las escrituras de
+    # _set solo entran en la cola, y leer directamente config.app no vería el inicio de
+    # sesión o el refresh recién completados, de modo que se tomaría por no autorizado
+    # algo ya autorizado, o se renovaría otra vez con el refresh token antiguo ya
+    # rotado.
     snapshot = config.snapshot_config_with_pending(config.app)
     value = snapshot.get(key, default)
     return value if value is not None else default
 
 
 def _set(key, value):
-    # Queued non-blocking update; applied immediately when no video task holds
-    # the config lock, otherwise applied when the running task releases it.
+    # Actualización no bloqueante en cola; se aplica de inmediato si ninguna tarea de
+    # vídeo tiene el bloqueo de configuración y, si no, cuando la tarea en ejecución lo
+    # libera.
     config.update_config_nonblocking(config.app, key, value)
 
 
@@ -117,7 +125,7 @@ def region_ids() -> list[str]:
 
 
 def resolve_region(base_url: str | None = None) -> str:
-    """Map an API base URL (or empty value) back to a region id."""
+    """Convierte una URL base de API (o un valor vacío) de nuevo en un id de región."""
     url = (base_url or "").strip().lower()
     if "kimi.ai" in url:
         return "global"
@@ -133,8 +141,9 @@ def site_base_url(region: str) -> str:
 
 
 def _identity_headers() -> dict:
-    # 真实身份（对齐 Kimi 第三方指引与 CLIProxyAPI 的生产实践）：platform 与
-    # 版本都是 MoneyPrinterTurbo 自己的，不伪装成 kimi_code_cli。
+    # Identidad real (siguiendo la guía de Kimi para terceros y la práctica de
+    # CLIProxyAPI en producción): la plataforma y la versión son las de
+    # MoneyPrinterTurbo, sin hacerse pasar por kimi_code_cli.
     return {
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
@@ -149,16 +158,18 @@ def _identity_headers() -> dict:
 
 
 def api_headers() -> dict:
-    """Identity headers for calls against the coding endpoint itself."""
+    """Cabeceras de identidad para las llamadas al propio endpoint de programación."""
     headers = _identity_headers()
     headers.pop("Content-Type", None)
     return headers
 
 
 def request_device_code(region: str) -> dict:
-    """Start a device authorization flow. Returns the raw provider payload."""
+    """Inicia un flujo de autorización de dispositivo. Devuelve la carga útil del proveedor
+    en bruto.
+    """
     if region not in _REGIONS:
-        raise ValueError(f"kimi_code: unknown region '{region}'")
+        raise ValueError(f"kimi_code: región desconocida '{region}'")
     url = f"{_REGIONS[region]['auth_base']}/api/oauth/device_authorization"
     response = trace_http_call(
         "POST", requests.post,
@@ -169,13 +180,13 @@ def request_device_code(region: str) -> dict:
     )
     if response.status_code != 200:
         raise ValueError(
-            f"kimi_code: device code request failed "
+            f"kimi_code: falló la solicitud del código de dispositivo "
             f"({response.status_code}): {response.text[:300]}"
         )
     data = _json_or_raise(response, "device authorization")
     for field in ("device_code", "user_code", "verification_uri_complete"):
         if not data.get(field):
-            raise ValueError(f"kimi_code: device authorization missing '{field}'")
+            raise ValueError(f"kimi_code: a la autorización de dispositivo le falta '{field}'")
     _set(_K_USER_CODE, data["user_code"])
     return data
 
@@ -185,19 +196,20 @@ def _json_or_raise(response, what: str) -> dict:
         return response.json()
     except ValueError:
         raise ValueError(
-            f"kimi_code: {what} returned a non-JSON response "
+            f"kimi_code: {what} devolvió una respuesta que no es JSON "
             f"(HTTP {response.status_code}): {response.text[:200]}"
         ) from None
 
 
 def poll_token(region: str, device_code: str) -> dict:
     """
-    One poll of the token endpoint. Returns:
-      - {"pending": True}                     — user has not approved yet
-      - {"pending": True, "slow_down": True}  — server asks to poll slower
-      - {"expired": True}                     — device code expired; restart
-      - {"denied": True}                      — user declined the request
-      - the token payload                     — approved
+    Un sondeo del endpoint de token. Devuelve:
+      - {"pending": True}                     — el usuario aún no ha aprobado
+      - {"pending": True, "slow_down": True}  — el servidor pide sondear más despacio
+      - {"expired": True}                     — el código de dispositivo caducó; volver
+        a empezar
+      - {"denied": True}                      — el usuario rechazó la solicitud
+      - la carga útil del token               — aprobado
     """
     url = f"{_REGIONS[region]['auth_base']}/api/oauth/token"
     response = trace_http_call(
@@ -218,15 +230,15 @@ def poll_token(region: str, device_code: str) -> dict:
     if error == "authorization_pending":
         return {"pending": True}
     if error == "slow_down":
-        # RFC 8628 §3.5: keep polling, but increase the interval — this is a
-        # rate hint, not a failure.
+        # RFC 8628 §3.5: se sigue sondeando, pero se aumenta el intervalo; es una
+        # indicación de ritmo, no un fallo.
         return {"pending": True, "slow_down": True}
     if error == "expired_token":
         return {"expired": True}
     if error == "access_denied":
         return {"denied": True}
     raise ValueError(
-        f"kimi_code: token request failed: "
+        f"kimi_code: falló la solicitud del token: "
         f"{data.get('error_description') or data.get('error') or data}"
     )
 
@@ -247,7 +259,7 @@ def _refresh(region: str, refresh_token: str) -> dict:
     data = _json_or_raise(response, "token refresh")
     if not data.get("access_token"):
         raise ValueError(
-            f"kimi_code: token refresh failed: "
+            f"kimi_code: falló la renovación del token: "
             f"{data.get('error_description') or data.get('error') or data}"
         )
     return data
@@ -260,7 +272,10 @@ def store_token_bundle(
     expected_generation: int | None = None,
     expected_refresh_token: str | None = None,
 ) -> None:
-    """原子检查响应归属并保存凭据，避免旧响应恢复断开或覆盖新登录。"""
+    """Comprueba de forma atómica a quién pertenece la respuesta y guarda las credenciales,
+    para que una respuesta antigua no deshaga una desconexión ni sobrescriba un inicio
+    de sesión nuevo.
+    """
     global _authorization_generation
     access = payload["access_token"]
     expires_at = time.time() + float(payload.get("expires_in") or 900)
@@ -273,8 +288,8 @@ def store_token_bundle(
             and str(_cfg(_K_REFRESH, "")).strip() != expected_refresh_token
         ):
             raise ValueError(
-                "kimi_code: credentials changed while authorizing or refreshing; "
-                "please sign in again if needed."
+                "kimi_code: las credenciales cambiaron durante la autorización o la renovación; "
+                "vuelve a iniciar sesión si hace falta."
             )
         _set(_K_REGION, region)
         _set(_K_ACCESS, access)
@@ -283,7 +298,8 @@ def store_token_bundle(
         _set(_K_EXPIRES_AT, expires_at)
         if expected_refresh_token is None:
             _authorization_generation += 1
-        # 保存不等待视频任务的配置锁，队列中的凭据仍可立即读取。
+        # El guardado no espera al bloqueo de configuración de la tarea de vídeo, y las
+        # credenciales en cola se pueden leer de inmediato.
         config.try_save_config()
 
 
@@ -309,14 +325,17 @@ def authorized_region() -> str:
 
 
 def get_valid_access_token() -> str:
-    """返回有效 token；串行续期，并拒绝在登录／断开之后返回的旧响应。"""
+    """Devuelve un token válido; renueva en serie y rechaza las respuestas antiguas que
+    lleguen después de un inicio de sesión/desconexión.
+    """
     with _credentials_lock:
         access = str(_cfg(_K_ACCESS, "")).strip()
         expires_at = float(_cfg(_K_EXPIRES_AT, 0) or 0)
         if access and time.time() < expires_at - _EXPIRY_MARGIN_SECONDS:
             return access
     with _refresh_lock:
-        # 排队期间可能已有请求续期，因此重新读取完整凭据状态。
+        # Durante la espera en cola puede que otra solicitud ya haya renovado, así que
+        # se vuelve a leer el estado completo de las credenciales.
         with _credentials_lock:
             access = str(_cfg(_K_ACCESS, "")).strip()
             expires_at = float(_cfg(_K_EXPIRES_AT, 0) or 0)
@@ -325,12 +344,12 @@ def get_valid_access_token() -> str:
             refresh = str(_cfg(_K_REFRESH, "")).strip()
             if not refresh:
                 raise ValueError(
-                    "kimi_code: not authorized yet, please complete the Kimi "
-                    "sign-in in Settings first."
+                    "kimi_code: todavía no está autorizado; completa primero el inicio de sesión "
+                    "en Kimi desde Ajustes."
                 )
             region = str(_cfg(_K_REGION, "") or "china")
             generation = _authorization_generation
-        logger.info("kimi_code: refreshing access token")
+        logger.info("kimi_code: renovando el token de acceso")
         payload = _refresh(region, refresh)
         store_token_bundle(
             region,
@@ -347,7 +366,7 @@ def coerce_timeout(value) -> float:
     try:
         parsed = float(value)
     except (TypeError, ValueError):
-        raise ValueError(f"timeout must be a number, got '{value}'") from None
+        raise ValueError(f"timeout debe ser un número, se recibió '{value}'") from None
     if not math.isfinite(parsed) or parsed <= 0:
-        raise ValueError(f"timeout must be a positive finite number, got '{value}'")
+        raise ValueError(f"timeout debe ser un número finito positivo, se recibió '{value}'")
     return parsed

@@ -1,4 +1,6 @@
-"""Infistar 异步文生视频：按已验证的模型规格下单，保留付费任务恢复线索。"""
+"""Texto a vídeo asíncrono de Infistar: hace pedidos con especificaciones de modelo
+verificadas y conserva las pistas para recuperar tareas de pago.
+"""
 
 import hashlib
 import math
@@ -19,7 +21,8 @@ from app.utils.request_logging import sanitize_payload, trace_http_call
 
 DEFAULT_BASE_URL = "https://infistar.cc/v1"
 DEFAULT_MODEL = "doubao-seedance-2-0-fast-260128"
-# 使用文档示例及实测的短片规格，避免套用其它模型的时长/尺寸约束。
+# Usa las especificaciones de clip corto del ejemplo de la documentación y de pruebas
+# reales, para no aplicar restricciones de duración/tamaño de otros modelos.
 MODELS = {
     DEFAULT_MODEL: {"label": "Seedance 2.0 Fast", "seconds": 5, "size": "720p"},
     "MiniMax-H3": {"label": "MiniMax H3", "seconds": 6, "size": "768p"},
@@ -36,7 +39,9 @@ class InfistarVideoError(RuntimeError):
 
 
 class InfistarVideoUnconfirmedError(InfistarVideoError):
-    """付费提交或远端状态未确认，不能自动重新下单。"""
+    """Si el envío de pago o el estado remoto no están confirmados, no se puede volver a
+    pedir automáticamente.
+    """
 
 
 def get_api_key(settings: Mapping | None = None) -> str:
@@ -55,12 +60,13 @@ def model_id(settings: Mapping | None = None) -> str:
     values = config.app if settings is None else settings
     value = str(values.get("infistar_video_model", "") or DEFAULT_MODEL).strip()
     if value not in MODELS:
-        raise InfistarVideoError(f"Unsupported Infistar video model: {value}")
+        raise InfistarVideoError(f"Modelo de vídeo de Infistar no admitido: {value}")
     return value
 
 
 def _base_url() -> str:
-    # 视频配置独立于 LLM；切换大模型或修改其网关时，不改变视频的凭据和地址。
+    # La configuración de vídeo es independiente del LLM; cambiar de modelo o de su
+    # pasarela no cambia las credenciales ni la dirección del vídeo.
     value = (
         str(config.app.get("infistar_video_base_url", "") or DEFAULT_BASE_URL)
         .strip()
@@ -76,7 +82,7 @@ def _base_url() -> str:
         or parts.fragment
     ):
         raise InfistarVideoError(
-            "Infistar Base URL must be an HTTP(S) URL without credentials or query parameters"
+            "La URL base de Infistar debe ser una URL HTTP(S) sin credenciales ni parámetros de consulta"
         )
     return value
 
@@ -122,7 +128,7 @@ def _json(response, task_id=""):
         return body
     except (ValueError, TypeError) as exc:
         raise InfistarVideoUnconfirmedError(
-            "Infistar returned an unreadable task response", task_id
+            "Infistar devolvió una respuesta de tarea ilegible", task_id
         ) from exc
 
 
@@ -147,7 +153,7 @@ def _wait(task_id, base, headers, secret):
                 raise requests.HTTPError(f"HTTP {response.status_code}")
             if response.status_code != 200:
                 raise InfistarVideoUnconfirmedError(
-                    f"Infistar task status unavailable: HTTP {response.status_code}, {_detail(response, secret)}",
+                    f"El estado de la tarea de Infistar no está disponible: HTTP {response.status_code}, {_detail(response, secret)}",
                     task_id,
                 )
             body = _json(response, task_id)
@@ -155,7 +161,7 @@ def _wait(task_id, base, headers, secret):
             failures += 1
             if failures > 5:
                 raise InfistarVideoUnconfirmedError(
-                    "Infistar polling failed; keep the task ID and check the console",
+                    "Falló el sondeo de Infistar; conserva el ID de la tarea y revisa la consola",
                     task_id,
                 ) from exc
             time.sleep(min(interval, max(deadline - time.monotonic(), 0)))
@@ -163,7 +169,7 @@ def _wait(task_id, base, headers, secret):
         failures = 0
         status = str(body.get("status", "")).strip().lower()
         if status != previous:
-            logger.info(f"Infistar video task: id={task_id}, status={status}")
+            logger.info(f"Tarea de vídeo de Infistar: id={task_id}, status={status}")
             previous = status
         if status in {"completed", "succeeded"}:
             return body
@@ -171,19 +177,21 @@ def _wait(task_id, base, headers, secret):
             detail = str(
                 sanitize_payload(str(body.get("error", "")).replace(secret, "***"))
             )[:500]
-            raise InfistarVideoError(f"Infistar video task failed: {detail}", task_id)
+            raise InfistarVideoError(f"Falló la tarea de vídeo de Infistar: {detail}", task_id)
         if status not in ACTIVE_STATUSES:
             raise InfistarVideoUnconfirmedError(
-                f"Infistar returned an unknown status: {status!r}", task_id
+                f"Infistar devolvió un estado desconocido: {status!r}", task_id
             )
         time.sleep(min(interval, max(deadline - time.monotonic(), 0)))
     raise InfistarVideoUnconfirmedError(
-        "Infistar video is still running after the local wait timeout", task_id
+        "El vídeo de Infistar sigue en curso tras el tiempo de espera local", task_id
     )
 
 
 def _download(task_id, base, headers, output_dir):
-    """仅向原始 content 端点发送 Key；重定向到对象存储后不携带凭据。"""
+    """La clave solo se envía al endpoint de content original; tras redirigir al
+    almacenamiento de objetos no se envían credenciales.
+    """
     url = f"{base}/videos/{quote(task_id, safe='')}/content"
     response = None
     staged = None
@@ -202,12 +210,12 @@ def _download(task_id, base, headers, output_dir):
             response.close()
             response = None
             if urlsplit(next_url).scheme != "https" or not urlsplit(next_url).hostname:
-                raise ValueError("Video download redirected to an invalid URL")
+                raise ValueError("La descarga del vídeo se redirigió a una URL no válida")
             url = next_url
         else:
-            raise ValueError("Too many video download redirects")
+            raise ValueError("Demasiadas redirecciones en la descarga del vídeo")
         if response.status_code != 200:
-            raise ValueError(f"Video download failed: HTTP {response.status_code}")
+            raise ValueError(f"Falló la descarga del vídeo: HTTP {response.status_code}")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         name = hashlib.sha256(task_id.encode()).hexdigest()[:24] + ".mp4"
         destination = Path(output_dir) / f"infistar-{name}"
@@ -219,12 +227,14 @@ def _download(task_id, base, headers, output_dir):
             for chunk in response.iter_content(1024 * 1024):
                 count += len(chunk)
                 if count > MAX_DOWNLOAD_BYTES:
-                    raise ValueError("Video download exceeds 512 MiB")
+                    raise ValueError("La descarga del vídeo supera los 512 MiB")
                 stream.write(chunk)
             if count == 0:
-                raise ValueError("Video download is empty")
-        # 复用素材验证：拒绝错误页、播放列表和仅有文件头的截断视频，
-        # 完整解码成功后才将原子落盘的文件交给后续素材编排。
+                raise ValueError("La descarga del vídeo está vacía")
+        # Reutiliza la validación de material: rechaza páginas de error, listas de
+        # reproducción y vídeos truncados que solo tienen cabecera; solo después de
+        # decodificarlo por completo se entrega el archivo, guardado de forma atómica, a
+        # la composición de material posterior.
         material_upload._validate_video(str(staged))
         from moviepy import VideoFileClip
 
@@ -232,12 +242,12 @@ def _download(task_id, base, headers, output_dir):
             duration = float(clip.duration)
             width, height = clip.size
             if not math.isfinite(duration) or duration < 1:
-                raise ValueError("Generated video is shorter than one second")
+                raise ValueError("El vídeo generado dura menos de un segundo")
         staged.replace(destination)
         return destination, duration, width, height
     except Exception as exc:
         raise InfistarVideoError(
-            f"Infistar generated a paid video but download/validation failed ({type(exc).__name__}); keep the task ID to recover it",
+            f"Infistar generó un vídeo de pago pero falló la descarga/validación ({type(exc).__name__}); conserva el ID de la tarea para recuperarlo",
             task_id,
         ) from exc
     finally:
@@ -250,15 +260,15 @@ def _download(task_id, base, headers, output_dir):
 def generate_video(*, search_term, video_aspect, output_dir) -> MaterialInfo:
     secret = get_api_key()
     if not secret:
-        raise InfistarVideoError("Infistar video generation requires an API key")
+        raise InfistarVideoError("La generación de vídeo de Infistar necesita una clave API")
     model = model_id()
     profile = MODELS[model]
     aspect = VideoAspect(video_aspect)
     if aspect not in {VideoAspect.landscape, VideoAspect.portrait}:
-        raise InfistarVideoError("Infistar video currently supports 16:9 and 9:16")
+        raise InfistarVideoError("El vídeo de Infistar admite actualmente 16:9 y 9:16")
     term = str(search_term or "").strip()
     if not term or len(term) > 2000:
-        raise InfistarVideoError("Infistar video prompt must contain 1-2000 characters")
+        raise InfistarVideoError("El prompt de vídeo de Infistar debe tener entre 1 y 2000 caracteres")
     base = _base_url()
     headers = {"Authorization": f"Bearer {secret}"}
     size = "1280x720" if aspect == VideoAspect.landscape else "720x1280"
@@ -270,31 +280,33 @@ def generate_video(*, search_term, video_aspect, output_dir) -> MaterialInfo:
         "seconds": str(profile["seconds"]),
         "size": size,
     }
-    # 当前 MiniMax 线路忽略 aspect_ratio，size 只接受分辨率档位。
-    # 明确生成横屏素材，竖屏成片由既有画面适配逻辑裁剪或留边；WebUI 同步提示。
+    # La ruta actual de MiniMax ignora aspect_ratio y size solo acepta niveles de
+    # resolución. Se genera explícitamente material horizontal; el vídeo vertical se
+    # recorta o se rellena con la lógica de ajuste de imagen existente, y la WebUI lo
+    # indica.
     try:
         response = _request(
             "POST", f"{base}/videos", json=payload, headers=headers, timeout=(30, 90)
         )
     except requests.RequestException as exc:
         raise InfistarVideoUnconfirmedError(
-            "Infistar submission returned no response; a paid task may already exist. Check the console before retrying."
+            "El envío a Infistar no devolvió respuesta; puede que ya exista una tarea de pago. Revisa la consola antes de reintentar."
         ) from exc
     if response.status_code >= 500 or 300 <= response.status_code < 400:
         raise InfistarVideoUnconfirmedError(
-            f"Infistar submission unconfirmed: HTTP {response.status_code}; do not resubmit automatically"
+            f"Envío a Infistar sin confirmar: HTTP {response.status_code}; no lo vuelvas a enviar automáticamente"
         )
     if not 200 <= response.status_code < 300:
         raise InfistarVideoError(
-            f"Infistar video request rejected: HTTP {response.status_code}, {_detail(response, secret)}"
+            f"Solicitud de vídeo de Infistar rechazada: HTTP {response.status_code}, {_detail(response, secret)}"
         )
     body = _json(response)
     task_id = str(body.get("id") or body.get("task_id") or "").strip()
     if not task_id:
         raise InfistarVideoUnconfirmedError(
-            "Infistar accepted the submission without a task ID; check the console"
+            "Infistar aceptó el envío sin un ID de tarea; revisa la consola"
         )
-    logger.info(f"Infistar paid video task created: id={task_id}, model={model}")
+    logger.info(f"Tarea de vídeo de pago de Infistar creada: id={task_id}, model={model}")
     _wait(task_id, base, headers, secret)
     path, duration, width, height = _download(task_id, base, headers, output_dir)
     return MaterialInfo(

@@ -34,7 +34,8 @@ def test_inflight_sanitized_image_keeps_pixels_when_source_is_replaced(tmp_path)
         try:
             assert first_waiting.wait(5)
             Image.new("RGB", (64, 64), "blue").convert("CMYK").save(source)
-            # A different duration keeps the two final output paths independent.
+            # Una duración distinta mantiene independientes las dos rutas de salida
+            # finales.
             outputs["second"] = video.render_image_zoom_video(str(source), clip_duration=0.2)
         finally:
             second_finished.set()

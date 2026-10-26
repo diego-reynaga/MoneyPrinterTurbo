@@ -4,14 +4,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-# add project root to python path
+# añade la raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.utils import utils
 
 
 class TestCheckFfmpegReady(unittest.TestCase):
-    """覆盖 utils.check_ffmpeg_ready() 的四种探测结果。"""
+    """Cubre los cuatro resultados de detección de utils.check_ffmpeg_ready()."""
 
     def test_returns_true_when_ffmpeg_probe_succeeds(self):
         completed = subprocess.CompletedProcess(args=["ffmpeg", "-version"], returncode=0)
@@ -33,7 +33,7 @@ class TestCheckFfmpegReady(unittest.TestCase):
             self.assertFalse(utils.check_ffmpeg_ready())
 
         warning.assert_called_once()
-        self.assertIn("no usable ffmpeg executable found", warning.call_args.args[0])
+        self.assertIn("no se encontró ningún ejecutable de ffmpeg utilizable", warning.call_args.args[0])
 
     def test_returns_false_on_non_zero_exit_code(self):
         completed = subprocess.CompletedProcess(args=["ffmpeg", "-version"], returncode=1)
@@ -45,7 +45,7 @@ class TestCheckFfmpegReady(unittest.TestCase):
             self.assertFalse(utils.check_ffmpeg_ready())
 
         warning.assert_called_once()
-        self.assertIn("exited with status 1", warning.call_args.args[0])
+        self.assertIn("terminó con el estado 1", warning.call_args.args[0])
 
     def test_returns_false_on_timeout(self):
         with (
@@ -60,7 +60,7 @@ class TestCheckFfmpegReady(unittest.TestCase):
             self.assertFalse(utils.check_ffmpeg_ready(timeout=10))
 
         warning.assert_called_once()
-        self.assertIn("failed to probe ffmpeg", warning.call_args.args[0])
+        self.assertIn("no se pudo comprobar ffmpeg", warning.call_args.args[0])
 
 
 if __name__ == "__main__":

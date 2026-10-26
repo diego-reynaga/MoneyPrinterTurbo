@@ -15,9 +15,9 @@ def _width(font, text):
 
 
 def test_word_after_split_long_token_joins_its_last_fragment():
-    # A token wider than the line is split by character. Its last fragment
-    # does not fill the line, so the following short word must be placed
-    # beside it instead of always starting another subtitle line.
+    # Un token más ancho que la línea se divide por caracteres. Su último fragmento no
+    # llena la línea, así que la palabra corta siguiente debe colocarse a su lado en
+    # lugar de empezar siempre otra línea de subtítulo.
     font = ImageFont.truetype(FONT_PATH, 60)
     text = "Supercalifragilisticexpialidocious is"
 

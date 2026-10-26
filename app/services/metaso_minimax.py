@@ -1,8 +1,10 @@
-"""秘塔 MiniMax H3 文生视频客户端。
+"""Cliente de texto a vídeo MiniMax H3 de Metaso.
 
-该模块只负责秘塔代理的 MiniMax V2 协议：提交付费任务、轮询同一个任务、
-解析生成结果。素材按需生成、文件下载和成片拼接仍由 ``material`` 服务负责，
-避免供应商协议与本地视频工作流相互耦合。
+Este módulo solo se encarga del protocolo MiniMax V2 del proxy de Metaso: enviar tareas
+de pago, sondear esa misma tarea y analizar el resultado generado. La generación de
+material bajo demanda, la descarga de archivos y el montaje del vídeo final siguen
+siendo responsabilidad del servicio ``material``, para no acoplar el protocolo del
+proveedor con el flujo de vídeo local.
 """
 
 from __future__ import annotations
@@ -41,30 +43,38 @@ SUPPORTED_RESOLUTIONS = frozenset({"768P", "2K"})
 
 
 class MetasoMiniMaxError(RuntimeError):
-    """秘塔 MiniMax 的确定性配置、请求或响应错误。"""
+    """Error determinista de configuración, solicitud o respuesta de Metaso MiniMax."""
 
     def __init__(self, message: str, task_id: str = ""):
         super().__init__(message)
-        # 远端任务一旦创建，所有后续异常都携带同一个 ID。任务服务可以统一
-        # 保存恢复线索，不需要了解轮询、结果解析或下载分别在哪一步失败。
+        # Una vez creada la tarea remota, todas las excepciones posteriores llevan el
+        # mismo ID. El servicio de tareas puede guardar las pistas de recuperación de
+        # forma uniforme, sin saber si el fallo fue en el sondeo, en el análisis del
+        # resultado o en la descarga.
         self.task_id = task_id
 
 
 class MetasoMiniMaxUnconfirmedTaskError(MetasoMiniMaxError):
-    """远端可能已创建付费任务，但本机无法确认其最终状态。"""
+    """Puede que se haya creado una tarea de pago remota, pero no se puede confirmar su
+    estado final desde aquí.
+    """
 
 
 class MetasoMiniMaxDownloadError(MetasoMiniMaxError):
-    """远端付费任务已成功，但成片未能下载到本机。"""
+    """La tarea de pago remota terminó bien, pero el vídeo no pudo descargarse a este
+    equipo.
+    """
 
 
 def get_api_key(settings: Mapping[str, Any] | None = None) -> str:
     """
-    按固定优先级读取秘塔凭据。
+    Lee las credenciales de Metaso con una prioridad fija.
 
-    秘塔 ``mk-`` Key 与 MiniMax 官方 Key 属于不同账户体系，因此不能复用
-    项目已有的 ``minimax_api_key``。独立配置和独立环境变量也能防止用户在
-    切换 LLM Provider 时意外改变视频生成凭据。
+    La clave ``mk-`` de Metaso y la clave oficial de MiniMax pertenecen a sistemas de
+    cuentas distintos, así que no se puede reutilizar el ``minimax_api_key`` que ya
+    tiene el proyecto. Una configuración y una variable de entorno propias también
+    evitan que el usuario cambie sin querer las credenciales de generación de vídeo al
+    cambiar de proveedor LLM.
     """
     settings = config.app if settings is None else settings
     configured = str(settings.get("metaso_minimax_api_key", "") or "").strip()
@@ -73,7 +83,9 @@ def get_api_key(settings: Mapping[str, Any] | None = None) -> str:
 
 
 def is_enabled(settings: Mapping[str, Any] | None = None) -> bool:
-    """返回当前配置是否具备调用秘塔视频接口的凭据。"""
+    """Devuelve si la configuración actual tiene credenciales para llamar a la interfaz de
+    vídeo de Metaso.
+    """
     return bool(get_api_key(settings))
 
 
@@ -89,7 +101,7 @@ def _base_url() -> str:
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise MetasoMiniMaxError(
-            "metaso_minimax_base_url must be an absolute HTTP(S) URL"
+            "metaso_minimax_base_url debe ser una URL HTTP(S) absoluta"
         )
     return value
 
@@ -99,11 +111,13 @@ def _resolution() -> str:
     value = str(configured).strip().upper()
     if value not in SUPPORTED_RESOLUTIONS:
         supported = ", ".join(sorted(SUPPORTED_RESOLUTIONS))
-        # 分辨率直接影响生成费用，用户显式写错时不能静默退回 2K。只有配置项
-        # 完全缺失时才使用默认值，避免无意间创建比预期更贵的任务。
+        # La resolución afecta directamente al coste de generación, así que si el
+        # usuario la escribe mal no se puede volver en silencio a 2K. Solo se usa el
+        # valor por defecto cuando la opción falta del todo, para no crear sin querer
+        # tareas más caras de lo previsto.
         raise MetasoMiniMaxError(
-            f"Unsupported Metaso MiniMax resolution {value!r}; "
-            f"expected one of: {supported}"
+            f"Resolución de Metaso MiniMax no admitida {value!r}; "
+            f"se esperaba una de: {supported}"
         )
     return value
 
@@ -116,7 +130,9 @@ def _tls_verify() -> bool:
 
 
 def _bounded_float(key: str, default: float, minimum: float, maximum: float) -> float:
-    """读取有限浮点配置，并限制在不会压垮远端或本机的安全范围内。"""
+    """Lee una opción de coma flotante finita y la limita a un rango seguro que no sature
+    ni el servidor remoto ni este equipo.
+    """
     try:
         value = float(config.app.get(key, default))
     except (TypeError, ValueError):
@@ -134,7 +150,9 @@ def _status_code(response: Any) -> int:
 
 
 def _redact_secret(value: Any, api_key: str) -> str:
-    """保留可排障文本，同时移除 API Key、URL 编码 Key 和代理凭据。"""
+    """Conserva el texto útil para diagnosticar, eliminando la clave API, la clave
+    codificada en la URL y las credenciales del proxy.
+    """
     text = str(value or "")
     if api_key:
         text = text.replace(api_key, "***")
@@ -149,7 +167,9 @@ def _redact_secret(value: Any, api_key: str) -> str:
 
 
 def _response_error(response: Any, api_key: str) -> str:
-    """兼容 MiniMax V2 的嵌套错误结构，并限制日志中的响应长度。"""
+    """Admite la estructura de error anidada de MiniMax V2 y limita la longitud de la
+    respuesta en los logs.
+    """
     try:
         payload = response.json()
     except Exception:
@@ -187,16 +207,18 @@ def _is_retryable_error(error: Exception) -> bool:
 
 
 def _normalize_duration(minimum_duration: int) -> tuple[int, int]:
-    """返回“用户请求时长、实际提交时长”，用于日志解释最短 4 秒约束。"""
+    """Devuelve "duración pedida por el usuario, duración enviada realmente", para explicar
+    en los logs la restricción del mínimo de 4 segundos.
+    """
     try:
         requested = int(minimum_duration)
     except (TypeError, ValueError, OverflowError) as exc:
         raise MetasoMiniMaxError(
-            "Metaso MiniMax clip duration must be a positive integer"
+            "La duración del clip de Metaso MiniMax debe ser un entero positivo"
         ) from exc
     if requested <= 0:
         raise MetasoMiniMaxError(
-            "Metaso MiniMax clip duration must be a positive integer"
+            "La duración del clip de Metaso MiniMax debe ser un entero positivo"
         )
     duration = min(
         max(requested, DEFAULT_MIN_DURATION_SECONDS),
@@ -210,26 +232,30 @@ def generate_videos(
     minimum_duration: int,
     video_aspect: VideoAspect = VideoAspect.portrait,
 ) -> list[MaterialInfo]:
-    """提交一个秘塔 MiniMax H3 文生视频任务并等待可下载的结果。"""
+    """Envía una tarea de texto a vídeo Metaso MiniMax H3 y espera a un resultado
+    descargable.
+    """
     api_key = get_api_key()
     if not api_key:
-        raise MetasoMiniMaxError("Metaso MiniMax requires an API key")
+        raise MetasoMiniMaxError("Metaso MiniMax necesita una clave API")
 
     term = str(search_term or "").strip()
     if not term:
-        # 空提示词通常表示上游脚本拆分失败。付费接口不能用无效输入试探，
-        # 否则即使远端接受也只会产生无法使用的计费素材。
-        raise MetasoMiniMaxError("Metaso MiniMax search term must not be empty")
+        # Un prompt vacío suele indicar que falló la división del guion en el paso
+        # anterior. No se puede tantear una interfaz de pago con entradas no válidas,
+        # porque aunque el servidor la acepte solo produciría material facturado e
+        # inutilizable.
+        raise MetasoMiniMaxError("El término de búsqueda de Metaso MiniMax no puede estar vacío")
     if len(term) > MAX_PROMPT_LENGTH:
         raise MetasoMiniMaxError(
-            f"Metaso MiniMax search term exceeds {MAX_PROMPT_LENGTH} characters"
+            f"El término de búsqueda de Metaso MiniMax supera los {MAX_PROMPT_LENGTH} caracteres"
         )
 
     aspect = VideoAspect(video_aspect)
     requested_duration, duration = _normalize_duration(minimum_duration)
     if duration != requested_duration:
         logger.info(
-            "Metaso MiniMax clip duration adjusted to H3 limits: "
+            "Duración del clip de Metaso MiniMax ajustada a los límites de H3: "
             f"requested={requested_duration}s, using={duration}s, "
             f"supported={DEFAULT_MIN_DURATION_SECONDS}-{DEFAULT_MAX_DURATION_SECONDS}s"
         )
@@ -248,13 +274,15 @@ def generate_videos(
     base_url = _base_url()
     create_url = f"{base_url}/v2/video_generation"
     logger.info(
-        "generating video with Metaso MiniMax H3: "
+        "generando vídeo con Metaso MiniMax H3: "
         f"resolution={resolution}, ratio={aspect.value}, duration={duration}s, "
         f"prompt_length={len(term)}"
     )
 
-    # POST 超时或 5xx 发生时，远端可能已经创建并计费。接口没有提供客户端
-    # 幂等键，因此这里绝不自动重发；上层会停止后续关键词，避免重复扣费。
+    # Si el POST agota el tiempo o devuelve 5xx, puede que el servidor ya haya creado y
+    # cobrado la tarea. La interfaz no ofrece una clave de idempotencia del cliente, así
+    # que aquí nunca se reenvía automáticamente; la capa superior detiene las palabras
+    # clave siguientes para no cobrar dos veces.
     try:
         response = trace_http_call(
             "POST", requests.post,
@@ -268,41 +296,41 @@ def generate_videos(
         )
     except Exception as exc:
         raise MetasoMiniMaxUnconfirmedTaskError(
-            "Metaso MiniMax submission returned no response; a paid task may "
-            "already exist remotely: "
+            "El envío a Metaso MiniMax no devolvió respuesta; puede que ya exista "
+            "una tarea de pago en remoto: "
             f"error={type(exc).__name__}, detail={_redact_secret(exc, api_key)}"
         ) from exc
 
     status_code = _status_code(response)
     if 300 <= status_code < 400:
         raise MetasoMiniMaxUnconfirmedTaskError(
-            "Metaso MiniMax submission returned a redirect; the paid task state "
-            "is unknown and the request was not replayed"
+            "El envío a Metaso MiniMax devolvió una redirección; el estado de la tarea de pago "
+            "es desconocido y la solicitud no se repitió"
         )
     if status_code >= 500:
         raise MetasoMiniMaxUnconfirmedTaskError(
-            f"Metaso MiniMax submission failed with HTTP {status_code}; a paid "
-            "task may already exist remotely"
+            f"El envío a Metaso MiniMax falló con HTTP {status_code}; puede que ya "
+            "exista una tarea de pago en remoto"
         )
     if not 200 <= status_code < 300:
         raise MetasoMiniMaxError(
-            "Metaso MiniMax video generation request rejected: "
+            "Solicitud de generación de vídeo de Metaso MiniMax rechazada: "
             f"HTTP {status_code}, {_response_error(response, api_key)}"
         )
     try:
         body = response.json()
     except Exception as exc:
         raise MetasoMiniMaxUnconfirmedTaskError(
-            "Metaso MiniMax submission returned an unreadable response; a paid "
-            f"task may already exist remotely: error={type(exc).__name__}"
+            "El envío a Metaso MiniMax devolvió una respuesta ilegible; puede que ya "
+            f"exista una tarea de pago en remoto: error={type(exc).__name__}"
         ) from exc
 
     task_id = str(body.get("task_id") or "").strip() if isinstance(body, dict) else ""
     if not task_id:
         raise MetasoMiniMaxUnconfirmedTaskError(
-            "Metaso MiniMax accepted the submission without returning a task id"
+            "Metaso MiniMax aceptó el envío sin devolver un id de tarea"
         )
-    logger.info(f"Metaso MiniMax paid task created: id={task_id}")
+    logger.info(f"Tarea de pago de Metaso MiniMax creada: id={task_id}")
 
     task = _wait_for_task(
         task_id=task_id,
@@ -316,7 +344,7 @@ def generate_videos(
         ("http://", "https://")
     ):
         raise MetasoMiniMaxError(
-            f"Metaso MiniMax task succeeded without a downloadable video: id={task_id}",
+            f"La tarea de Metaso MiniMax terminó bien pero sin un vídeo descargable: id={task_id}",
             task_id=task_id,
         )
 
@@ -337,8 +365,10 @@ def generate_videos(
                 "provider": "metaso_minimax",
                 "search_term": term,
                 "asset_id": task_id,
-                # MiniMax 的 2K/768P 是规格名称，接口没有承诺固定像素尺寸。
-                # 不猜测 width/height，后续若需要精确尺寸应以下载文件探测值为准。
+                # 2K/768P de MiniMax son nombres de especificación; la interfaz no
+                # garantiza un tamaño en píxeles fijo. No se adivinan width/height; si
+                # más adelante hace falta el tamaño exacto, debe usarse el valor medido
+                # en el archivo descargado.
                 "rendition": {"id": task_id},
             },
         )
@@ -352,7 +382,9 @@ def _wait_for_task(
     headers: dict[str, str],
     api_key: str,
 ) -> dict[str, Any]:
-    """轮询同一个付费任务，直到成功、明确失败或本地无法确认状态。"""
+    """Sondea la misma tarea de pago hasta que termina bien, falla explícitamente o ya no
+    se puede confirmar su estado aquí.
+    """
     deadline = time.monotonic() + _bounded_float(
         "metaso_minimax_run_timeout",
         DEFAULT_RUN_TIMEOUT_SECONDS,
@@ -372,13 +404,14 @@ def _wait_for_task(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise MetasoMiniMaxUnconfirmedTaskError(
-                "Metaso MiniMax task is still running after the configured local "
-                f"wait timeout: id={task_id}",
+                "La tarea de Metaso MiniMax sigue en curso tras el tiempo de espera local "
+                f"configurado: id={task_id}",
                 task_id=task_id,
             )
 
-        # connect/read timeout 分别计时，均使用剩余时间的一半，保证一次 GET
-        # 不会有意越过任务总截止时间。到期后不会再发起下一次轮询。
+        # Los tiempos de espera de conexión y lectura se cuentan por separado, y cada
+        # uno usa la mitad del tiempo restante, para que un GET no supere a propósito el
+        # plazo total de la tarea. Una vez vencido no se lanza otro sondeo.
         phase_timeout = max(min(remaining / 2.0, 30.0), 0.001)
         try:
             response = trace_http_call(
@@ -397,7 +430,7 @@ def _wait_for_task(
                 )
             if not 200 <= status_code < 300:
                 raise MetasoMiniMaxUnconfirmedTaskError(
-                    "Metaso MiniMax task status is unknown: "
+                    "El estado de la tarea de Metaso MiniMax es desconocido: "
                     f"http_status={status_code}, "
                     f"detail={_response_error(response, api_key)}",
                     task_id=task_id,
@@ -406,7 +439,7 @@ def _wait_for_task(
             task = body.get("task") if isinstance(body, dict) else None
             if not isinstance(task, dict):
                 raise MetasoMiniMaxUnconfirmedTaskError(
-                    "Metaso MiniMax task status response is malformed",
+                    "La respuesta de estado de la tarea de Metaso MiniMax está mal formada",
                     task_id=task_id,
                 )
         except MetasoMiniMaxUnconfirmedTaskError:
@@ -414,8 +447,8 @@ def _wait_for_task(
         except Exception as exc:
             if not _is_retryable_error(exc):
                 raise MetasoMiniMaxUnconfirmedTaskError(
-                    "Metaso MiniMax polling failed and the paid task state is "
-                    f"unknown: error={type(exc).__name__}, "
+                    "Falló el sondeo de Metaso MiniMax y el estado de la tarea de pago es "
+                    f"desconocido: error={type(exc).__name__}, "
                     f"detail={_redact_secret(exc, api_key)}",
                     task_id=task_id,
                 ) from exc
@@ -423,21 +456,21 @@ def _wait_for_task(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise MetasoMiniMaxUnconfirmedTaskError(
-                    "Metaso MiniMax task is still running after the configured "
-                    f"local wait timeout: id={task_id}",
+                    "La tarea de Metaso MiniMax sigue en curso tras el tiempo de espera "
+                    f"local configurado: id={task_id}",
                     task_id=task_id,
                 ) from exc
             consecutive_failures += 1
             if consecutive_failures > MAX_POLL_RETRIES:
                 raise MetasoMiniMaxUnconfirmedTaskError(
-                    "Metaso MiniMax polling failed after retries; the paid task "
-                    f"may still be running remotely: id={task_id}",
+                    "El sondeo de Metaso MiniMax falló tras los reintentos; la tarea de pago "
+                    f"puede seguir en curso en remoto: id={task_id}",
                     task_id=task_id,
                 ) from exc
             delay = min(RETRY_BASE_SECONDS * consecutive_failures, remaining)
             logger.warning(
-                "Metaso MiniMax polling hit a transient error; retrying the same "
-                f"task: id={task_id}, attempt={consecutive_failures}/"
+                "El sondeo de Metaso MiniMax encontró un error pasajero; se reintenta la misma "
+                f"tarea: id={task_id}, attempt={consecutive_failures}/"
                 f"{MAX_POLL_RETRIES}, retry_in={delay:.1f}s"
             )
             time.sleep(delay)
@@ -445,19 +478,19 @@ def _wait_for_task(
 
         consecutive_failures = 0
         status = str(task.get("status") or "").strip().lower()
-        logger.info(f"Metaso MiniMax task status: id={task_id}, status={status}")
+        logger.info(f"Estado de la tarea de Metaso MiniMax: id={task_id}, status={status}")
         if status == "succeeded":
             return task
         if status in TERMINAL_FAILURE_STATUSES:
             raise MetasoMiniMaxError(
-                "Metaso MiniMax task did not produce a video: "
+                "La tarea de Metaso MiniMax no produjo ningún vídeo: "
                 f"id={task_id}, status={status}, "
                 f"detail={_redact_secret(task.get('error'), api_key)}",
                 task_id=task_id,
             )
         if status not in ACTIVE_STATUSES:
             raise MetasoMiniMaxUnconfirmedTaskError(
-                "Metaso MiniMax returned an unknown task status: "
+                "Metaso MiniMax devolvió un estado de tarea desconocido: "
                 f"id={task_id}, status={status!r}",
                 task_id=task_id,
             )
@@ -465,8 +498,8 @@ def _wait_for_task(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise MetasoMiniMaxUnconfirmedTaskError(
-                "Metaso MiniMax task is still running after the configured local "
-                f"wait timeout: id={task_id}",
+                "La tarea de Metaso MiniMax sigue en curso tras el tiempo de espera local "
+                f"configurado: id={task_id}",
                 task_id=task_id,
             )
         time.sleep(min(poll_interval, remaining))

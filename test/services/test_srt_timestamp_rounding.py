@@ -19,8 +19,8 @@ def test_srt_timestamps_round_to_the_nearest_millisecond(seconds, expected):
 
 
 def test_every_exact_millisecond_round_trips():
-    # faster-whisper word times are decimal values; none of them may be
-    # written one millisecond early because of binary float truncation.
+    # Los tiempos de palabra de faster-whisper son valores decimales; ninguno puede
+    # escribirse un milisegundo antes por el truncamiento de coma flotante binaria.
     for total_ms in range(0, 120_000):
         formatted = utils.time_convert_seconds_to_hmsm(total_ms / 1000)
         assert int(formatted[-3:]) == total_ms % 1000, formatted

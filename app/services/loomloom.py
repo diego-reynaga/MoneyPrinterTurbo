@@ -1,8 +1,8 @@
-"""LoomLoom Market clients for MoneyPrinterTurbo batch generation.
+"""Clientes de LoomLoom Market para la generación por lotes de MoneyPrinterTurbo.
 
-This module deliberately lives outside ``llm_provider``. LoomLoom executes a
-versioned Market SkillBot with quote, confirmation, run lifecycle, and result
-rows; it is not a chat-completions provider.
+Este módulo vive deliberadamente fuera de ``llm_provider``. LoomLoom ejecuta un SkillBot
+de Market versionado con presupuesto, confirmación, ciclo de vida de la ejecución y
+filas de resultado; no es un proveedor de chat completions.
 """
 
 from __future__ import annotations
@@ -27,8 +27,10 @@ DEFAULT_RESULT_PORT_NAME = "output"
 DEFAULT_BASE_URL = "https://loomloom.shengsuanyun.com/loom/v1"
 DEFAULT_SCRIPT_MARKET_LISTING_ID = "019fd618-9baa-73d9-94f4-c9270b6f3025"
 VIDEO_CAPABILITY_PROFILE_ID = "video.text-to-video.aspect-ratio.v1"
-# 文案与视频是两个输入、产物结构完全不同的已上架 SkillBot。两个 ID 都是
-# MoneyPrinterTurbo 集成的内部常量，用户只需提供 API Key，不应接触 Listing ID。
+# El guion y el vídeo son dos SkillBots publicados con entradas y estructuras de
+# resultado totalmente distintas. Ambos ID son constantes internas de la integración de
+# MoneyPrinterTurbo; el usuario solo tiene que dar la clave API y no debería tocar el
+# Listing ID.
 DEFAULT_VIDEO_MARKET_LISTING_ID = "01a06563-7331-773a-b9b2-25989a0dd70e"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30.0
 DEFAULT_POLL_INTERVAL_SECONDS = 2.0
@@ -43,15 +45,15 @@ TERMINAL_RUN_STATUSES = frozenset({"completed", "failed", "cancelled", "canceled
 
 
 class LoomLoomError(RuntimeError):
-    """Base error for the LoomLoom integration."""
+    """Error base de la integración con LoomLoom."""
 
 
 class LoomLoomConfigurationError(LoomLoomError):
-    """Raised when the integration is enabled without complete settings."""
+    """Se lanza cuando la integración está activada sin una configuración completa."""
 
 
 class LoomLoomAPIError(LoomLoomError):
-    """Raised when the Public API rejects a request or returns invalid JSON."""
+    """Se lanza cuando la API pública rechaza una solicitud o devuelve JSON no válido."""
 
     def __init__(
         self,
@@ -66,34 +68,39 @@ class LoomLoomAPIError(LoomLoomError):
 
 
 class LoomLoomRunError(LoomLoomError):
-    """Raised when a submitted run fails or exceeds its wait timeout."""
+    """Se lanza cuando una ejecución enviada falla o supera su tiempo de espera."""
 
 
 def _coerce_seconds_setting(value: Any, name: str) -> float:
     """
-    把配置里的秒数字段转成浮点数，并保持配置错误的异常类型约定。
+    Convierte a float los campos de segundos de la configuración, manteniendo el
+    contrato de tipo de excepción de los errores de configuración.
 
-    TOML 允许字符串/数组写法，裸 ``float()`` 抛出的 ``ValueError`` /
-    ``TypeError`` 不是 ``LoomLoomError``，会让只捕获 ``LoomLoomError`` 的轮询
-    入口冒泡成 traceback，绕过 ``validate()`` 带配置名的提示；``float(True)``
-    还会静默变成 1.0，把 600 秒等待压成 1 秒。
+    TOML permite escribirlos como cadena/array, y el ``ValueError`` / ``TypeError`` que
+    lanza un ``float()`` directo no es un ``LoomLoomError``, así que haría que la
+    entrada de sondeo, que solo captura ``LoomLoomError``, terminara en una traza y se
+    saltara el aviso con el nombre de la opción de ``validate()``; además
+    ``float(True)`` se convertiría en silencio en 1.0, reduciendo una espera de 600
+    segundos a 1.
     """
     if isinstance(value, bool):
-        raise LoomLoomConfigurationError(f"{name} must be a number, got {value!r}")
+        raise LoomLoomConfigurationError(f"{name} debe ser un número, se recibió {value!r}")
     try:
         return float(value)
     except (TypeError, ValueError):
         raise LoomLoomConfigurationError(
-            f"{name} must be a number, got {value!r}"
+            f"{name} debe ser un número, se recibió {value!r}"
         ) from None
 
 
 def resolve_api_token(values: Mapping[str, Any]) -> str:
     """
-    解析当前功能应使用的胜算云 API Key。
+    Resuelve la clave API de Shengsuan Cloud que debe usar la función actual.
 
-    当大模型 Provider 已选择胜算云时，文案和视频必须复用设置页中的 Key；
-    其它 Provider 则继续使用 LoomLoom 独立 Key，避免改变既有用户配置。
+    Cuando el proveedor LLM elegido es Shengsuan Cloud, el guion y el vídeo deben
+    reutilizar la clave de la página de ajustes; con otros proveedores se sigue usando
+    la clave propia de LoomLoom, para no cambiar la configuración existente de los
+    usuarios.
     """
     if str(values.get("llm_provider", "") or "").strip().lower() == "shengsuanyun":
         return str(values.get("shengsuanyun_api_key", "") or "").strip()
@@ -121,8 +128,10 @@ class LoomLoomSettings:
             .strip()
             .rstrip("/"),
             api_token=resolve_api_token(values),
-            # MoneyPrinterTurbo 固定调用项目已经上架的默认 SkillBot。Listing ID
-            # 属于集成实现细节，不能要求普通用户在 config.toml 中重复配置。
+            # MoneyPrinterTurbo llama siempre al SkillBot por defecto que el proyecto ya
+            # ha publicado. El Listing ID es un detalle de implementación de la
+            # integración y no se puede exigir a los usuarios normales que lo repitan en
+            # config.toml.
             market_listing_id=DEFAULT_SCRIPT_MARKET_LISTING_ID,
             listing_version_id="",
             result_port_name=DEFAULT_RESULT_PORT_NAME,
@@ -160,25 +169,26 @@ class LoomLoomSettings:
             missing.append("loomloom_result_port_name")
         if missing:
             raise LoomLoomConfigurationError(
-                "missing LoomLoom settings: " + ", ".join(missing)
+                "faltan ajustes de LoomLoom: " + ", ".join(missing)
             )
 
         parsed = urlsplit(self.base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise LoomLoomConfigurationError(
-                "loomloom_base_url must be an absolute HTTP(S) URL"
+                "loomloom_base_url debe ser una URL HTTP(S) absoluta"
             )
         for name, value in (
             ("loomloom_request_timeout_seconds", self.request_timeout_seconds),
             ("loomloom_poll_interval_seconds", self.poll_interval_seconds),
             ("loomloom_run_timeout_seconds", self.run_timeout_seconds),
         ):
-            # ``value <= 0`` 拦不住 NaN/Inf：NaN 参与比较恒为 False，Inf 永远
-            # 大于当前时间，两者都会让 ``wait_for_run`` 的截止时间失效。
+            # ``value <= 0`` no detiene NaN/Inf: NaN siempre da False al compararse e
+            # Inf siempre es mayor que la hora actual, así que ambos anularían el plazo
+            # de ``wait_for_run``.
             if not math.isfinite(value):
-                raise LoomLoomConfigurationError(f"{name} must be a finite number")
+                raise LoomLoomConfigurationError(f"{name} debe ser un número finito")
             if value <= 0:
-                raise LoomLoomConfigurationError(f"{name} must be greater than zero")
+                raise LoomLoomConfigurationError(f"{name} debe ser mayor que cero")
 
 
 @dataclass(frozen=True)
@@ -188,7 +198,9 @@ class LoomLoomScriptBatch:
 
 @dataclass(frozen=True)
 class LoomLoomVideoBatch:
-    """默认 SkillBot 一次视频素材报价所包含的输入行。"""
+    """Las filas de entrada que incluye un presupuesto de material de vídeo del SkillBot
+    por defecto.
+    """
 
     input_rows: tuple[dict[str, str], ...]
 
@@ -201,7 +213,7 @@ class LoomLoomVideoModel:
 
 @dataclass(frozen=True)
 class LoomLoomVideoCapability:
-    """当前账号可用于文本生成视频 Profile 的公开候选。"""
+    """Candidatos públicos disponibles para la cuenta actual en el perfil de texto a vídeo."""
 
     models: tuple[LoomLoomVideoModel, ...]
     default_model_id: str
@@ -260,11 +272,13 @@ class LoomLoomScriptBatchResult:
 @dataclass(frozen=True)
 class LoomLoomConfirmedVideoRequest:
     """
-    已由用户确认过报价的视频请求快照。
+    Instantánea de una solicitud de vídeo cuyo presupuesto ya ha confirmado el usuario.
 
-    API Key 通过 `LoomLoomSettings` 的隐藏字段仅在当前进程内传递，不进入
-    VideoParams、任务状态或日志；报价版本和幂等请求 ID 确保后台执行与用户
-    看到的报价一致，并避免网络重试造成重复扣费。
+    La clave API solo se pasa dentro del proceso actual mediante el campo oculto de
+    `LoomLoomSettings`, y no entra en VideoParams, en el estado de la tarea ni en los
+    logs; la versión del presupuesto y el ID de solicitud idempotente garantizan que la
+    ejecución en segundo plano coincida con el presupuesto que vio el usuario y que los
+    reintentos de red no cobren dos veces.
     """
 
     settings: LoomLoomSettings
@@ -275,21 +289,24 @@ class LoomLoomConfirmedVideoRequest:
     def validate(self) -> None:
         self.settings.validate(require_api_token=True)
         if not self.batch.input_rows:
-            raise LoomLoomConfigurationError("LoomLoom video batch is empty")
+            raise LoomLoomConfigurationError("El lote de vídeo de LoomLoom está vacío")
         if not str(self.listing_version_id or "").strip():
-            raise LoomLoomConfigurationError("quoted listing version is required")
+            raise LoomLoomConfigurationError("hace falta la versión del listing presupuestada")
         if not str(self.client_request_id or "").strip():
-            raise LoomLoomConfigurationError("video client request id is required")
+            raise LoomLoomConfigurationError("hace falta el id de solicitud del cliente para el vídeo")
 
 
 def video_settings_from_mapping(values: Mapping[str, Any]) -> LoomLoomSettings:
-    """使用项目内置的视频 SkillBot 创建客户端，并放宽视频任务等待时间。"""
+    """Crea el cliente con el SkillBot de vídeo integrado en el proyecto y amplía el tiempo
+    de espera de las tareas de vídeo.
+    """
     settings = LoomLoomSettings.from_mapping(values)
     return LoomLoomSettings(
         base_url=settings.base_url,
         api_token=settings.api_token,
-        # 视频 Listing 接收 prompt/modelChoice/aspectRatio 并返回 MP4；不能
-        # 复用文案 Listing，否则报价阶段就会因输入 schema 不匹配而失败。
+        # El Listing de vídeo recibe prompt/modelChoice/aspectRatio y devuelve MP4; no
+        # se puede reutilizar el Listing de guiones, o fallaría ya en la fase de
+        # presupuesto porque el esquema de entrada no coincide.
         market_listing_id=DEFAULT_VIDEO_MARKET_LISTING_ID,
         listing_version_id=settings.listing_version_id,
         result_port_name=settings.result_port_name,
@@ -306,7 +323,7 @@ def video_settings_from_mapping(values: Mapping[str, Any]) -> LoomLoomSettings:
 
 
 class LoomLoomScriptBackend:
-    """Execute one configured LoomLoom Market Listing for script candidates."""
+    """Ejecuta un Listing de LoomLoom Market configurado para obtener candidatos de guion."""
 
     def __init__(
         self,
@@ -335,21 +352,21 @@ class LoomLoomScriptBackend:
     ) -> LoomLoomScriptBatch:
         normalized_subject = str(subject or "").strip()
         if not normalized_subject:
-            raise ValueError("subject is required")
+            raise ValueError("hace falta el tema")
         if not 1 <= candidate_count <= MAX_SCRIPT_CANDIDATES:
             raise ValueError(
-                f"candidate_count must be between 1 and {MAX_SCRIPT_CANDIDATES}"
+                f"candidate_count debe estar entre 1 y {MAX_SCRIPT_CANDIDATES}"
             )
         if duration_seconds <= 0:
-            raise ValueError("duration_seconds must be greater than zero")
+            raise ValueError("duration_seconds debe ser mayor que cero")
 
         requirements = (
-            f"输出语言：{str(language or 'auto').strip() or 'auto'}\n"
-            f"目标时长（秒）：{duration_seconds}"
+            f"Idioma de salida: {str(language or 'auto').strip() or 'auto'}\n"
+            f"Duración objetivo (segundos): {duration_seconds}"
         )
         normalized_style = str(style or "").strip()
         if normalized_style:
-            requirements += f"\n风格或附加要求：{normalized_style}"
+            requirements += f"\nEstilo o requisitos adicionales: {normalized_style}"
 
         rows = tuple(
             {
@@ -392,13 +409,13 @@ class LoomLoomScriptBackend:
         confirm: bool,
     ) -> LoomLoomExecution:
         if confirm is not True:
-            raise ValueError("confirm=True is required before a paid LoomLoom run")
+            raise ValueError("hace falta confirm=True antes de una ejecución de pago de LoomLoom")
         normalized_request_id = str(client_request_id or "").strip()
         if not normalized_request_id:
-            raise ValueError("client_request_id is required")
+            raise ValueError("hace falta client_request_id")
         normalized_listing_version_id = str(listing_version_id or "").strip()
         if not normalized_listing_version_id:
-            raise ValueError("listing_version_id from the quote is required")
+            raise ValueError("hace falta el listing_version_id del presupuesto")
 
         payload = self._listing_payload(
             batch, listing_version_id=normalized_listing_version_id
@@ -421,19 +438,22 @@ class LoomLoomScriptBackend:
             except LoomLoomAPIError as exc:
                 if not exc.retryable or attempt >= MAX_EXECUTE_ATTEMPTS:
                     raise
-                # execute 是付费操作，不能生成新的请求 ID 后盲目重试。服务端以
-                # clientRequestId 保证幂等，因此这里只复用完全相同的载荷做有限
-                # 重试，用于恢复“服务端已接受、客户端未收到响应”的网络故障。
+                # execute es una operación de pago: no se puede generar un nuevo ID de
+                # solicitud y reintentar a ciegas. El servidor garantiza la idempotencia
+                # con clientRequestId, así que aquí solo se reintenta un número limitado
+                # de veces con exactamente la misma carga útil, para recuperarse de
+                # fallos de red en los que "el servidor aceptó pero el cliente no
+                # recibió la respuesta".
                 retry_delay = min(float(attempt), MAX_POLL_RETRY_DELAY_SECONDS)
                 logger.warning(
-                    "retry LoomLoom execute with the same client request id: "
+                    "se reintenta la ejecución de LoomLoom con el mismo id de solicitud del cliente: "
                     f"attempt={attempt + 1}/{MAX_EXECUTE_ATTEMPTS}, "
                     f"error={type(exc).__name__}"
                 )
                 self._sleep(retry_delay)
 
-        if response is None:  # pragma: no cover - 循环的成功或异常分支已覆盖
-            raise LoomLoomAPIError("LoomLoom execute returned no response")
+        if response is None:  # pragma: no cover - las ramas de éxito o excepción del bucle ya están cubiertas
+            raise LoomLoomAPIError("La ejecución de LoomLoom no devolvió respuesta")
         return LoomLoomExecution(
             run_id=self._required_string(response, "runId"),
             transaction_id=str(response.get("runTransactionId", "")).strip(),
@@ -448,7 +468,7 @@ class LoomLoomScriptBackend:
         )
         run = response.get("run")
         if not isinstance(run, dict):
-            raise LoomLoomAPIError("LoomLoom run response is missing run")
+            raise LoomLoomAPIError("A la respuesta de ejecución de LoomLoom le falta run")
         return LoomLoomRun(
             run_id=self._required_string(run, "runId"),
             status=self._required_string(run, "status").lower(),
@@ -468,8 +488,8 @@ class LoomLoomScriptBackend:
         while True:
             if self._clock() >= deadline:
                 raise LoomLoomRunError(
-                    f"LoomLoom run {run_id} did not complete within "
-                    f"{self.settings.run_timeout_seconds:g} seconds"
+                    f"La ejecución {run_id} de LoomLoom no terminó en "
+                    f"{self.settings.run_timeout_seconds:g} segundos"
                 )
             try:
                 run = self.get_run(run_id)
@@ -480,8 +500,8 @@ class LoomLoomScriptBackend:
                 now = self._clock()
                 if now >= deadline:
                     raise LoomLoomRunError(
-                        f"LoomLoom run {run_id} could not be queried within "
-                        f"{self.settings.run_timeout_seconds:g} seconds"
+                        f"No se pudo consultar la ejecución {run_id} de LoomLoom en "
+                        f"{self.settings.run_timeout_seconds:g} segundos"
                     ) from exc
                 consecutive_poll_errors += 1
                 retry_delay = min(
@@ -491,7 +511,7 @@ class LoomLoomScriptBackend:
                     max(deadline - now, 0),
                 )
                 logger.warning(
-                    "retry LoomLoom run polling after a transient error: "
+                    "se reintenta el sondeo de la ejecución de LoomLoom tras un error pasajero: "
                     f"run_id={run_id}, attempt={consecutive_poll_errors}, "
                     f"delay={retry_delay:g}s, error={type(exc).__name__}"
                 )
@@ -499,11 +519,13 @@ class LoomLoomScriptBackend:
                 continue
             now = self._clock()
             progress = run.completed_tasks + run.failed_tasks + run.cancelled_tasks
-            # 远端视频任务可能持续数分钟。状态变化时立即记录，状态不变时每
-            # 30 秒记录一次心跳，既能帮助定位卡住位置，也避免两秒一次刷屏。
+            # Las tareas de vídeo remotas pueden durar varios minutos. Se registra en
+            # cuanto cambia el estado, y si no cambia se registra un latido cada 30
+            # segundos, lo que ayuda a localizar dónde se atasca sin inundar el log cada
+            # dos segundos.
             if run.status != last_logged_status or now - last_progress_log_at >= 30:
                 logger.info(
-                    "LoomLoom run progress: "
+                    "progreso de la ejecución de LoomLoom: "
                     f"run_id={run.run_id}, status={run.status}, "
                     f"finished={progress}/{run.total_tasks}"
                 )
@@ -513,13 +535,13 @@ class LoomLoomScriptBackend:
                 if run.status != "completed":
                     detail = run.first_error_message or run.status
                     raise LoomLoomRunError(
-                        f"LoomLoom run {run.run_id} ended with {detail}"
+                        f"La ejecución {run.run_id} de LoomLoom terminó con {detail}"
                     )
                 return run
             if now >= deadline:
                 raise LoomLoomRunError(
-                    f"LoomLoom run {run.run_id} did not complete within "
-                    f"{self.settings.run_timeout_seconds:g} seconds"
+                    f"La ejecución {run.run_id} de LoomLoom no terminó en "
+                    f"{self.settings.run_timeout_seconds:g} segundos"
                 )
             self._sleep(min(self.settings.poll_interval_seconds, deadline - now))
 
@@ -536,7 +558,7 @@ class LoomLoomScriptBackend:
                     LoomLoomCandidateError(
                         row_index=row_index,
                         message=str(row.get("errorMessage", "")).strip()
-                        or f"row ended with status {status or 'unknown'}",
+                        or f"la fila terminó con el estado {status or 'unknown'}",
                     )
                 )
                 continue
@@ -557,7 +579,7 @@ class LoomLoomScriptBackend:
         listing_version_id: str | None = None,
     ) -> dict[str, Any]:
         if not batch.input_rows:
-            raise ValueError("input_rows is required")
+            raise ValueError("hace falta input_rows")
         payload: dict[str, Any] = {"inputRows": [dict(row) for row in batch.input_rows]}
         resolved_listing_version_id = (
             self.settings.listing_version_id
@@ -585,13 +607,13 @@ class LoomLoomScriptBackend:
             if not isinstance(items, list) or not all(
                 isinstance(item, dict) for item in items
             ):
-                raise LoomLoomAPIError("LoomLoom resultRows items must be objects")
+                raise LoomLoomAPIError("los elementos de resultRows de LoomLoom deben ser objetos")
             rows.extend(items)
             page_token = str(response.get("nextPageToken") or "").strip()
             if not page_token:
                 return rows
             if page_token in seen_tokens:
-                raise LoomLoomAPIError("LoomLoom returned a repeated resultRows page token")
+                raise LoomLoomAPIError("LoomLoom devolvió un token de página de resultRows repetido")
             seen_tokens.add(page_token)
 
     def _parse_candidate(
@@ -599,7 +621,7 @@ class LoomLoomScriptBackend:
     ) -> LoomLoomScriptCandidate:
         artifacts = row.get("artifacts", [])
         if not isinstance(artifacts, list):
-            raise LoomLoomAPIError("row artifacts must be a list")
+            raise LoomLoomAPIError("los artefactos de la fila deben ser una lista")
         matching = [
             artifact
             for artifact in artifacts
@@ -609,12 +631,12 @@ class LoomLoomScriptBackend:
         ]
         if len(matching) != 1:
             raise LoomLoomAPIError(
-                f"expected one {self.settings.result_port_name!r} result artifact, "
-                f"got {len(matching)}"
+                f"se esperaba un artefacto de resultado {self.settings.result_port_name!r}, "
+                f"se recibieron {len(matching)}"
             )
         inline_text = str(matching[0].get("inlineText", "")).strip()
         if not inline_text:
-            raise LoomLoomAPIError("result artifact does not contain inlineText")
+            raise LoomLoomAPIError("el artefacto de resultado no contiene inlineText")
         lines = inline_text.splitlines()
         if (
             len(lines) >= 3
@@ -625,23 +647,23 @@ class LoomLoomScriptBackend:
         try:
             value = json.loads(inline_text)
         except json.JSONDecodeError as exc:
-            raise LoomLoomAPIError("result artifact is not valid JSON") from exc
+            raise LoomLoomAPIError("el artefacto de resultado no es un JSON válido") from exc
         if not isinstance(value, dict):
-            raise LoomLoomAPIError("result artifact JSON must be an object")
+            raise LoomLoomAPIError("el JSON del artefacto de resultado debe ser un objeto")
 
         script = value.get("script")
         if not isinstance(script, str) or not script.strip():
-            raise LoomLoomAPIError("result artifact script is required")
+            raise LoomLoomAPIError("hace falta el script del artefacto de resultado")
         video_terms = value.get("videoTerms")
         if not isinstance(video_terms, list) or not video_terms:
             raise LoomLoomAPIError(
-                "result artifact videoTerms must be a non-empty list"
+                "videoTerms del artefacto de resultado debe ser una lista no vacía"
             )
         normalized_terms = tuple(
             term.strip() for term in video_terms if isinstance(term, str) and term.strip()
         )
         if not normalized_terms:
-            raise LoomLoomAPIError("result artifact videoTerms must not be empty")
+            raise LoomLoomAPIError("videoTerms del artefacto de resultado no puede estar vacío")
         return LoomLoomScriptCandidate(
             row_index=row_index,
             script=script.strip(),
@@ -660,7 +682,7 @@ class LoomLoomScriptBackend:
         api_token = str(self._credential_provider() or "").strip()
         if not api_token:
             raise LoomLoomConfigurationError(
-                "a LoomLoom credential is required for this request"
+                "esta solicitud necesita una credencial de LoomLoom"
             )
         try:
             response = trace_http_call(
@@ -679,12 +701,12 @@ class LoomLoomScriptBackend:
             )
         except requests.RequestException as exc:
             raise LoomLoomAPIError(
-                f"LoomLoom request failed: {type(exc).__name__}",
+                f"Falló la solicitud a LoomLoom: {type(exc).__name__}",
                 retryable=True,
             ) from exc
 
         if not 200 <= response.status_code < 300:
-            message = "request rejected"
+            message = "petición rechazada"
             try:
                 error_payload = response.json()
             except ValueError:
@@ -692,11 +714,13 @@ class LoomLoomScriptBackend:
             if isinstance(error_payload, dict):
                 server_error = str(error_payload.get("error", "")).strip()
                 if server_error:
-                    # 服务端错误偶尔会回显请求上下文。即使出现异常响应，也不能
-                    # 让 Bearer Token 进入页面错误、日志或任务状态。
+                    # Los errores del servidor a veces devuelven el contexto de la
+                    # solicitud. Incluso ante una respuesta anómala, el token Bearer no
+                    # puede llegar a los errores de la página, a los logs ni al estado
+                    # de la tarea.
                     message = server_error.replace(api_token, "[redacted]")
             raise LoomLoomAPIError(
-                f"LoomLoom API returned HTTP {response.status_code}: {message}",
+                f"La API de LoomLoom devolvió HTTP {response.status_code}: {message}",
                 status_code=response.status_code,
                 retryable=(
                     response.status_code in {408, 425, 429}
@@ -706,43 +730,47 @@ class LoomLoomScriptBackend:
         try:
             payload = response.json()
         except ValueError as exc:
-            raise LoomLoomAPIError("LoomLoom API returned invalid JSON") from exc
+            raise LoomLoomAPIError("La API de LoomLoom devolvió un JSON no válido") from exc
         if not isinstance(payload, dict):
-            raise LoomLoomAPIError("LoomLoom API response must be a JSON object")
+            raise LoomLoomAPIError("La respuesta de la API de LoomLoom debe ser un objeto JSON")
         return payload
 
     @staticmethod
     def _required_identifier(value: str, name: str) -> str:
         normalized = str(value or "").strip()
         if not normalized:
-            raise ValueError(f"{name} is required")
+            raise ValueError(f"hace falta {name}")
         return normalized
 
     @staticmethod
     def _required_string(values: Mapping[str, Any], name: str) -> str:
         value = str(values.get(name, "")).strip()
         if not value:
-            raise LoomLoomAPIError(f"LoomLoom response is missing {name}")
+            raise LoomLoomAPIError(f"A la respuesta de LoomLoom le falta {name}")
         return value
 
     @staticmethod
     def _integer(values: Mapping[str, Any], name: str) -> int:
         value = values.get(name, 0)
         if isinstance(value, bool):
-            raise LoomLoomAPIError(f"LoomLoom response {name} must be an integer")
+            raise LoomLoomAPIError(f"{name} de la respuesta de LoomLoom debe ser un entero")
         try:
             return int(value)
         except (TypeError, ValueError) as exc:
             raise LoomLoomAPIError(
-                f"LoomLoom response {name} must be an integer"
+                f"{name} de la respuesta de LoomLoom debe ser un entero"
             ) from exc
 
 
 class LoomLoomVideoBackend(LoomLoomScriptBackend):
-    """通过默认 SkillBot 生成视频素材，并将 MP4 产物安全下载到任务目录。"""
+    """Genera material de vídeo con el SkillBot por defecto y descarga de forma segura el
+    MP4 resultante al directorio de la tarea.
+    """
 
     def resolve_video_capability(self) -> LoomLoomVideoCapability:
-        """读取当前账号在固定视频 Profile 下的实时模型与比例候选。"""
+        """Lee los candidatos de modelo y relación de aspecto en tiempo real de la cuenta
+        actual para el perfil de vídeo fijo.
+        """
         response = self._request(
             "GET",
             "/authoringCapabilities:resolve",
@@ -750,7 +778,7 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
         )
         matches = response.get("matches", [])
         if not isinstance(matches, list):
-            raise LoomLoomAPIError("LoomLoom capability matches must be a list")
+            raise LoomLoomAPIError("las coincidencias de capacidades de LoomLoom deben ser una lista")
 
         profile_match = next(
             (
@@ -765,28 +793,29 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
         )
         if profile_match is None:
             raise LoomLoomConfigurationError(
-                f"LoomLoom capability profile {VIDEO_CAPABILITY_PROFILE_ID} is unavailable"
+                f"El perfil de capacidades {VIDEO_CAPABILITY_PROFILE_ID} de LoomLoom no está disponible"
             )
 
         eligible_models = profile_match.get("eligibleModels", [])
         if not isinstance(eligible_models, list):
-            raise LoomLoomAPIError("LoomLoom eligibleModels must be a list")
+            raise LoomLoomAPIError("eligibleModels de LoomLoom debe ser una lista")
 
         models = []
         seen_model_ids = set()
         for candidate in eligible_models:
             if not isinstance(candidate, dict):
-                raise LoomLoomAPIError("LoomLoom eligible model must be an object")
-            # null/数值不能转成看似有效的 ID，否则会把坏目录继续传给付费接口。
+                raise LoomLoomAPIError("el modelo elegible de LoomLoom debe ser un objeto")
+            # Un null o un número no pueden convertirse en un ID de apariencia válida;
+            # si no, el catálogo dañado seguiría llegando a la interfaz de pago.
             model_id = candidate.get("modelId")
             display_name = candidate.get("displayName")
             if not isinstance(model_id, str) or not isinstance(display_name, str):
-                raise LoomLoomAPIError("LoomLoom modelId and displayName must be strings")
+                raise LoomLoomAPIError("modelId y displayName de LoomLoom deben ser cadenas")
             model_id = model_id.strip()
             display_name = display_name.strip()
             if not model_id or not display_name:
                 raise LoomLoomAPIError(
-                    "LoomLoom eligible model requires modelId and displayName"
+                    "el modelo elegible de LoomLoom necesita modelId y displayName"
                 )
             if model_id in seen_model_ids:
                 continue
@@ -796,17 +825,17 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
             )
         if not models:
             raise LoomLoomConfigurationError(
-                "LoomLoom video capability has no eligible models"
+                "la capacidad de vídeo de LoomLoom no tiene modelos elegibles"
             )
 
         profile = profile_match["profile"]
         operations = profile.get("operations", {})
         if not isinstance(operations, dict):
-            raise LoomLoomAPIError("LoomLoom profile operations must be an object")
+            raise LoomLoomAPIError("las operaciones del perfil de LoomLoom deben ser un objeto")
         default_model_id = str(operations.get("defaultModelId", "")).strip()
         if default_model_id not in seen_model_ids:
             raise LoomLoomConfigurationError(
-                "LoomLoom video capability default model is not eligible"
+                "el modelo por defecto de la capacidad de vídeo de LoomLoom no es elegible"
             )
 
         definition = profile.get("definition", {})
@@ -820,7 +849,7 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
         )
         if not isinstance(raw_aspect_ratios, list):
             raise LoomLoomAPIError(
-                "LoomLoom video aspect ratio constraint must be a list"
+                "la restricción de relación de aspecto del vídeo de LoomLoom debe ser una lista"
             )
         aspect_ratios = tuple(
             dict.fromkeys(
@@ -831,7 +860,7 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
         )
         if not aspect_ratios:
             raise LoomLoomConfigurationError(
-                "LoomLoom video capability has no supported aspect ratios"
+                "la capacidad de vídeo de LoomLoom no tiene relaciones de aspecto admitidas"
             )
 
         return LoomLoomVideoCapability(
@@ -852,11 +881,11 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
         normalized_model_id = str(model_id or "").strip()
         normalized_aspect_ratio = str(aspect_ratio or "").strip()
         if not normalized_subject:
-            raise ValueError("subject is required")
+            raise ValueError("hace falta el tema")
         if not normalized_model_id:
-            raise ValueError("model_id is required")
+            raise ValueError("hace falta model_id")
         if normalized_aspect_ratio not in {"9:16", "16:9"}:
-            raise ValueError("aspect_ratio must be 9:16 or 16:9")
+            raise ValueError("aspect_ratio debe ser 9:16 o 16:9")
 
         scenes = tuple(
             str(prompt or "").strip()
@@ -865,7 +894,7 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
         )
         if not 1 <= len(scenes) <= MAX_VIDEO_SCENES:
             raise ValueError(
-                f"scene_prompts must contain between 1 and {MAX_VIDEO_SCENES} items"
+                f"scene_prompts debe contener entre 1 y {MAX_VIDEO_SCENES} elementos"
             )
 
         rows = tuple(
@@ -888,7 +917,7 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
         normalized_run_id = self._required_identifier(run_id, "run_id")
         raw_destination = str(destination_dir or "").strip()
         if not raw_destination:
-            raise ValueError("destination_dir is required")
+            raise ValueError("hace falta destination_dir")
         normalized_destination = os.path.realpath(raw_destination)
         os.makedirs(normalized_destination, exist_ok=True)
 
@@ -897,7 +926,7 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
             key=lambda row: self._integer(row, "rowIndex"),
         )
         if not rows:
-            raise LoomLoomRunError("LoomLoom video run returned no result rows")
+            raise LoomLoomRunError("La ejecución de vídeo de LoomLoom no devolvió filas de resultado")
 
         downloaded = []
         for row in rows:
@@ -906,7 +935,7 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
             if status != "completed":
                 detail = str(row.get("errorMessage", "")).strip() or status
                 raise LoomLoomRunError(
-                    f"LoomLoom video row {row_index + 1} ended with {detail}"
+                    f"La fila de vídeo {row_index + 1} de LoomLoom terminó con {detail}"
                 )
             artifact = self._video_artifact(row)
             destination = os.path.join(
@@ -915,7 +944,7 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
             self._download_video_artifact(artifact["accessUrl"], destination)
             downloaded.append(destination)
             logger.info(
-                "downloaded LoomLoom video artifact: "
+                "artefacto de vídeo de LoomLoom descargado: "
                 f"run_id={normalized_run_id}, row={row_index + 1}, "
                 f"filename={os.path.basename(destination)}"
             )
@@ -924,7 +953,7 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
     def _video_artifact(self, row: Mapping[str, Any]) -> dict[str, Any]:
         artifacts = row.get("artifacts", [])
         if not isinstance(artifacts, list):
-            raise LoomLoomAPIError("row artifacts must be a list")
+            raise LoomLoomAPIError("los artefactos de la fila deben ser una lista")
         matching = [
             artifact
             for artifact in artifacts
@@ -935,13 +964,13 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
         ]
         if len(matching) != 1:
             raise LoomLoomAPIError(
-                f"expected one {self.settings.result_port_name!r} video/mp4 artifact, "
-                f"got {len(matching)}"
+                f"se esperaba un artefacto video/mp4 {self.settings.result_port_name!r}, "
+                f"se recibieron {len(matching)}"
             )
         access_url = str(matching[0].get("accessUrl", "")).strip()
         parsed = urlsplit(access_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise LoomLoomAPIError("video artifact accessUrl must be HTTP(S)")
+            raise LoomLoomAPIError("accessUrl del artefacto de vídeo debe ser HTTP(S)")
         return {**matching[0], "accessUrl": access_url}
 
     def _download_video_artifact(self, access_url: str, destination: str) -> None:
@@ -957,7 +986,7 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
             response.raise_for_status()
             content_length = int(response.headers.get("content-length", 0) or 0)
             if content_length > MAX_VIDEO_ARTIFACT_BYTES:
-                raise LoomLoomAPIError("video artifact exceeds the download limit")
+                raise LoomLoomAPIError("el artefacto de vídeo supera el límite de descarga")
             with tempfile.NamedTemporaryFile(
                 mode="wb", dir=os.path.dirname(destination) or ".",
                 prefix=os.path.basename(destination) + ".", suffix=".part", delete=False,
@@ -969,28 +998,32 @@ class LoomLoomVideoBackend(LoomLoomScriptBackend):
                     downloaded_bytes += len(chunk)
                     if downloaded_bytes > MAX_VIDEO_ARTIFACT_BYTES:
                         raise LoomLoomAPIError(
-                            "video artifact exceeds the download limit"
+                            "el artefacto de vídeo supera el límite de descarga"
                         )
                     output.write(chunk)
             if downloaded_bytes == 0:
-                raise LoomLoomAPIError("video artifact download was empty")
+                raise LoomLoomAPIError("la descarga del artefacto de vídeo estaba vacía")
             os.replace(temporary, destination)
         except LoomLoomError:
             raise
         except (requests.RequestException, OSError, ValueError) as exc:
             raise LoomLoomAPIError(
-                f"video artifact download failed: {type(exc).__name__}"
+                f"falló la descarga del artefacto de vídeo: {type(exc).__name__}"
             ) from exc
         finally:
             if response is not None:
                 try:
-                    # stream=True 在大小校验失败或写盘异常时不会保证消费完整响应体。
-                    # 显式关闭可以立即归还或释放底层连接，避免连续失败逐步耗尽
-                    # Session 连接池；关闭失败只记录告警，不能覆盖原始下载异常。
+                    # Con stream=True no se garantiza que se consuma la respuesta
+                    # completa si falla la validación del tamaño o la escritura en
+                    # disco. Cerrar explícitamente devuelve o libera de inmediato la
+                    # conexión subyacente, para que los fallos seguidos no agoten poco a
+                    # poco el pool de conexiones de Session; si falla el cierre solo se
+                    # registra un aviso, sin sobrescribir la excepción de descarga
+                    # original.
                     response.close()
                 except Exception as exc:
                     logger.warning(
-                        "failed to close LoomLoom video download response: "
+                        "no se pudo cerrar la respuesta de descarga del vídeo de LoomLoom: "
                         f"error={type(exc).__name__}"
                     )
             if temporary is not None and os.path.exists(temporary):

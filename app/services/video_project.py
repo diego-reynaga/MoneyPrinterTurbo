@@ -1,7 +1,8 @@
-"""Opt-in, local revision rendering. No providers, credentials or publishing.
+"""Renderizado local de revisiones, opcional. Sin proveedores, credenciales ni publicación.
 
-Run ``python -m app.services.video_project --help``. Prepared footage and audio
-can come from an existing MoneyPrinter task; this module does not regenerate them.
+Ejecuta ``python -m app.services.video_project --help``. El material y el audio
+preparados pueden venir de una tarea existente de MoneyPrinter; este módulo no los
+vuelve a generar.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ class RenderCancelled(ProjectError):
 
 def _identifier(value: str) -> str:
     if not isinstance(value, str) or not _ID.fullmatch(value):
-        raise ProjectError("IDs must be 1–64 letters, digits, underscores or hyphens")
+        raise ProjectError("Los ID deben tener de 1 a 64 letras, dígitos, guiones bajos o guiones")
     return value
 
 
@@ -73,7 +74,9 @@ def _atomic_json(path: Path, value: object) -> None:
 
 @contextmanager
 def _lock(path: Path, timeout: float = 30) -> Iterator[None]:
-    """OS-owned locks are released after process death; no stale PID deletion."""
+    """Los bloqueos propiedad del sistema operativo se liberan al morir el proceso; no se
+    borran PID obsoletos.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+b") as handle:
         if os.fstat(handle.fileno()).st_size == 0:
@@ -95,7 +98,7 @@ def _lock(path: Path, timeout: float = 30) -> Iterator[None]:
             except (OSError, BlockingIOError):
                 if time.monotonic() >= end:
                     raise ProjectError(
-                        "project is busy; retry when the active operation finishes"
+                        "el proyecto está ocupado; reinténtalo cuando termine la operación activa"
                     )
                 time.sleep(0.05)
         try:
@@ -124,15 +127,15 @@ class RenderSettings:
     def parse(cls, value: dict) -> RenderSettings:
         if not isinstance(value, dict) or set(value) - set(cls.__dataclass_fields__):
             raise ProjectError(
-                "unknown render settings; credentials/provider configuration are unsupported"
+                "ajustes de renderizado desconocidos; no se admiten credenciales ni configuración de proveedores"
             )
         result = cls(**value)
         for name, limit in (("width", 4096), ("height", 4096), ("fps", 120)):
             number = getattr(result, name)
             if type(number) is not int or not 1 <= number <= limit:
-                raise ProjectError(f"{name} must be an integer from 1 to {limit}")
+                raise ProjectError(f"{name} debe ser un entero de 1 a {limit}")
         if result.width % 2 or result.height % 2:
-            raise ProjectError("H.264 dimensions must be even")
+            raise ProjectError("las dimensiones H.264 deben ser pares")
         for name in ("narration_volume", "bgm_volume"):
             number = getattr(result, name)
             if (
@@ -141,7 +144,7 @@ class RenderSettings:
                 or not 0 <= number <= 4
                 or not math.isfinite(number)
             ):
-                raise ProjectError(f"{name} must be finite and between 0 and 4")
+                raise ProjectError(f"{name} debe ser finito y estar entre 0 y 4")
         return result
 
 
@@ -165,11 +168,11 @@ def _tool_version(executable: str) -> str:
         )
         return result.stdout.splitlines()[0]
     except (OSError, subprocess.SubprocessError, IndexError) as exc:
-        raise ProjectError(f"working {executable} is required") from exc
+        raise ProjectError(f"hace falta un {executable} que funcione") from exc
 
 
 def stage_graph(spec: dict) -> list[Stage]:
-    """Pure dependency selection: BGM never invalidates an individual scene."""
+    """Selección pura de dependencias: la BGM nunca invalida una escena concreta."""
     stages: list[Stage] = []
     scene_fingerprints: list[str] = []
     settings = RenderSettings.parse(spec["settings"])
@@ -244,7 +247,9 @@ def stage_graph(spec: dict) -> list[Stage]:
 
 
 class VideoProject:
-    """A local project store. All reusable artifacts belong to this project."""
+    """Un almacén de proyectos local. Todos los artefactos reutilizables pertenecen a este
+    proyecto.
+    """
 
     def __init__(self, directory: str | Path):
         self.directory = Path(directory).resolve()
@@ -270,7 +275,7 @@ class VideoProject:
         if not path.is_absolute():
             path = relative_to / path
         if not path.is_file():
-            raise ProjectError(f"missing local asset: {value}")
+            raise ProjectError(f"falta un recurso local: {value}")
         folder = self.directory / "assets"
         folder.mkdir(exist_ok=True)
         fd, name = tempfile.mkstemp(prefix=".asset-", dir=folder)
@@ -290,7 +295,9 @@ class VideoProject:
             Path(name).unlink(missing_ok=True)
 
     def create_revision(self, request: dict, *, relative_to: str | Path = ".") -> dict:
-        """Snapshot caller-supplied prepared media; unknown/credential fields fail."""
+        """Hace una instantánea de los medios preparados que aporta quien llama; los campos
+        desconocidos o de credenciales fallan.
+        """
         if not isinstance(request, dict) or set(request) - {
             "project_id",
             "scenes",
@@ -298,13 +305,13 @@ class VideoProject:
             "bgm",
         }:
             raise ProjectError(
-                "unknown project fields; this manifest accepts prepared local media only"
+                "campos de proyecto desconocidos; este manifiesto solo acepta medios locales preparados"
             )
         project_id = _identifier(request["project_id"])
         settings = RenderSettings.parse(request.get("settings", {}))
         raw_scenes = request.get("scenes")
         if not isinstance(raw_scenes, list) or not 1 <= len(raw_scenes) <= 100:
-            raise ProjectError("provide between 1 and 100 scenes")
+            raise ProjectError("indica entre 1 y 100 escenas")
         scenes = []
         for raw in raw_scenes:
             if not isinstance(raw, dict) or set(raw) - {
@@ -314,11 +321,11 @@ class VideoProject:
                 "narration",
                 "duration",
             }:
-                raise ProjectError("unknown scene fields")
+                raise ProjectError("campos de escena desconocidos")
             scene_id = _identifier(raw["id"])
             narration = raw.get("narration", "")
             if not isinstance(narration, str) or len(narration) > 100000:
-                raise ProjectError("narration must be text under 100000 characters")
+                raise ProjectError("narration debe ser un texto de menos de 100000 caracteres")
             duration = raw.get("duration", 5.0)
             if (
                 isinstance(duration, bool)
@@ -327,11 +334,11 @@ class VideoProject:
                 or not math.isfinite(duration)
             ):
                 raise ProjectError(
-                    "scene duration must be finite and between 0 and 3600 seconds"
+                    "la duración de la escena debe ser finita y estar entre 0 y 3600 segundos"
                 )
             if narration and not raw.get("audio"):
                 raise ProjectError(
-                    "narration requires prepared audio; this renderer does not generate speech"
+                    "narration requiere audio preparado; este renderizador no genera voz"
                 )
             scenes.append(
                 {
@@ -345,7 +352,7 @@ class VideoProject:
                 }
             )
         if len({s["id"] for s in scenes}) != len(scenes):
-            raise ProjectError("scene IDs must be unique and retained across revisions")
+            raise ProjectError("los ID de escena deben ser únicos y conservarse entre revisiones")
         bgm = (
             self._asset(request["bgm"], Path(relative_to))
             if request.get("bgm")
@@ -376,7 +383,7 @@ class VideoProject:
                 }
             )
             if metadata["project_id"] != project_id:
-                raise ProjectError("directory already belongs to another project")
+                raise ProjectError("el directorio ya pertenece a otro proyecto")
             spec["parent_revision"] = metadata.get("current_revision")
             _atomic_json(self._revision_path(revision_id) / "spec.json", spec)
             _atomic_json(
@@ -391,7 +398,7 @@ class VideoProject:
         path = self.directory / "assets" / asset["sha256"]
         if path.is_symlink() or not path.is_file() or _digest(path) != asset["sha256"]:
             raise ProjectError(
-                "source snapshot failed integrity validation; create a new revision from the original asset"
+                "la instantánea de origen no pasó la validación de integridad; crea una revisión nueva a partir del recurso original"
             )
         return path
 
@@ -460,16 +467,16 @@ class VideoProject:
             if cached:
                 verified[stage.key] = cached
             reason = (
-                "matching dependencies and verified bytes"
+                "dependencias coincidentes y bytes verificados"
                 if cached
                 else (
-                    "dependencies changed since parent revision"
+                    "las dependencias cambiaron desde la revisión padre"
                     if stage.key in parent and parent[stage.key] != stage.fingerprint
-                    else "artifact failed integrity validation"
+                    else "el artefacto no superó la validación de integridad"
                     if (
                         self.directory / "artifacts" / stage.fingerprint / "record.json"
                     ).exists()
-                    else "no completed artifact for these dependencies"
+                    else "no hay ningún artefacto completado para estas dependencias"
                 )
             )
             planned.append(
@@ -495,9 +502,10 @@ class VideoProject:
 
     def _run(self, arguments: list[str], cancel: Path, timeout: float) -> str:
         if cancel.exists():
-            raise RenderCancelled("revision cancelled")
-        # Prepared media may contain playlist references. Never let an input
-        # silently initiate network access; allow local files and pipes only.
+            raise RenderCancelled("revisión cancelada")
+        # Los medios preparados pueden contener referencias a listas de reproducción.
+        # Nunca se permite que una entrada inicie en silencio un acceso a la red; solo
+        # se permiten archivos locales y tuberías.
         secured_arguments = []
         for argument in arguments:
             if argument == "-i":
@@ -511,9 +519,9 @@ class VideoProject:
             try:
                 while True:
                     if cancel.exists():
-                        raise RenderCancelled("revision cancelled")
+                        raise RenderCancelled("revisión cancelada")
                     if time.monotonic() >= deadline:
-                        raise ProjectError("media command exceeded its stage deadline")
+                        raise ProjectError("el comando multimedia superó el plazo de su etapa")
                     try:
                         stdout, _ = process.communicate(timeout=0.1)
                         break
@@ -524,7 +532,7 @@ class VideoProject:
                     size = errors.tell()
                     errors.seek(max(0, size - 8192))
                     raise ProjectError(
-                        "media command failed: "
+                        "falló el comando multimedia: "
                         + errors.read().decode(errors="replace")
                     )
                 return stdout
@@ -548,19 +556,20 @@ class VideoProject:
         on_stage: Callable[[Stage, bool], None] | None = None,
     ) -> dict:
         if not math.isfinite(stage_timeout) or stage_timeout <= 0:
-            raise ProjectError("stage timeout must be finite and positive")
+            raise ProjectError("el tiempo de espera de la etapa debe ser finito y positivo")
         spec = self.revision(revision)
         revision = spec["revision_id"]
         folder = self._revision_path(revision)
         cancel = folder / "cancel.json"
-        # One writer per revision, different revisions may build independently.
+        # Un escritor por revisión; revisiones distintas pueden construirse de forma
+        # independiente.
         with _lock(folder / ".render.lock"):
             status = self.status(revision)
             if (
                 status["state"] in {"failed", "cancelled", "running"} or cancel.exists()
             ) and not retry:
                 raise ProjectError(
-                    "interrupted/failed/cancelled revision requires explicit --retry"
+                    "una revisión interrumpida/fallida/cancelada requiere --retry explícito"
                 )
             if retry:
                 cancel.unlink(missing_ok=True)
@@ -576,19 +585,19 @@ class VideoProject:
                 }
                 if actual_tools != spec["toolchain"]:
                     raise ProjectError(
-                        "FFmpeg toolchain changed; create a revision to rebuild with its new fingerprint"
+                        "la cadena de herramientas de FFmpeg cambió; crea una revisión para reconstruir con su nueva huella"
                     )
-                self.plan(revision)  # Verify source snapshots before starting.
+                self.plan(revision)  # Verifica las instantáneas de origen antes de empezar.
                 for stage in stage_graph(spec):
                     current_stage = stage.key
                     if cancel.exists():
-                        raise RenderCancelled("revision cancelled")
+                        raise RenderCancelled("revisión cancelada")
                     cached = self._cached(stage, results)
                     reused = cached is not None
                     if on_stage:
                         on_stage(stage, reused)
                     if cancel.exists():
-                        raise RenderCancelled("revision cancelled")
+                        raise RenderCancelled("revisión cancelada")
                     if cached is None:
                         cached = self._build(
                             stage, spec, results, ffmpeg, ffprobe, cancel, stage_timeout
@@ -602,7 +611,7 @@ class VideoProject:
                     _atomic_json(folder / "status.json", status)
                 with _lock(self.lock_path):
                     if cancel.exists():
-                        raise RenderCancelled("revision cancelled")
+                        raise RenderCancelled("revisión cancelada")
                     metadata = self.metadata()
                     promoted = metadata["current_revision"] == revision
                     if promoted:
@@ -718,7 +727,7 @@ class VideoProject:
                 )
                 if not math.isfinite(duration) or not 0 < duration <= 3600:
                     raise ProjectError(
-                        "prepared audio duration must be between 0 and 3600 seconds"
+                        "la duración del audio preparado debe estar entre 0 y 3600 segundos"
                     )
                 _atomic_json(output, {"duration": duration})
             elif stage.kind == "scene":
@@ -765,7 +774,8 @@ class VideoProject:
                     timeout,
                 )
             elif stage.kind == "assembly":
-                # Relative numeric links avoid concat syntax/path injection, including apostrophes.
+                # Los enlaces numéricos relativos evitan la inyección de sintaxis/rutas
+                # de concat, incluidos los apóstrofos.
                 for index, scene_spec in enumerate(spec["scenes"]):
                     shutil.copyfile(
                         results[f"{scene_spec['id']}:scene"]["path"],
@@ -829,7 +839,7 @@ class VideoProject:
             else:
                 shutil.copyfile(results["assembly"]["path"], output)
             if cancel.exists():
-                raise RenderCancelled("revision cancelled")
+                raise RenderCancelled("revisión cancelada")
             with output.open("r+b") as completed:
                 os.fsync(completed.fileno())
             record = {
@@ -848,12 +858,14 @@ class VideoProject:
             }
             destination = self.directory / "artifacts" / stage.fingerprint
             with _lock(self.lock_path):
-                # Another revision may have finished the same fingerprint. Keep its
-                # committed bytes immutable instead of replacing a live export.
+                # Puede que otra revisión ya haya terminado la misma huella. Se
+                # mantienen inmutables sus bytes confirmados en lugar de sustituir una
+                # exportación en uso.
                 existing = self._cached(stage, results)
                 if existing is not None:
                     return existing
-                # Media first, commit record last. Interrupted writes are never trusted.
+                # Primero los medios, al final el registro de confirmación. Nunca se
+                # confía en escrituras interrumpidas.
                 destination.mkdir(parents=True, exist_ok=True)
                 published = destination / f"output-{record['sha256']}{suffix}"
                 os.replace(output, published)
@@ -880,20 +892,20 @@ class VideoProject:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Revision-aware local video projects (prepared media, no API calls)"
+        description="Proyectos de vídeo locales con revisiones (medios preparados, sin llamadas a API)"
     )
     parser.add_argument(
         "--project",
         required=True,
-        help="Project directory; project-scoped snapshots and artifacts",
+        help="Directorio del proyecto; instantáneas y artefactos propios del proyecto",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     revise = commands.add_parser(
         "revise",
-        help="Create/current-select an immutable revision from a JSON manifest",
+        help="Crea y selecciona como actual una revisión inmutable a partir de un manifiesto JSON",
     )
     revise.add_argument("manifest")
-    revise.add_argument("--preset", help="Reusable validated render-settings JSON")
+    revise.add_argument("--preset", help="JSON de ajustes de renderizado validados y reutilizables")
     for name in ("plan", "status", "cancel"):
         commands.add_parser(name).add_argument("--revision")
     render = commands.add_parser("render")
@@ -905,7 +917,7 @@ def main(argv: list[str] | None = None) -> int:
     compare.add_argument("after")
     preset = commands.add_parser(
         "save-preset",
-        help="Export current render settings without assets or credentials",
+        help="Exporta los ajustes de renderizado actuales sin recursos ni credenciales",
     )
     preset.add_argument("output")
     args = parser.parse_args(argv)
@@ -938,7 +950,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
         return 0
     except (ProjectError, OSError, ValueError, KeyError, TypeError) as exc:
-        parser.exit(1, f"video project: {exc}\n")
+        parser.exit(1, f"proyecto de vídeo: {exc}\n")
 
 
 if __name__ == "__main__":

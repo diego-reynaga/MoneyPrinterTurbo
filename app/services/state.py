@@ -11,8 +11,8 @@ from app.models import const
 
 
 _PATCH_EXISTING_TASK_SCRIPT = """
--- Match discovery/get_task ownership checks inside the same atomic operation.
--- Other services and our queue may share this database or reuse a deleted key.
+-- Replica las comprobaciones de propiedad de discovery/get_task en la misma operación atómica.
+-- Otros servicios y nuestra cola pueden compartir esta base de datos o reutilizar una clave borrada.
 if redis.call("TYPE", KEYS[1]).ok ~= "hash" then
     return 0
 end
@@ -40,7 +40,7 @@ return redis.call("DEL", KEYS[1])
 """
 
 
-# Base class for state management
+# Clase base de la gestión de estado
 class BaseState(ABC):
     @abstractmethod
     def update_task(self, task_id: str, state: int, progress: int = 0, **kwargs):
@@ -56,16 +56,20 @@ class BaseState(ABC):
 
     @abstractmethod
     def list_task_ids(self, scan_count: int = 100) -> list[str]:
-        """获取一次遍历中的任务 ID，供启动恢复等全量操作使用。"""
+        """Obtiene los ID de tarea de un recorrido, para operaciones completas como la
+        recuperación al arrancar.
+        """
         pass
 
     @abstractmethod
     def patch_task(self, task_id: str, **kwargs) -> bool:
-        """只更新已有任务的指定字段；任务不存在时返回 False。"""
+        """Solo actualiza los campos indicados de una tarea existente; si la tarea no
+        existe devuelve False.
+        """
         pass
 
 
-# Memory state management
+# Gestión de estado en memoria
 class MemoryState(BaseState):
     def __init__(self):
         self._tasks = {}
@@ -99,9 +103,10 @@ class MemoryState(BaseState):
 
         with self._lock:
             self._tasks[task_id] = {
-                # Keep fields from earlier pipeline stages, matching Redis
-                # HSET updates. A progress-only update must not erase the
-                # WebUI subject or diagnostic details already stored.
+                # Conserva los campos de etapas anteriores del flujo, igual que las
+                # actualizaciones HSET de Redis. Una actualización que solo trae el
+                # progreso no debe borrar el tema de la WebUI ni los detalles de
+                # diagnóstico ya guardados.
                 **self._tasks.get(task_id, {}),
                 "task_id": task_id,
                 "state": state,
@@ -115,9 +120,11 @@ class MemoryState(BaseState):
             return copy.deepcopy(task) if task is not None else None
 
     def patch_task(self, task_id: str, **kwargs) -> bool:
-        # 异步发布只应补充发布状态，不能覆盖已经保存的视频、字幕等结果。
-        # 在同一把锁内完成存在性判断和字段合并，也可避免任务删除后
-        # 被后台线程重建。
+        # La publicación asíncrona solo debe añadir el estado de publicación, sin
+        # sobrescribir los resultados ya guardados del vídeo, los subtítulos, etc.
+        # Comprobar la existencia y fusionar los campos dentro del mismo bloqueo también
+        # evita que un hilo en segundo plano vuelva a crear la tarea después de
+        # borrarla.
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None:
@@ -130,16 +137,16 @@ class MemoryState(BaseState):
             self._tasks.pop(task_id, None)
 
 
-# Redis state management
+# Gestión de estado en Redis
 class RedisState(BaseState):
     """
-    Redis-backed task state.
+    Estado de tareas respaldado por Redis.
 
-    Trust boundary: Redis is expected to be private to this application. Task
-    values are written by MoneyPrinterTurbo and converted back from strings for
-    compatibility with existing state records. Do not expose this Redis database
-    to untrusted writers without replacing deserialization with a stricter
-    schema-based format.
+    Límite de confianza: se espera que Redis sea privado de esta aplicación. Los valores
+    de las tareas los escribe MoneyPrinterTurbo y se convierten de nuevo desde cadenas
+    por compatibilidad con los registros de estado existentes. No expongas esta base de
+    datos Redis a escritores no fiables sin sustituir la deserialización por un formato
+    más estricto basado en esquemas.
     """
 
     def __init__(self, host="localhost", port=6379, db=0, password=None):
@@ -150,9 +157,11 @@ class RedisState(BaseState):
     def get_all_tasks(self, page: int, page_size: int):
         start = (page - 1) * page_size
         end = start + page_size
-        # 每一页都以同一套确定性顺序切片，而不是依赖 SCAN 的返回顺序。
-        # 这仍不是并发增删任务时的事务快照；无索引时优先保证静态任务集
-        # 的分页正确性，并让 total 统计去重后的任务键。
+        # Cada página se corta con el mismo orden determinista, en lugar de depender del
+        # orden que devuelve SCAN. Esto sigue sin ser una instantánea transaccional
+        # cuando se añaden o borran tareas a la vez; sin índice, se prioriza que la
+        # paginación de un conjunto de tareas estático sea correcta, y total cuenta las
+        # claves de tarea sin duplicados.
         task_ids = self.list_task_ids(scan_count=page_size)
         tasks = []
         for task_id in task_ids[start:end]:
@@ -162,28 +171,32 @@ class RedisState(BaseState):
         return tasks, len(task_ids)
 
     def list_task_ids(self, scan_count: int = 100) -> list[str]:
-        """Return only this application's task hashes from a possibly shared DB."""
+        """Devuelve solo los hashes de tareas de esta aplicación de una base de datos que
+        puede ser compartida.
+        """
         task_keys = set()
         cursor = 0
         while True:
-            # Redis 数据库中除了任务 Hash，还可能存在 RedisTaskManager 使用的
-            # List 队列。只扫描 Hash 可以避免对队列执行 HGETALL 时触发
-            # WRONGTYPE。COUNT 是扫描工作量提示，不保证每批返回的数量。
+            # Además de los Hash de tareas, la base de datos Redis puede contener colas
+            # List que usa RedisTaskManager. Escanear solo los Hash evita provocar
+            # WRONGTYPE al ejecutar HGETALL sobre una cola. COUNT es una indicación del
+            # trabajo de escaneo y no garantiza el número de elementos de cada lote.
             cursor, keys = self._redis.scan(
                 cursor,
                 count=scan_count,
                 _type="HASH",
             )
-            # Redis db 0 may also contain hashes belonging to other services.
-            # Check the task marker in one pipelined round trip per SCAN batch;
-            # exposing all HASH keys here can leak their fields through /tasks.
+            # La db 0 de Redis también puede contener hashes de otros servicios. Se
+            # comprueba el marcador de tarea en una ida y vuelta por pipeline por cada
+            # lote de SCAN; exponer aquí todas las claves HASH podría filtrar sus campos
+            # a través de /tasks.
             candidates = [key for key in dict.fromkeys(keys) if key not in task_keys]
             if candidates:
                 with self._redis.pipeline(transaction=False) as pipeline:
                     for key in candidates:
                         pipeline.hget(key, "task_id")
-                    # A key can change type after SCAN. Isolate that row instead
-                    # of letting one WRONGTYPE abort the whole task listing.
+                    # Una clave puede cambiar de tipo tras el SCAN. Se aísla esa fila en
+                    # lugar de dejar que un WRONGTYPE aborte todo el listado de tareas.
                     embedded_ids = pipeline.execute(raise_on_error=False)
                 for key, embedded_id in zip(candidates, embedded_ids):
                     if isinstance(embedded_id, ResponseError):
@@ -194,7 +207,8 @@ class RedisState(BaseState):
                         task_keys.add(key)
             if cursor == 0:
                 break
-        # 按任务键排序不依赖 Hash 扫描顺序；不额外维护索引，也不改变旧任务。
+        # Ordenar por clave de tarea no depende del orden de escaneo de los Hash; no se
+        # mantiene un índice extra ni se cambian las tareas antiguas.
         return [key.decode("utf-8") for key in sorted(task_keys)]
 
     def update_task(
@@ -215,9 +229,10 @@ class RedisState(BaseState):
             **kwargs,
         }
 
-        # One HSET writes the whole task state atomically. Separate commands
-        # could expose a new state with the previous progress or result fields
-        # to readers, and leave a partially updated record on network failure.
+        # Un solo HSET escribe todo el estado de la tarea de forma atómica. Comandos
+        # separados podrían mostrar a los lectores un estado nuevo con el progreso o los
+        # resultados anteriores, y dejar un registro a medio actualizar ante un fallo de
+        # red.
         self._redis.hset(
             task_id,
             mapping={
@@ -230,13 +245,14 @@ class RedisState(BaseState):
         try:
             task_data = self._redis.hgetall(task_id)
         except ResponseError as exc:
-            # Arbitrary task IDs can name the application's List queue or
-            # another service's non-hash key. Those are not task records.
+            # Un ID de tarea arbitrario puede nombrar la cola List de la aplicación o
+            # una clave que no es hash de otro servicio. Esos no son registros de tarea.
             if str(exc).startswith("WRONGTYPE"):
                 return None
             raise
-        # An API caller may ask for any Redis key by name. Require the same
-        # marker as list_task_ids before returning a hash's contents.
+        # Quien llama a la API puede pedir cualquier clave de Redis por su nombre. Se
+        # exige el mismo marcador que list_task_ids antes de devolver el contenido de un
+        # hash.
         if not task_data or task_data.get(b"task_id") != task_id.encode("utf-8"):
             return None
 
@@ -258,9 +274,11 @@ class RedisState(BaseState):
         for field, value in kwargs.items():
             arguments.extend((field, self._serialize_field(field, value)))
 
-        # EXISTS 和 HSET 如果分成两条命令，后台发布线程与删除请求并发时，
-        # HSET 可能在删除后重新创建一条残缺任务。Lua 脚本由 Redis 原子执行，
-        # 可以保证任务不存在时不写入，且不会改变现有字段之外的数据。
+        # Si EXISTS y HSET fueran dos comandos separados, cuando el hilo de publicación
+        # en segundo plano y una solicitud de borrado coincidieran, HSET podría volver a
+        # crear una tarea incompleta tras el borrado. Redis ejecuta el script Lua de
+        # forma atómica, lo que garantiza que no se escriba nada si la tarea no existe y
+        # que no se cambien datos fuera de los campos existentes.
         updated = self._redis.eval(
             _PATCH_EXISTING_TASK_SCRIPT,
             1,
@@ -270,15 +288,18 @@ class RedisState(BaseState):
         return bool(updated)
 
     def delete_task(self, task_id: str):
-        # 调用方读取任务后还会清理目录，同名键可能在这段时间被其它服务复用。
-        # 在一次 Lua 操作内检查类型、任务标记并删除，避免检查与删除之间的竞态。
+        # Quien llama todavía limpia el directorio tras leer la tarea, y en ese tiempo
+        # otro servicio puede reutilizar una clave con el mismo nombre. Se comprueban el
+        # tipo y el marcador de tarea y se borra en una sola operación Lua, para evitar
+        # la condición de carrera entre la comprobación y el borrado.
         self._redis.eval(_DELETE_OWNED_TASK_SCRIPT, 1, task_id)
 
     @staticmethod
     def _serialize_field(field, value):
-        # Quote strings so literal_eval cannot turn a subject like "2026" or
-        # an error like "None" into an integer/None. Keep the ownership marker
-        # raw: task discovery compares its bytes directly against the Redis key.
+        # Se entrecomillan las cadenas para que literal_eval no convierta un tema como
+        # "2026" o un error como "None" en un entero/None. El marcador de pertenencia se
+        # mantiene en bruto: el descubrimiento de tareas compara sus bytes directamente
+        # con la clave de Redis.
         if isinstance(value, str) and field != "task_id":
             return repr(value)
         return str(value)
@@ -286,28 +307,29 @@ class RedisState(BaseState):
     @staticmethod
     def _convert_to_original_type(value):
         """
-        Convert values written by this application back to common Python types.
+        Convierte los valores escritos por esta aplicación de nuevo a tipos comunes de
+        Python.
 
-        This compatibility parser assumes Redis is inside the application's
-        trust boundary. If Redis can be written by untrusted clients, task state
-        should move to a strict JSON/schema parser instead of open-ended literal
-        conversion.
+        Este analizador de compatibilidad supone que Redis está dentro del límite de
+        confianza de la aplicación. Si clientes no fiables pueden escribir en Redis, el
+        estado de las tareas debería pasar a un analizador JSON/esquema estricto en
+        lugar de una conversión literal abierta.
         """
         value_str = value.decode("utf-8")
 
         try:
-            # try to convert byte string array to list
+            # intenta convertir un array de cadenas de bytes en lista
             return ast.literal_eval(value_str)
         except (ValueError, SyntaxError):
             pass
 
         if value_str.isdigit():
             return int(value_str)
-        # Add more conversions here if needed
+        # Añade aquí más conversiones si hace falta
         return value_str
 
 
-# Global state
+# Estado global
 _enable_redis = config.app.get("enable_redis", False)
 _redis_host = config.app.get("redis_host", "localhost")
 _redis_port = config.app.get("redis_port", 6379)

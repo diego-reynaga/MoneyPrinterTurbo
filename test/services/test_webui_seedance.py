@@ -33,7 +33,7 @@ def test_seedance_source_requires_confirmation_then_submits_without_secret_in_pa
         patch("app.services.webui_task.submit_generation") as submit_generation,
     ):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=60)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.run()
 
         _widget_by_key(app.text_area, "video_subject").set_value("AI office").run()
@@ -43,7 +43,7 @@ def test_seedance_source_requires_confirmation_then_submits_without_secret_in_pa
         _widget_by_key(app.text_area, "video_terms").set_value(
             "office worker, AI assistant"
         ).run()
-        app.session_state["video_source_select_en"] = "volcengine_seedance"
+        app.session_state["video_source_select_es"] = "volcengine_seedance"
         app.run()
 
         _widget_by_key(app.button, "generate_video_button").click().run()

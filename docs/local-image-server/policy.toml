@@ -1,16 +1,18 @@
-# Content policy for generated scenes.
+# Política de contenido para las escenas generadas.
 #
-# Patterns are Python regex and case-sensitive unless they start with (?i).
-# Rules run in order. The first matching "replace" rule ends the run.
-#   replace     swap the whole prompt for a safe scene
-#   substitute  replace only the matched words
-#   append      add guidance to the end of the prompt
-# Set enabled = false to switch a rule off.
+# Los patrones son regex de Python y distinguen mayúsculas salvo que empiecen por (?i).
+# Las reglas se ejecutan en orden. La primera regla "replace" que coincide termina la ejecución.
+#   replace     sustituye el prompt entero por una escena segura
+#   substitute  sustituye solo las palabras que coinciden
+#   append      añade indicaciones al final del prompt
+# Pon enabled = false para desactivar una regla.
+# Los patrones y las escenas están en inglés a propósito: las palabras clave del
+# material que genera el LLM y los prompts que mejor entiende SDXL son en inglés.
 
 [defaults]
 negative = "blood, gore, corpses, wounds, nudity"
 
-# scenes for "replace" rules with use_places = true, first match wins
+# escenas para las reglas "replace" con use_places = true; gana la primera coincidencia
 [[places]]
 match = '(?i)\b(hira|cave)\b'
 scene = "rocky mountain cave entrance at dawn, soft light"
@@ -31,11 +33,11 @@ scene = "ancient stone city walls at sunrise"
 match = '(?i)\b(sinai)\b'
 scene = "granite desert mountains at sunrise"
 
-# --- never depicted ---
+# --- nunca se representan ---
 
 [[rules]]
 name = "god"
-# God is not shown as a figure in Islam, Judaism or most of Christianity
+# Dios no se muestra como figura en el islam, el judaísmo ni en la mayor parte del cristianismo
 action = "replace"
 match = ['\bGod\b', '(?i)\b(allah|yahweh|jehovah|the almighty)\b']
 scene = "rays of soft light breaking through clouds over a vast quiet landscape"
@@ -55,11 +57,11 @@ no_people = true
 
 [[rules]]
 name = "islamic_prophets"
-# arabic names imply islamic framing, where prophets are not depicted
+# los nombres árabes implican un contexto islámico, en el que los profetas no se representan
 action = "replace"
 match = [
   '(?i)\bprophets?\s+(isa|nuh|ibrahim|musa|yusuf|dawud|sulayman|yunus|ismail|yahya|zakariy+a|adam|idris|hud|salih|shu.?ayb)\b',
-  # bare names are common muslim names, so only with islamic context
+  # los nombres sueltos son nombres musulmanes comunes, así que solo con contexto islámico
   '(?i)(?<!mansa )\b(isa|nuh|ibrahim|musa|yusuf|dawud|sulayman|yunus|yahya|zakariy+a|idris)\b(?=.*\b(islam\w*|qur.?an\w*|muslims?)\b)',
 ]
 use_places = true
@@ -68,8 +70,8 @@ no_people = true
 
 [[rules]]
 name = "islamic_prophets_english_names"
-# for islamic content: Jesus, Moses, Abraham and Noah are prophets in Islam too.
-# off by default because Christian and Jewish art depicts them
+# para contenido islámico: Jesús, Moisés, Abraham y Noé también son profetas en el islam.
+# desactivada por defecto porque el arte cristiano y judío sí los representa
 enabled = false
 action = "replace"
 match = ['(?i)\b(jesus|christ|moses|abraham|noah|joseph|david|solomon|jonah|john the baptist)\b']
@@ -79,7 +81,7 @@ no_people = true
 
 [[rules]]
 name = "companions_and_family_of_the_prophet"
-# many muslims also avoid depicting the companions and the prophet's family
+# muchos musulmanes también evitan representar a los compañeros y a la familia del profeta
 action = "replace"
 match = [
   '(?i)\b(sahaba|companions of the prophet|rightly guided caliphs?)\b',
@@ -98,17 +100,17 @@ no_people = true
 
 [[rules]]
 name = "sikh_gurus"
-# images of the gurus exist, but many sikhs object to them
+# existen imágenes de los gurús, pero muchos sijs se oponen a ellas
 action = "replace"
 match = ['(?i)\b(sikh gurus?|guru (nanak|angad|amar das|ram das|arjan|hargobind|har rai|har krishan|tegh bahadur|gobind singh))\b']
 scene = "golden temple reflected in the still pool at dawn"
 no_people = true
 
-# --- real suffering ---
+# --- sufrimiento real ---
 
 [[rules]]
 name = "atrocities"
-# a photoreal "historical photo" of a real atrocity is a fabrication
+# una "foto histórica" fotorrealista de una atrocidad real es una invención
 action = "replace"
 match = ['(?i)\b(holocaust|shoah|auschwitz|concentration camps?|death camps?|genocides?|massacres?|ethnic cleansing|lynching|slave ships?|terrorist attacks?|9/11|september 11|hiroshima bombing|nakba)\b']
 scene = "memorial with candles and flowers at dusk, solemn and quiet"
@@ -121,11 +123,11 @@ match = ['(?i)\b(child|children|kids?|orphans?|bab(y|ies)|toddlers?)\b.{0,40}\b(
 scene = "a small worn toy on an empty dusty road at dusk"
 no_people = true
 
-# --- softer fixes ---
+# --- correcciones más suaves ---
 
 [[rules]]
 name = "living_public_figures"
-# no photoreal faces of real office holders
+# sin caras fotorrealistas de cargos públicos reales
 action = "replace"
 match = ['''\b(?i:president|prime minister|chancellor|senator|governor|minister|pope|ceo|secretary.general)\s+[A-Z][\w'-]+(\s+[A-Z][\w'-]+)?''']
 scene = "government building exterior with flags at dusk"
@@ -133,7 +135,7 @@ no_people = true
 
 [[rules]]
 name = "sacred_script"
-# image models write fake arabic, hebrew, sanskrit or gurmukhi
+# los modelos de imágenes escriben árabe, hebreo, sánscrito o gurmukhi falsos
 action = "substitute"
 match = ['(?i)\b((arabic|hebrew|sanskrit|gurmukhi|tibetan|devanagari) )?(calligraph\w*|inscriptions?|scripture text|holy verses?|verses)\b']
 replacement = "ornate geometric patterns"
@@ -148,7 +150,7 @@ negative = "open book, pages, writing, lettering on the cover, emblem with text"
 
 [[rules]]
 name = "revered_figures"
-# depicted in these traditions, so keep them but frame them with respect
+# se representan en estas tradiciones, así que se mantienen pero con un encuadre respetuoso
 action = "append"
 match = ['(?i)\b(jesus|christ|virgin mary|madonna|saints?|moses|abraham|buddha|bodhisattvas?|shiva|vishnu|krishna|rama|ganesh[a]?|durga|kali|lakshmi|hanuman|saraswati|parvati|mahavira)\b']
 text = "depicted reverently in a traditional devotional setting, dignified"

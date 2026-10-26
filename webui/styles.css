@@ -16,25 +16,28 @@ h1 {
     margin-top: 0 !important;
 }
 
-/* Streamlit 默认让标签中的帮助区域占据剩余宽度，导致问号按钮贴到控件最右侧。
-   帮助提示在语义上从属于标签文字，因此取消该区域的伸展，并用固定小间距让
-   问号紧跟标签；没有 help 参数的标签不存在这个 div，不会受到影响。 */
+/* Streamlit hace por defecto que la zona de ayuda de la etiqueta ocupe el ancho restante, así que el botón
+   de interrogación queda pegado al borde derecho del control. La ayuda pertenece semánticamente al texto de la
+   etiqueta, así que se anula el estiramiento de esa zona y se usa un pequeño espacio fijo para que la
+   interrogación siga a la etiqueta; las etiquetas sin parámetro help no tienen este div y no se ven afectadas. */
 label[data-testid="stWidgetLabel"] > div {
     flex: 0 0 auto !important;
     width: auto !important;
     margin-left: 0.35rem !important;
 }
 
-/* 视频主题与大模型存在直接依赖，把配置入口放在字段标签旁。这里将 tertiary
-   button 收敛为普通文字链接，避免它与下方“生成文案”主操作争夺视觉层级；
-   text_area 仍保留折叠 label，因此屏幕阅读器可以继续读取字段名称。 */
+/* El tema del vídeo depende directamente del modelo, así que la entrada de configuración se pone junto a la
+   etiqueta del campo. Aquí el botón tertiary se reduce a un enlace de texto normal, para que no compita en
+   jerarquía visual con la acción principal "Generar guion" de abajo; el text_area conserva la label plegada,
+   así que los lectores de pantalla pueden seguir leyendo el nombre del campo. */
 div[class*="st-key-video_subject_label_row"] {
     align-items: baseline !important;
     gap: 0.45rem !important;
 }
 
-/* 自定义标签行和 text_area 是同一字段的两个子元素。覆盖 Streamlit 容器默认
-   的纵向大间距，使它与原生“标签 + 输入框”控件保持相同的视觉节奏。 */
+/* La fila de la etiqueta personalizada y el text_area son dos hijos del mismo campo. Se anula el gran
+   espaciado vertical por defecto del contenedor de Streamlit, para que mantenga el mismo ritmo visual que el
+   control nativo "etiqueta + campo". */
 div[class*="st-key-video_subject_field"] {
     gap: 0.35rem !important;
 }
@@ -70,9 +73,10 @@ div[class*="st-key-video_subject_label_row"] button:hover {
     text-underline-offset: 0.15rem;
 }
 
-/* 配音方式位于四列布局中的窄面板。Streamlit 的 stretch 模式默认让单个分段
-   按钮接近半行宽，三个选项会换成两行；这里仅对该控件改为三等分，并压缩
-   水平内边距，保持其它 segmented control 的原生尺寸不变。 */
+/* El modo de locución está en un panel estrecho del diseño de cuatro columnas. El modo stretch de Streamlit
+   hace por defecto que cada botón del control segmentado ocupe casi media fila, y las tres opciones pasarían
+   a dos filas; aquí solo este control se reparte en tres partes iguales y se reduce el relleno horizontal,
+   sin cambiar el tamaño nativo de los demás segmented control. */
 div[class*="st-key-voice_mode_control"] [role="radiogroup"] {
     flex-wrap: nowrap !important;
 }
@@ -91,8 +95,9 @@ div[class*="st-key-voice_mode_control"] [role="radiogroup"] > button p {
     white-space: nowrap !important;
 }
 
-/* 顶部品牌区将项目名和弱化版本号放在同一基线。项目名称仍是页面唯一的 h1；
-   版本号本身作为项目链接，避免增加独立图标而干扰标题的视觉层级。 */
+/* La zona de la marca de arriba pone el nombre del proyecto y el número de versión atenuado en la misma
+   línea base. El nombre del proyecto sigue siendo el único h1 de la página; el propio número de versión es el
+   enlace al proyecto, para no añadir un icono aparte que altere la jerarquía visual del título. */
 .mpt-brand {
     min-width: 0;
     margin: 0;
@@ -101,8 +106,8 @@ div[class*="st-key-voice_mode_control"] [role="radiogroup"] > button p {
     line-height: 1.15;
 }
 
-/* Streamlit 会在自定义 h1 内增加一层文本容器，实际的行内布局需要作用在
-   这层容器上，才能稳定控制项目名和版本号的间距。 */
+/* Streamlit añade una capa de contenedor de texto dentro del h1 personalizado, y la disposición en línea
+   real debe aplicarse a esa capa para controlar de forma estable el espacio entre el nombre y la versión. */
 .mpt-brand > span:first-child {
     display: flex;
     align-items: baseline;
@@ -140,8 +145,9 @@ div[class*="st-key-voice_mode_control"] [role="radiogroup"] > button p {
     outline-offset: 2px;
 }
 
-/* 新版本提醒只在确有正式版本更新时出现。使用文字链接而不是按钮或横幅，
-   让它保持可发现性，同时不抢占项目标题和主要操作入口的视觉层级。 */
+/* El aviso de nueva versión solo aparece cuando hay de verdad una versión oficial nueva. Se usa un enlace
+   de texto en lugar de un botón o una banda, para que se vea sin quitar protagonismo al título del proyecto
+   ni a las acciones principales. */
 .mpt-brand__update {
     flex: 0 0 auto;
     font-size: 0.875rem;
@@ -167,14 +173,16 @@ div[class*="st-key-voice_mode_control"] [role="radiogroup"] > button p {
     }
 }
 
-/* Streamlit 会自动给 h1 追加一个标题锚点。品牌区已有版本号项目链接，额外的
-   标题锚点没有实际价值，因此只在这个标题内隐藏，避免窄屏出现多余图标。 */
+/* Streamlit añade automáticamente un ancla de título al h1. La zona de la marca ya tiene el enlace al
+   proyecto en el número de versión, y el ancla extra no aporta nada, así que solo se oculta en este título,
+   para que en pantallas estrechas no aparezca un icono de más. */
 .mpt-brand > [data-testid="stHeaderActionElements"] {
     display: none !important;
 }
 
-/* 顶部任务入口由 st.fragment 定时刷新，Streamlit 会为 Fragment 自动生成一个
-   占满整行的 LayoutWrapper。这里只收缩该包装层，保证右侧操作区按内容紧凑排列。 */
+/* La entrada de tareas de arriba la refresca periódicamente st.fragment, y Streamlit genera para el
+   Fragment un LayoutWrapper que ocupa toda la fila. Aquí solo se encoge esa capa envolvente, para que la zona
+   de acciones de la derecha se ajuste de forma compacta al contenido. */
 .st-key-top_bar_actions
     > div[data-testid="stLayoutWrapper"]:first-child {
     flex: 0 0 auto !important;
@@ -219,9 +227,10 @@ div[class*="st-key-voice_mode_control"] [role="radiogroup"] > button p {
 
 }
 
-/* 高级设置属于内容展开入口，不是执行操作。保留 Streamlit 原生 expander 的
-   语义和键盘交互，只在带 advanced_settings_ key 的局部容器内移除卡片边框，
-   避免与紧邻的 AI 生成按钮形成两个连续大按钮的视觉干扰。 */
+/* Los ajustes avanzados son una entrada que despliega contenido, no una acción. Se mantienen la semántica
+   y la interacción por teclado del expander nativo de Streamlit, y solo dentro del contenedor local con key
+   advanced_settings_ se quita el borde de tarjeta, para que no parezcan dos botones grandes seguidos junto al
+   botón de generar con IA. */
 div[class*="st-key-advanced_settings_"] details {
     border: 0 !important;
     border-radius: 4px !important;
@@ -244,8 +253,8 @@ div[class*="st-key-advanced_settings_"] details > summary:hover {
     ) !important;
 }
 
-/* 展开后让标题和内容共享同一背景，视觉上形成连续区域；折叠状态仍保持原有的
-   透明轻量入口，不额外占用页面层级。 */
+/* Al desplegarse, el título y el contenido comparten el mismo fondo y forman visualmente una zona
+   continua; plegado, sigue siendo la entrada ligera y transparente original, sin ocupar más jerarquía. */
 div[class*="st-key-advanced_settings_"] details[open] > summary {
     border-radius: 4px 4px 0 0 !important;
     opacity: 1;
@@ -266,8 +275,8 @@ div[class*="st-key-advanced_settings_"] details > summary:focus {
     outline: none !important;
 }
 
-/* 键盘操作使用标题下划线作为焦点反馈，不再绘制任何外框，确保展开区域在视觉
-   上完全无边框，同时仍能让键盘用户识别当前焦点。 */
+/* La navegación por teclado usa el subrayado del título como indicador de foco, sin dibujar ningún marco,
+   para que la zona desplegada no tenga ningún borde visible y los usuarios de teclado sigan viendo el foco. */
 div[class*="st-key-advanced_settings_"] details > summary:focus-visible {
     box-shadow: none !important;
 }
@@ -282,8 +291,9 @@ div[class*="st-key-advanced_settings_"] details > summary p {
     font-weight: 500 !important;
 }
 
-/* 内容区与展开标题无缝衔接，不使用任何边框，仅通过统一背景和内边距表达
-   控件从属于高级设置，避免出现嵌套卡片或割裂的两段式结构。 */
+/* La zona de contenido enlaza sin cortes con el título desplegado, sin bordes, y solo el fondo común y el
+   relleno indican que los controles pertenecen a los ajustes avanzados, evitando tarjetas anidadas o una
+   estructura partida en dos. */
 div[class*="st-key-advanced_settings_"] div[data-testid="stExpanderDetails"] {
     margin-top: 0 !important;
     padding: 0.75rem 0.75rem 0.85rem 1rem !important;
@@ -296,8 +306,9 @@ div[class*="st-key-advanced_settings_"] div[data-testid="stExpanderDetails"] {
     ) !important;
 }
 
-/* 任务管理 popover 需要固定宽度，避免内容从空状态、列表状态切换时
-   反复改变宽度造成页面抖动。宽度仍保留视口约束，兼容窄屏。 */
+/* El popover de gestión de tareas necesita un ancho fijo, para que el ancho no cambie una y otra vez al
+   pasar del estado vacío a la lista y la página no tiemble. El ancho sigue limitado por la ventana, para
+   pantallas estrechas. */
 div[data-testid="stPopoverBody"] {
     width: min(860px, calc(100vw - 48px)) !important;
     max-width: min(860px, calc(100vw - 48px)) !important;
@@ -307,8 +318,9 @@ div[data-testid="stPopoverBody"] div[data-testid="stVerticalBlock"] {
     width: 100% !important;
 }
 
-/* 任务管理列表保留 Streamlit 原生布局，只做轻量压缩，避免每一行过高。
-   通过 task_row_ key 限定作用范围，避免影响其它配置面板的 container。 */
+/* La lista de gestión de tareas mantiene la disposición nativa de Streamlit y solo se compacta un poco,
+   para que cada fila no sea demasiado alta. El alcance se limita con la key task_row_, para no afectar a los
+   container de otros paneles de configuración. */
 div[class*="st-key-task_row_"] {
     margin-bottom: 0.18rem !important;
 }
@@ -346,8 +358,9 @@ div[class*="st-key-task_row_"] button[kind="secondary"] {
     padding: 0.1rem 0.3rem !important;
 }
 
-/* 按钮文字视觉隐藏后，Streamlit 仍会保留图标与文字之间的默认间距，导致
-   单独图标向左偏移。清除该间距并让内容层占满按钮，确保操作图标严格居中。 */
+/* Tras ocultar visualmente el texto del botón, Streamlit sigue conservando el espacio por defecto entre el
+   icono y el texto, así que el icono solo queda desplazado a la izquierda. Se elimina ese espacio y se hace
+   que la capa de contenido ocupe todo el botón, para que el icono de la acción quede bien centrado. */
 div[class*="st-key-task_row_"]
     button[kind="secondary"]
     span[data-has-shortcut] {
@@ -356,8 +369,9 @@ div[class*="st-key-task_row_"]
     justify-content: center !important;
 }
 
-/* 行内操作保留可访问的按钮名称，但视觉上只显示图标。使用屏幕阅读器可见的
-   隐藏方式，而不是 display:none，确保每个操作仍能被正确朗读。 */
+/* Las acciones en línea conservan un nombre de botón accesible, pero visualmente solo muestran el icono.
+   Se usa una ocultación visible para los lectores de pantalla en lugar de display:none, para que cada acción
+   se siga leyendo correctamente. */
 div[class*="st-key-task_row_"] button[kind="secondary"] p {
     position: absolute !important;
     width: 1px !important;
@@ -371,9 +385,10 @@ div[class*="st-key-task_row_"] button[kind="secondary"] p {
 }
 
 
-/* 中等宽度下将四个设置面板调整为 2×2。主内容区还会扣除页面边距，因此
-   1200～1440px 的常见视口不足以稳定容纳四列英文标签；断点覆盖到 1500px，
-   避免下拉内容和标题被裁切，真正的宽屏才恢复四列。 */
+/* Con anchos medios los cuatro paneles de ajustes pasan a 2×2. La zona de contenido principal además
+   descuenta los márgenes de la página, así que las ventanas habituales de 1200～1440px no bastan para alojar
+   de forma estable cuatro columnas de etiquetas; el punto de corte llega hasta 1500px, para que no se recorten
+   los desplegables ni los títulos, y solo las pantallas realmente anchas vuelven a las cuatro columnas. */
 @media (min-width: 701px) and (max-width: 1500px) {
     .mpt-brand__name {
         font-size: 2.25rem;
@@ -400,7 +415,8 @@ div[class*="st-key-task_row_"] button[kind="secondary"] p {
     }
 }
 
-/* 移动端隐藏桌面表头，并将任务行重排为“主题 + 元信息 + 操作”紧凑结构。 */
+/* En móvil se ocultan las cabeceras de escritorio y las filas de tareas se reorganizan en una estructura
+   compacta "tema + metainformación + acciones". */
 @media (max-width: 700px) {
     div[class*="st-key-task_table_header_"] {
         display: none !important;

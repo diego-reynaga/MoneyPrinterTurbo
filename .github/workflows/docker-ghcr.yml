@@ -1,4 +1,4 @@
-name: Publish Docker image
+name: Publicar la imagen de Docker
 
 on:
   push:
@@ -25,28 +25,28 @@ env:
 
 jobs:
   publish:
-    name: Build and publish
+    name: Construir y publicar
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
     steps:
-      - name: Check out repository
+      - name: Descargar el repositorio
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
+      - name: Configurar QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Set up Docker Buildx
+      - name: Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
+      - name: Iniciar sesión en GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
+      - name: Extraer los metadatos de Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -57,7 +57,7 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
+      - name: Construir y subir la imagen de Docker
         uses: docker/build-push-action@v6
         with:
           context: .

@@ -11,7 +11,7 @@ import requests
 from fastapi.testclient import TestClient
 from PIL import Image
 
-# the example server lives in docs/ and imports policy.py from its own folder
+# el servidor de ejemplo vive en docs/ e importa policy.py desde su propia carpeta
 SERVER_DIR = Path(__file__).resolve().parents[2] / "docs" / "local-image-server"
 sys.path.insert(0, str(SERVER_DIR))
 _spec = importlib.util.spec_from_file_location("local_image_server", SERVER_DIR / "server.py")
@@ -30,7 +30,7 @@ class FakePipe:
 
 
 class FakeOllama:
-    """Stands in for ollama's /api/ps and /api/generate."""
+    """Sustituye a /api/ps y /api/generate de ollama."""
 
     def __init__(self, models=()):
         self.models = list(models)
@@ -54,7 +54,7 @@ def server(monkeypatch):
     painted = []
 
     def fake_paint(p, prompt, negative, width, height):
-        # ollama must be gone before every image
+        # ollama debe haberse descargado antes de cada imagen
         painted.append({"size": (width, height), "ollama": list(ollama.models)})
         return Image.new("RGB", (8, 8))
 
@@ -106,7 +106,7 @@ def test_ollama_is_unloaded_before_every_image(server):
     server.ollama.models = ["qwen3:14b"]
     assert post_image(server.client).status_code == 200
 
-    # ollama loads again while sdxl is still on the gpu
+    # ollama vuelve a cargarse mientras sdxl sigue en la GPU
     server.ollama.models = ["qwen3:14b"]
     assert post_image(server.client).status_code == 200
 
@@ -120,7 +120,7 @@ def test_ollama_unloaded_between_images_in_one_request(server, monkeypatch):
 
     def paint_while_ollama_loads(p, prompt, negative, width, height):
         painted.append(list(server.ollama.models))
-        server.ollama.models = ["qwen3:14b"]  # ollama loads during this image
+        server.ollama.models = ["qwen3:14b"]  # ollama se carga durante esta imagen
         return Image.new("RGB", (8, 8))
 
     monkeypatch.setattr(srv, "paint", paint_while_ollama_loads)

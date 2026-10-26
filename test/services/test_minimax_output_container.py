@@ -1,4 +1,6 @@
-"""Native provider-payload decoding; no paid synthesis requests."""
+"""Decodificación nativa de la carga útil del proveedor; sin solicitudes de síntesis de
+pago.
+"""
 import json
 import shutil
 import subprocess

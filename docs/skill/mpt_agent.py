@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-platform installation and video generation for the MoneyPrinterTurbo Skill."""
+"""Instalación multiplataforma y generación de vídeo para la Skill de MoneyPrinterTurbo."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ PROJECT_ARCHIVE_URL = (
     "https://github.com/harry0703/MoneyPrinterTurbo/archive/refs/heads/main.zip"
 )
 DEFAULT_ROOT = Path.home() / "MoneyPrinterTurbo"
-DEFAULT_VOICE_NAME = "zh-CN-XiaoxiaoNeural-Female"
+DEFAULT_VOICE_NAME = "es-ES-ElviraNeural-Female"
 DEFAULT_UV_LOCK_TIMEOUT = "1200"
 NEEDS_INPUT_EXIT_CODE = 10
 SUPPORTED_SOURCES = {
@@ -37,8 +37,8 @@ SUPPORTED_SOURCES = {
     "metaso_minimax",
     "muapi",
     "infistar",
-    # Keep this list aligned with ``_CLI_VIDEO_SOURCES`` in cli.py. A source that
-    # the CLI accepts must not be rejected here as unsupported.
+    # Mantén esta lista alineada con ``_CLI_VIDEO_SOURCES`` de cli.py. Una fuente que
+    # acepta la CLI no debe rechazarse aquí como no admitida.
     "openai_image",
     "local",
 }
@@ -55,8 +55,8 @@ PEXELS_API_KEY_HELP_URL = (
     "900004904026-How-do-I-get-an-API-key"
 )
 
-# Keep the recommended list focused on commonly used providers. When an LLM
-# key is missing, the helper emits all choices at once to avoid extra turns.
+# La lista recomendada se centra en los proveedores más usados. Cuando falta una clave
+# del LLM, el helper muestra todas las opciones a la vez para evitar turnos extra.
 RECOMMENDED_LLM_PROVIDERS = {
     "moonshot": (
         "Kimi / Moonshot AI",
@@ -75,78 +75,78 @@ RECOMMENDED_LLM_PROVIDERS = {
         "https://platform.xiaomimimo.com/docs/zh-CN/quick-start/first-api-call",
     ),
 }
-# Providers that generate without an API key stored in config.toml: Ollama talks
-# to a local server, LiteLLM resolves credentials through its own environment,
-# ``claude_code`` consumes the Claude subscription through the locally
-# logged-in ``claude`` CLI, and ``kimi_code`` consumes the Kimi Code plan
-# through the OAuth credentials the WebUI sign-in stores in config.toml. Keep
-# this set aligned with the ``requires_api_key=False`` entries of
-# ``app/models/llm_provider.py``; asking the user for a key that the provider
-# never reads leaves the Skill stuck.
+# Proveedores que generan sin una clave API guardada en config.toml: Ollama habla con un
+# servidor local, LiteLLM resuelve las credenciales con su propio entorno,
+# ``claude_code`` consume la suscripción de Claude a través de la CLI ``claude`` con la
+# sesión iniciada en local, y ``kimi_code`` consume el plan Kimi Code a través de las
+# credenciales OAuth que el inicio de sesión de la WebUI guarda en config.toml. Mantén
+# este conjunto alineado con las entradas ``requires_api_key=False`` de
+# ``app/models/llm_provider.py``; pedir al usuario una clave que el proveedor nunca lee
+# deja atascada la Skill.
 KEYLESS_LLM_PROVIDERS = {"ollama", "litellm", "claude_code", "kimi_code"}
 CUSTOM_OPENAI_PROVIDER = "oneapi"
 
-# Hidden providers such as Qwen, Azure, and Grok remain usable when already
-# selected, but are not automatic fallback candidates. A fully configured
-# generic OpenAI-compatible endpoint can be reused safely.
+# Los proveedores ocultos como Qwen, Azure y Grok siguen siendo utilizables si ya están
+# seleccionados, pero no son candidatos de respaldo automático. Un endpoint genérico
+# compatible con OpenAI totalmente configurado se puede reutilizar con seguridad.
 ADDITIONAL_REUSABLE_PROVIDERS = (CUSTOM_OPENAI_PROVIDER,)
 
 
 class SkillError(RuntimeError):
-    """An actionable Skill error that can be reported without a traceback."""
+    """Un error de la Skill accionable que se puede informar sin traza."""
 
 
 def log(message: str) -> None:
-    """Flush concise progress so the agent knows the long-running job started."""
+    """Vuelca un progreso conciso para que el agente sepa que el trabajo largo ha empezado."""
     print(f"[MoneyPrinterTurbo] {message}", flush=True)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Install MoneyPrinterTurbo and generate a final video from a topic."
+        description="Instala MoneyPrinterTurbo y genera un vídeo final a partir de un tema."
     )
-    parser.add_argument("--subject", required=True, help="video topic")
+    parser.add_argument("--subject", required=True, help="tema del vídeo")
     parser.add_argument(
         "--root",
         type=Path,
         default=DEFAULT_ROOT,
-        help=f"MoneyPrinterTurbo installation directory (default: {DEFAULT_ROOT})",
+        help=f"directorio de instalación de MoneyPrinterTurbo (por defecto: {DEFAULT_ROOT})",
     )
     parser.add_argument(
         "cli_args",
         nargs=argparse.REMAINDER,
-        help="additional MoneyPrinterTurbo CLI arguments placed after --",
+        help="argumentos adicionales de la CLI de MoneyPrinterTurbo colocados después de --",
     )
     args = parser.parse_args(argv)
     args.subject = args.subject.strip()
     if not args.subject:
-        parser.error("--subject cannot be empty")
+        parser.error("--subject no puede estar vacío")
     if args.cli_args and args.cli_args[0] == "--":
         args.cli_args = args.cli_args[1:]
     return args
 
 
 def _safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:
-    """Reject ZIP entries that would escape the temporary extraction directory."""
+    """Rechaza las entradas ZIP que escaparían del directorio temporal de extracción."""
     destination = destination.resolve()
     for member in archive.infolist():
         target = (destination / member.filename).resolve()
         if target != destination and destination not in target.parents:
-            raise SkillError(f"project archive contains an unsafe path: {member.filename}")
+            raise SkillError(f"el archivo del proyecto contiene una ruta insegura: {member.filename}")
     archive.extractall(destination)
 
 
 def ensure_project(root: Path) -> None:
-    """Reuse an existing project or install it from the official GitHub archive."""
+    """Reutiliza un proyecto existente o lo instala desde el archivo oficial de GitHub."""
     root = root.expanduser().resolve()
     if (root / "cli.py").is_file() and (root / "config.example.toml").is_file():
-        log(f"using existing project: {root}")
+        log(f"se usa el proyecto existente: {root}")
         return
     if root.exists() and any(root.iterdir()):
-        raise SkillError(f"installation directory exists but is not a valid project: {root}")
+        raise SkillError(f"el directorio de instalación existe pero no es un proyecto válido: {root}")
 
     root.parent.mkdir(parents=True, exist_ok=True)
-    log(f"first-time installation: downloading the official project to {root}")
+    log(f"primera instalación: descargando el proyecto oficial en {root}")
     with tempfile.TemporaryDirectory(prefix="mpt-install-") as temp_dir_value:
         temp_dir = Path(temp_dir_value)
         archive_path = temp_dir / "MoneyPrinterTurbo.zip"
@@ -155,7 +155,8 @@ def ensure_project(root: Path) -> None:
             headers={"User-Agent": "MoneyPrinterTurbo-Agent-Skill"},
         )
         with urllib.request.urlopen(request, timeout=120) as response:
-            # Stream the archive to avoid holding a second full copy in memory.
+            # Transmite el archivo por streaming para no tener en memoria una segunda
+            # copia completa.
             with archive_path.open("wb") as archive_file:
                 shutil.copyfileobj(response, archive_file)
         with zipfile.ZipFile(archive_path) as archive:
@@ -167,45 +168,48 @@ def ensure_project(root: Path) -> None:
             if path.is_dir() and (path / "cli.py").is_file()
         ]
         if len(candidates) != 1:
-            raise SkillError("download completed but no valid MoneyPrinterTurbo project was found")
+            raise SkillError("la descarga terminó pero no se encontró ningún proyecto válido de MoneyPrinterTurbo")
         if root.exists():
             root.rmdir()
         shutil.move(str(candidates[0]), str(root))
-    log("project download completed")
+    log("descarga del proyecto completada")
 
 
 def ensure_config(root: Path) -> Path:
-    """Create the initial configuration without overwriting an existing file."""
+    """Crea la configuración inicial sin sobrescribir un archivo existente."""
     config_path = root / "config.toml"
     if not config_path.exists():
         shutil.copy2(root / "config.example.toml", config_path)
-        log(f"created configuration file: {config_path}")
+        log(f"archivo de configuración creado: {config_path}")
     return config_path
 
 
 def _plain_config_value(text: str, key: str) -> str:
-    """Read app settings with the same TOML syntax as the backend loader."""
+    """Lee los ajustes de la aplicación con la misma sintaxis TOML que el cargador del
+    backend.
+    """
     try:
         document = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
-        # Configuration can contain credentials; do not echo its source text.
-        raise SkillError("configuration is not valid TOML") from exc
+        # La configuración puede contener credenciales; no se repite su texto original.
+        raise SkillError("la configuración no es un TOML válido") from exc
     settings = document.get("app", document)
     if not isinstance(settings, dict):
-        raise SkillError("configuration app settings must be a TOML table")
+        raise SkillError("los ajustes app de la configuración deben ser una tabla TOML")
     value = settings.get(key, "")
-    # Existing readiness/list consumers expect an unquoted string or JSON array.
+    # Los consumidores existentes de readiness/listas esperan una cadena sin comillas o
+    # un array JSON.
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False)
 
 
 def _replace_config_value(text: str, key: str, value: object) -> str:
-    """Replace one active field while preserving the configuration layout."""
+    """Sustituye un campo activo conservando la estructura de la configuración."""
     pattern = re.compile(rf"(?m)^({re.escape(key)}\s*=\s*).*$")
     match = pattern.search(text)
     if match is None:
-        raise SkillError(f"configuration field not found in config.toml: {key}")
+        raise SkillError(f"no se encontró el campo de configuración en config.toml: {key}")
     value_start = match.start() + len(match.group(1))
     value_end = match.end()
     while True:
@@ -215,14 +219,16 @@ def _replace_config_value(text: str, key: str, value: object) -> str:
         except tomllib.TOMLDecodeError as exc:
             next_line = text.find("\n", value_end + 1)
             if value_end == len(text):
-                raise SkillError("configuration field is not valid TOML") from exc
+                raise SkillError("el campo de configuración no es un TOML válido") from exc
             value_end = len(text) if next_line < 0 else next_line
     encoded = json.dumps(value, ensure_ascii=False)
     return text[:value_start] + encoded + text[value_end:]
 
 
 def _has_configured_value(value: str) -> bool:
-    """Treat empty strings and whitespace-only key arrays as unconfigured."""
+    """Trata las cadenas vacías y los arrays de claves con solo espacios como sin
+    configurar.
+    """
     if not value:
         return False
     try:
@@ -235,7 +241,7 @@ def _has_configured_value(value: str) -> bool:
 
 
 def _parse_string_list(value: str) -> list[str]:
-    """Parse a configured string list while removing blanks and duplicates."""
+    """Analiza una lista de cadenas configurada quitando los vacíos y los duplicados."""
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError:
@@ -246,7 +252,7 @@ def _parse_string_list(value: str) -> list[str]:
 
 
 def apply_environment_config(config_path: Path) -> None:
-    """Write supplied credentials while logging field names only."""
+    """Escribe las credenciales proporcionadas registrando solo los nombres de los campos."""
     provider = os.environ.get("MPT_LLM_PROVIDER", "").strip().lower()
     if provider == "openai_compatible":
         provider = CUSTOM_OPENAI_PROVIDER
@@ -320,10 +326,12 @@ def apply_environment_config(config_path: Path) -> None:
 
 
 def _provider_is_ready(text: str, provider: str) -> bool:
-    """Return whether a provider has enough configuration to generate."""
+    """Devuelve si un proveedor tiene configuración suficiente para generar."""
     if provider == "kimi_code":
-        # 不需要 API Key，但需要 WebUI「使用 Kimi 登录」后写入的 OAuth 凭证；
-        # 没有凭证时不能当作就绪，否则生成会在运行时才报未授权。
+        # No necesita clave API, pero sí las credenciales OAuth que escribe la WebUI
+        # tras «Iniciar sesión con Kimi»; sin credenciales no puede considerarse listo,
+        # o la generación solo informaría del error de autorización en tiempo de
+        # ejecución.
         return any(
             _has_configured_value(_plain_config_value(text, field))
             for field in ("kimi_code_refresh_token", "kimi_code_access_token")
@@ -344,11 +352,11 @@ def _provider_is_ready(text: str, provider: str) -> bool:
 
 def reuse_existing_llm_provider(config_path: Path) -> str:
     """
-    Reuse existing LLM credentials before asking the user for another key.
+    Reutiliza las credenciales del LLM existentes antes de pedir otra clave al usuario.
 
-    Keep the current provider when it is ready. Otherwise, scan configured
-    recommended providers in UI order and update ``llm_provider``. Credential
-    values are inspected in memory and are never logged.
+    Mantiene el proveedor actual cuando está listo. Si no, recorre los proveedores
+    recomendados configurados en el orden de la interfaz y actualiza ``llm_provider``.
+    Los valores de las credenciales se inspeccionan en memoria y nunca se registran.
     """
     text = config_path.read_text(encoding="utf-8")
     current_provider = (_plain_config_value(text, "llm_provider") or "moonshot").lower()
@@ -369,7 +377,7 @@ def reuse_existing_llm_provider(config_path: Path) -> str:
 
 
 def selected_video_source(cli_args: list[str]) -> str:
-    """Read the effective material source from forwarded CLI arguments."""
+    """Lee la fuente de material efectiva a partir de los argumentos de la CLI reenviados."""
     source = "pexels"
     for index, item in enumerate(cli_args):
         if item == "--video-source" and index + 1 < len(cli_args):
@@ -380,7 +388,7 @@ def selected_video_source(cli_args: list[str]) -> str:
 
 
 def has_cli_option(cli_args: list[str], option: str) -> bool:
-    """Return whether forwarded arguments explicitly set a CLI option."""
+    """Devuelve si los argumentos reenviados fijan explícitamente una opción de la CLI."""
     return any(item == option or item.startswith(f"{option}=") for item in cli_args)
 
 
@@ -395,7 +403,7 @@ def _last_cli_value(cli_args: list[str], option: str) -> str:
 
 
 def _requires_llm(cli_args: list[str]) -> bool:
-    # Match task.generate_script and the local-material terms bypass.
+    # Coincide con task.generate_script y con el atajo de términos del material local.
     return not _last_cli_value(cli_args, "--video-script") or (
         selected_video_source(cli_args) != "local"
         and not _last_cli_value(cli_args, "--video-terms")
@@ -403,7 +411,7 @@ def _requires_llm(cli_args: list[str]) -> bool:
 
 
 def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[str]]:
-    """Return the active provider and only the fields required by this run."""
+    """Devuelve el proveedor activo y solo los campos que necesita esta ejecución."""
     text = config_path.read_text(encoding="utf-8")
     provider = (_plain_config_value(text, "llm_provider") or "moonshot").lower()
     missing: list[str] = []
@@ -413,7 +421,8 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
     ):
         missing.append(f"{provider}_api_key")
     if needs_llm and provider == "kimi_code" and not _provider_is_ready(text, provider):
-        # 无 Key 可填，缺失的是 WebUI 登录动作而不是配置字段。
+        # No hay clave que rellenar; lo que falta es el inicio de sesión en la WebUI, no
+        # un campo de configuración.
         missing.append("kimi_code_sign_in")
     if needs_llm and provider == CUSTOM_OPENAI_PROVIDER:
         for suffix in ("base_url", "model_name"):
@@ -423,15 +432,17 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
 
     source = selected_video_source(cli_args)
     if source not in SUPPORTED_SOURCES:
-        raise SkillError(f"unsupported video source: {source}")
+        raise SkillError(f"fuente de vídeo no admitida: {source}")
     if source == "local" and not has_cli_option(cli_args, "--video-materials"):
         raise SkillError(
-            "Local video source requires --video-materials pointing to a "
-            "directory of video files"
+            "La fuente de vídeo local necesita --video-materials apuntando a un "
+            "directorio de archivos de vídeo"
         )
     if source == "volcengine_seedance":
-        # 与运行时 Provider 保持完全一致的凭据优先级，避免 Skill 预检通过后
-        # 主程序却读取了另一把 Key。ARK_API_KEY 语义过于宽泛，明确不再兼容。
+        # Se mantiene exactamente la misma prioridad de credenciales que el proveedor en
+        # tiempo de ejecución, para que no pase que la comprobación previa de la Skill
+        # aprueba y luego el programa principal lee otra clave. ARK_API_KEY tiene un
+        # significado demasiado amplio y ya no se admite explícitamente.
         value = (
             _plain_config_value(text, "volcengine_seedance_api_key").strip()
             or os.environ.get("VOLCENGINE_ARK_API_KEY", "").strip()
@@ -442,8 +453,10 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
         if not has_cli_option(cli_args, "--confirm-seedance-charge"):
             missing.append("confirm_seedance_charge")
     elif source == "wavespeed":
-        # WaveSpeed 的运行时凭据只来自 wavespeed_api_keys，没有环境变量回退，
-        # 这里保持同一口径。按次计费的生成源还必须显式确认收费。
+        # Las credenciales de WaveSpeed en tiempo de ejecución solo vienen de
+        # wavespeed_api_keys, sin respaldo por variable de entorno, y aquí se mantiene
+        # el mismo criterio. Las fuentes de generación de pago por uso también deben
+        # confirmar el cobro explícitamente.
         if not _has_configured_value(
             _plain_config_value(text, "wavespeed_api_keys")
         ):
@@ -451,8 +464,9 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
         if not has_cli_option(cli_args, "--confirm-wavespeed-charge"):
             missing.append("confirm_wavespeed_charge")
     elif source == "ofox":
-        # 与运行时 Provider 保持完全一致的凭据优先级：配置键优先，其次是
-        # 语义明确的 OFOX_API_KEY 环境变量。
+        # Se mantiene exactamente la misma prioridad de credenciales que el proveedor en
+        # tiempo de ejecución: primero la clave de configuración y después la variable
+        # de entorno OFOX_API_KEY, de significado claro.
         value = (
             _plain_config_value(text, "ofox_api_key").strip()
             or os.environ.get("OFOX_API_KEY", "").strip()
@@ -462,8 +476,10 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
         if not has_cli_option(cli_args, "--confirm-ofox-charge"):
             missing.append("confirm_ofox_charge")
     elif source == "metaso_minimax":
-        # 秘塔 Key 与 MiniMax 官方 LLM Key 不互通，Skill 必须沿用运行时的
-        # 独立配置优先级，不能因为已经配置 minimax_api_key 就误判为可用。
+        # La clave de Metaso y la clave oficial del LLM de MiniMax no son
+        # intercambiables; la Skill debe seguir la misma prioridad de configuración
+        # independiente que el tiempo de ejecución, y no darla por disponible solo
+        # porque ya esté configurado minimax_api_key.
         value = (
             _plain_config_value(text, "metaso_minimax_api_key").strip()
             or os.environ.get("METASO_MINIMAX_API_KEY", "").strip()
@@ -482,7 +498,8 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
         if not has_cli_option(cli_args, "--confirm-muapi-charge"):
             missing.append("confirm_muapi_charge")
     elif source == "infistar":
-        # 视频凭据独立于同品牌 LLM，预检必须与 infistar_video.get_api_key 一致。
+        # Las credenciales de vídeo son independientes del LLM de la misma marca, y la
+        # comprobación previa debe coincidir con infistar_video.get_api_key.
         value = (
             _plain_config_value(text, "infistar_video_api_key").strip()
             or os.environ.get("INFISTAR_VIDEO_API_KEY", "").strip()
@@ -492,9 +509,10 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
         if not has_cli_option(cli_args, "--confirm-infistar-charge"):
             missing.append("confirm_infistar_charge")
     elif source == "openai_image":
-        # 与运行时的 is_openai_image_enabled() 保持一致：文生图素材源只要求端点
-        # 与模型名。完全本地的 ComfyUI/SD 网关允许不配置 API Key，因此这里不
-        # 能把 openai_image_api_keys 当作必填项。
+        # Coincide con is_openai_image_enabled() en tiempo de ejecución: la fuente de
+        # material de texto a imagen solo exige el endpoint y el nombre del modelo. Un
+        # gateway ComfyUI/SD totalmente local permite no configurar clave API, así que
+        # aquí no se puede tratar openai_image_api_keys como obligatorio.
         for field in ("openai_image_base_url", "openai_image_model"):
             if not _has_configured_value(_plain_config_value(text, field)):
                 missing.append(field)
@@ -506,7 +524,7 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
 
 
 def report_missing_config(provider: str, missing: list[str]) -> int:
-    """Tell the agent exactly which credentials must be requested."""
+    """Indica al agente exactamente qué credenciales hay que pedir."""
     print("MPT_NEEDS_INPUT")
     print(f"LLM_PROVIDER={provider}")
     for field in missing:
@@ -526,20 +544,20 @@ def report_missing_config(provider: str, missing: list[str]) -> int:
         for provider_id, (label, url) in RECOMMENDED_LLM_PROVIDERS.items():
             print(f"LLM_PROVIDER_OPTION={provider_id}|{label}|{url}")
         print(
-            "LLM_PROVIDER_OPTION=oneapi|Other OpenAI-compatible provider|"
-            "requires an API key, API base URL, and model name"
+            "LLM_PROVIDER_OPTION=oneapi|Otro proveedor compatible con OpenAI|"
+            "necesita una clave API, la URL base de la API y el nombre del modelo"
         )
         print("LLM_PROVIDER_OPTIONS_END")
     if any(field.startswith(f"{CUSTOM_OPENAI_PROVIDER}_") for field in missing):
         print(
             "OPENAI_COMPATIBLE_REQUIRED="
-            "API key, API base URL, model name"
+            "clave API, URL base de la API, nombre del modelo"
         )
     if any(field.startswith("openai_image_") for field in missing):
         print(
             "OPENAI_IMAGE_REQUIRED="
-            "openai_image_base_url, openai_image_model (the API key is optional "
-            "for local gateways)"
+            "openai_image_base_url, openai_image_model (la clave API es opcional "
+            "para gateways locales)"
         )
     if "pexels_api_keys" in missing:
         print(f"PEXELS_API_KEY_URL={PEXELS_API_KEY_URL}")
@@ -547,7 +565,7 @@ def report_missing_config(provider: str, missing: list[str]) -> int:
     if "kimi_code_sign_in" in missing:
         print(
             "KIMI_CODE_SIGN_IN_REQUIRED="
-            "open Settings -> LLM Settings and sign in with Kimi"
+            "abre Ajustes -> Configuración LLM e inicia sesión con Kimi"
         )
     if "volcengine_seedance_api_key" in missing:
         print(f"VOLCENGINE_ARK_API_KEY_URL={VOLCENGINE_ARK_API_KEY_URL}")
@@ -578,30 +596,33 @@ def report_missing_config(provider: str, missing: list[str]) -> int:
         print("INFISTAR_VIDEO_API_KEY_ENV=MPT_INFISTAR_VIDEO_API_KEY")
     if "confirm_infistar_charge" in missing:
         print("INFISTAR_CHARGE_CONFIRMATION_REQUIRED=--confirm-infistar-charge")
-    print("Request only the listed values, set the environment variables, and rerun the same command.")
+    print("Pide solo los valores indicados, define las variables de entorno y vuelve a ejecutar el mismo comando.")
     return NEEDS_INPUT_EXIT_CODE
 
 
 def report_invalid_pexels_config() -> int:
-    """Request only a new Pexels key when every configured key is rejected."""
+    """Solo pide una nueva clave de Pexels cuando se rechazan todas las claves
+    configuradas.
+    """
     print("MPT_NEEDS_INPUT")
     print("INVALID=pexels_api_keys")
     print(f"PEXELS_API_KEY_URL={PEXELS_API_KEY_URL}")
     print(f"PEXELS_API_KEY_HELP_URL={PEXELS_API_KEY_HELP_URL}")
-    print("All configured Pexels API keys were rejected or are unavailable. Provide a new key.")
+    print("Se rechazaron todas las claves API de Pexels configuradas o no están disponibles. Proporciona una clave nueva.")
     return NEEDS_INPUT_EXIT_CODE
 
 
 def _validate_pexels_key(api_key: str) -> str:
     """
-    Return ``valid``, ``rejected``, or ``unknown`` for a Pexels key.
+    Devuelve ``valid``, ``rejected`` o ``unknown`` para una clave de Pexels.
 
-    HTTP 401 and 403 responses reject credentials. Rate limits, network and
-    server errors return unknown so temporary failures cannot remove a key.
+    Las respuestas HTTP 401 y 403 rechazan las credenciales. Los límites de uso y los
+    errores de red y del servidor devuelven unknown para que los fallos temporales no
+    puedan eliminar una clave.
     """
-    # Curated and popular search requests may hit a public cache and return 200
-    # without valid authorization. My Collections is account-specific, requires
-    # authentication, and still returns 200 for an empty collection list.
+    # Las búsquedas curated y popular pueden dar en una caché pública y devolver 200 sin
+    # autorización válida. My Collections es propia de la cuenta, exige autenticación y
+    # sigue devolviendo 200 con una lista de colecciones vacía.
     request = urllib.request.Request(
         PEXELS_VALIDATION_URL,
         headers={
@@ -622,12 +643,13 @@ def _validate_pexels_key(api_key: str) -> str:
 
 def validate_pexels_config(config_path: Path, cli_args: list[str]) -> bool:
     """
-    Validate all Pexels keys used by the default material source.
+    Valida todas las claves de Pexels que usa la fuente de material por defecto.
 
-    Downstream code selects configured keys randomly. Keeping rejected keys can
-    cause intermittent 401 responses and missing material results. If at least
-    one key is verified, remove only explicitly rejected keys. If validation is impossible
-    because of a transient network failure, keep the original configuration.
+    El código posterior elige al azar entre las claves configuradas. Conservar claves
+    rechazadas puede provocar respuestas 401 intermitentes y resultados de material que
+    faltan. Si se verifica al menos una clave, solo se eliminan las rechazadas
+    explícitamente. Si la validación es imposible por un fallo de red pasajero, se
+    conserva la configuración original.
     """
     if selected_video_source(cli_args) != "pexels":
         return True
@@ -657,16 +679,16 @@ def validate_pexels_config(config_path: Path, cli_args: list[str]) -> bool:
             text = _replace_config_value(text, "pexels_api_keys", retained_keys)
             config_path.write_text(text, encoding="utf-8")
         log(
-            "Pexels key validation completed: "
+            "validación de claves de Pexels completada: "
             f"valid={len(valid_keys)}, rejected={rejected_count}, "
             f"unknown={unknown_count}"
         )
         return True
     if unknown_count:
-        log("Pexels keys could not be verified due to a network or service error; keeping the existing configuration")
+        log("no se pudieron verificar las claves de Pexels por un error de red o del servicio; se mantiene la configuración existente")
         return True
 
-    log(f"Pexels key validation failed: all {rejected_count} configured keys are unusable")
+    log(f"falló la validación de claves de Pexels: las {rejected_count} claves configuradas no se pueden usar")
     return False
 
 
@@ -676,10 +698,11 @@ def result_manifest_path(root: Path) -> Path:
 
 def write_result_manifest(root: Path, payload: dict[str, object]) -> Path:
     """
-    Atomically write the stable result file for agents that cannot wait.
+    Escribe de forma atómica el archivo de resultado estable para los agentes que no
+    pueden esperar.
 
-    The file contains task status and result paths only, never configuration
-    contents, credentials, or full logs.
+    El archivo solo contiene el estado de la tarea y las rutas de los resultados, nunca
+    el contenido de la configuración, credenciales ni logs completos.
     """
     result_path = result_manifest_path(root)
     result_path.parent.mkdir(parents=True, exist_ok=True)
@@ -699,10 +722,14 @@ def write_result_manifest(root: Path, payload: dict[str, object]) -> Path:
 
 
 def run_checked(command: list[str], *, cwd: Path) -> None:
-    """延长首次安装的缓存锁等待，失败时保留末尾日志和排查提示。"""
-    log("installing or verifying project dependencies with uv")
-    # 多个安装进程可能共享较大的 wheel 缓存；只给子进程设置默认值，
-    # 保留用户覆盖及其他环境变量，不改变当前进程或视频生成子进程的环境。
+    """Alarga la espera del bloqueo de caché de la primera instalación y, si falla,
+    conserva el final del log y pistas para diagnosticar.
+    """
+    log("instalando o verificando las dependencias del proyecto con uv")
+    # Varios procesos de instalación pueden compartir una caché de wheels grande; solo
+    # se fija el valor por defecto en el subproceso, conservando las sobrescrituras del
+    # usuario y el resto de variables de entorno, sin cambiar el entorno del proceso
+    # actual ni del subproceso de generación de vídeo.
     sync_env = os.environ.copy()
     sync_env.setdefault("UV_LOCK_TIMEOUT", DEFAULT_UV_LOCK_TIMEOUT)
     result = subprocess.run(
@@ -723,12 +750,12 @@ def run_checked(command: list[str], *, cwd: Path) -> None:
         output = (result.stdout or "").lower()
         if "lock" in output and ("timeout" in output or "timed out" in output):
             print(
-                "uv timed out waiting for a cache lock. Wait for other uv installs "
-                "to finish, then retry. If needed, increase UV_LOCK_TIMEOUT "
-                "(requires uv 0.9.4 or newer).",
+                "uv agotó el tiempo esperando un bloqueo de la caché. Espera a que terminen otras instalaciones "
+                "de uv y reinténtalo. Si hace falta, aumenta UV_LOCK_TIMEOUT "
+                "(requiere uv 0.9.4 o superior).",
                 file=sys.stderr,
             )
-        raise SkillError(f"dependency installation failed with exit code {result.returncode}")
+        raise SkillError(f"falló la instalación de dependencias con el código de salida {result.returncode}")
 
 
 def generate_video(
@@ -736,10 +763,12 @@ def generate_video(
     subject: str,
     cli_args: list[str],
 ) -> tuple[list[Path], Path, Path, Path]:
-    """Run one traceable CLI task and return only its final video files."""
+    """Ejecuta una tarea de la CLI rastreable y devuelve solo sus archivos de vídeo
+    finales.
+    """
     uv = shutil.which("uv")
     if not uv:
-        raise SkillError("uv was not found; reopen the terminal or add uv to PATH")
+        raise SkillError("no se encontró uv; vuelve a abrir el terminal o añade uv al PATH")
     run_checked([uv, "sync", "--frozen"], cwd=root)
 
     task_id = str(uuid.uuid4())
@@ -773,17 +802,18 @@ def generate_video(
         subject,
         "--task-id",
         task_id,
-        # Older CLI versions leave voice_name empty and fail during Edge TTS
-        # with ``Invalid voice ''``. Supply a stable Chinese voice unless the
-        # user has explicitly selected another voice.
+        # Las versiones antiguas de la CLI dejan voice_name vacío y fallan en Edge TTS
+        # con ``Invalid voice ''``. Se proporciona una voz china estable salvo que el
+        # usuario haya elegido explícitamente otra voz.
         *voice_args,
-        # A Skill request must produce a finished video. Force the final stage
-        # so forwarded options cannot stop at script, audio, or materials.
+        # Una solicitud de la Skill debe producir un vídeo terminado. Se fuerza la etapa
+        # final para que las opciones reenviadas no puedan detenerse en el guion, el
+        # audio o el material.
         "--stop-at",
         "video",
     ]
-    log(f"starting video generation, task ID: {task_id}")
-    log(f"full generation log: {log_path}")
+    log(f"iniciando la generación del vídeo, ID de tarea: {task_id}")
+    log(f"log completo de la generación: {log_path}")
     try:
         with log_path.open("w", encoding="utf-8") as log_file:
             result = subprocess.run(
@@ -795,7 +825,7 @@ def generate_video(
                 check=False,
             )
     except OSError as exc:
-        error = f"video generation could not start: {exc}; log: {log_path}"
+        error = f"no se pudo iniciar la generación del vídeo: {exc}; log: {log_path}"
         write_result_manifest(
             root,
             {
@@ -814,7 +844,7 @@ def generate_video(
         if tail:
             print("\n".join(tail), file=sys.stderr)
         error = (
-            f"video generation failed with exit code {result.returncode}; "
+            f"la generación del vídeo falló con el código de salida {result.returncode}; "
             f"log: {log_path}"
         )
         write_result_manifest(
@@ -837,7 +867,7 @@ def generate_video(
         if path.is_file() and path.stat().st_size > 0
     )
     if not videos:
-        error = f"generation completed without a valid final MP4; log: {log_path}"
+        error = f"la generación terminó sin un MP4 final válido; log: {log_path}"
         write_result_manifest(
             root,
             {

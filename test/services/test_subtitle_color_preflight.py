@@ -42,7 +42,8 @@ def test_pipeline_rejects_invalid_color_before_generation(field):
     {"stroke_width": 0, "stroke_color": "not-used"},
 ])
 def test_http_preserves_supported_pillow_colors_and_unused_stroke(colors):
-    # Verify accepted color syntax against the actual renderer's Pillow consumer.
+    # Verifica la sintaxis de color aceptada contra el consumidor Pillow real del
+    # renderizador.
     image = Image.new("RGBA", (32, 32))
     draw = ImageDraw.Draw(image)
     draw.text((0, 0), "A", fill=colors.get("text_fore_color", "white"), stroke_width=int(colors.get("stroke_width", 1)), stroke_fill=colors.get("stroke_color", "black"))

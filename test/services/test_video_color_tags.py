@@ -6,12 +6,14 @@ from PIL import Image
 
 from app.services import video
 
-# A saturated green: BT.601 encodes decoded as BT.709 lose the most here.
+# Un verde saturado: las codificaciones BT.601 decodificadas como BT.709 son las que más
+# pierden aquí.
 SOURCE_RGB = (40, 180, 60)
 
 
 def _stream_color(binary, path):
-    # ffprobe is not bundled with imageio-ffmpeg; ffmpeg's own stream line carries the same tags.
+    # ffprobe no viene con imageio-ffmpeg; la línea de stream del propio ffmpeg lleva
+    # las mismas etiquetas.
     result = subprocess.run([binary, "-hide_banner", "-i", str(path)], capture_output=True, text=True)
     match = re.search(r"Video: h264.*?, (yuv420p\([^)]*\))", result.stderr)
     assert match, result.stderr
@@ -19,7 +21,7 @@ def _stream_color(binary, path):
 
 
 def _decode_as_player(binary, path):
-    # Decode the way players and YouTube treat HD: BT.709, limited range.
+    # Decodifica como los reproductores y YouTube tratan el HD: BT.709, rango limitado.
     raw = subprocess.run(
         [binary, "-v", "error", "-i", str(path), "-frames:v", "1",
          "-vf", "scale=in_color_matrix=bt709:in_range=tv,format=rgb24,crop=2:2", "-f", "rawvideo", "-"],
@@ -30,7 +32,8 @@ def _decode_as_player(binary, path):
 
 def _assert_bt709(binary, path):
     assert _stream_color(binary, path).startswith("yuv420p(tv, bt709")
-    # Each 4:2:0 limited-range generation rounds by a level or two; a BT.601 encode is ~20 off.
+    # Cada generación 4:2:0 de rango limitado redondea uno o dos niveles; una
+    # codificación BT.601 se desvía unos 20.
     assert np.abs(_decode_as_player(binary, path) - SOURCE_RGB).max() <= 8
 
 
@@ -40,7 +43,7 @@ def test_clip_concat_and_image_renders_are_bt709(tmp_path, monkeypatch):
     image = tmp_path / "still.png"
     Image.new("RGB", (64, 64), SOURCE_RGB).save(image)
 
-    # Stock footage arrives tagged BT.709.
+    # El material de stock llega etiquetado como BT.709.
     source = tmp_path / "source.mp4"
     subprocess.run(
         [binary, "-y", "-loop", "1", "-framerate", "10", "-i", str(image), "-t", "0.4",

@@ -91,7 +91,8 @@ def test_cleanup_keeps_future_dated_active_temporary_file():
     with TemporaryDirectory() as directory, patch.object(material_cache.utils, 'storage_dir', return_value=directory):
         temporary = Path(directory, '.' + 'a' * 64 + '-worker.tmp')
         temporary.write_text('active incomplete upload', encoding='utf-8')
-        # A clock rollback can leave an actively written file in the future.
+        # Un retroceso del reloj puede dejar en el futuro un archivo que se está
+        # escribiendo.
         os.utime(temporary, (_NOW + 60, _NOW + 60))
         assert material_cache.cleanup_expired_material_search_cache(now=_NOW, force=True) == 0
         assert temporary.exists()

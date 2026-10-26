@@ -25,7 +25,7 @@ _model_init_lock = threading.Lock()
 
 
 def _ensure_model_loaded() -> bool:
-    """Load the large Whisper model once, even when jobs start concurrently."""
+    """Carga el modelo grande de Whisper una sola vez, aunque las tareas empiecen a la vez."""
     global model
     if model is not None:
         return True
@@ -39,7 +39,7 @@ def _ensure_model_loaded() -> bool:
             model_path = model_size
 
         logger.info(
-            f"loading model: {model_path}, device: {device}, compute_type: {compute_type}"
+            f"cargando el modelo: {model_path}, device: {device}, compute_type: {compute_type}"
         )
         try:
             model = WhisperModel(
@@ -47,11 +47,11 @@ def _ensure_model_loaded() -> bool:
             )
         except Exception as e:
             logger.error(
-                f"failed to load model: {e} \n\n"
+                f"no se pudo cargar el modelo: {e} \n\n"
                 f"********************************************\n"
-                f"this may be caused by network issue. \n"
-                f"please download the model manually and put it in the 'models' folder. \n"
-                f"see [README.md FAQ](https://github.com/harry0703/MoneyPrinterTurbo) for more details.\n"
+                f"puede deberse a un problema de red. \n"
+                f"descarga el modelo a mano y ponlo en la carpeta 'models'. \n"
+                f"consulta las [preguntas frecuentes del README.md](https://github.com/harry0703/MoneyPrinterTurbo) para más detalles.\n"
                 f"********************************************\n\n"
             )
             return False
@@ -65,13 +65,13 @@ def create(
     log_details: bool = True,
 ):
     if WhisperModel is None:
-        logger.warning("faster_whisper not available, skipping whisper subtitle generation")
+        logger.warning("faster_whisper no está disponible; se omite la generación de subtítulos con whisper")
         return ""
     if not _ensure_model_loaded():
         return None
 
     if log_details:
-        logger.info(f"start, output file: {subtitle_file}")
+        logger.info(f"inicio, archivo de salida: {subtitle_file}")
     if not subtitle_file:
         subtitle_file = f"{audio_file}.srt"
 
@@ -85,7 +85,7 @@ def create(
     )
 
     logger.info(
-        f"detected language: '{info.language}', probability: {info.language_probability:.2f}"
+        f"idioma detectado: '{info.language}', probabilidad: {info.language_probability:.2f}"
     )
 
     start = timer()
@@ -106,9 +106,10 @@ def create(
 
     for segment in segments:
         if not segment.words:
-            # Faster Whisper exposes words as Optional[List[Word]]. A segment
-            # can still have usable text and timestamps when alignment yields
-            # no words; keep that subtitle in both sentence and word modes.
+            # Faster Whisper expone las palabras como Optional[List[Word]]. Un segmento
+            # puede tener texto y tiempos utilizables aunque la alineación no dé
+            # palabras; se conserva ese subtítulo tanto en modo frase como en modo
+            # palabra.
             recognized(segment.text, segment.start, segment.end)
             continue
 
@@ -134,12 +135,13 @@ def create(
                     is_segmented = True
 
                 seg_end = word.end
-                # Accumulate words; only trailing punctuation ends a sentence.
+                # Acumula palabras; solo la puntuación final termina una frase.
                 seg_text += word.word
 
                 if word.word.rstrip().endswith(tuple(const.PUNCTUATIONS)):
-                    # Punctuation inside a word (3.14, 1,000, 12:30) is not a
-                    # sentence boundary. Remove only actual trailing delimiters.
+                    # La puntuación dentro de una palabra (3.14, 1,000, 12:30) no es un
+                    # límite de frase. Solo se eliminan los delimitadores finales
+                    # reales.
                     seg_text = seg_text.rstrip().rstrip("".join(const.PUNCTUATIONS))
                     recognized(seg_text, seg_start, seg_end)
 
@@ -160,7 +162,7 @@ def create(
     end = timer()
 
     diff = end - start
-    logger.info(f"complete, elapsed: {diff:.2f} s")
+    logger.info(f"completado, tiempo: {diff:.2f} s")
 
     idx = 1
     lines = []
@@ -176,15 +178,15 @@ def create(
 
     sub = "\n".join(lines) + "\n"
     if not lines:
-        logger.warning("transcription produced no subtitle cues")
+        logger.warning("la transcripción no produjo ningún subtítulo")
         return
     write_subtitle_file(subtitle_file, sub)
     if log_details:
-        logger.info(f"subtitle file created: {subtitle_file}")
+        logger.info(f"archivo de subtítulos creado: {subtitle_file}")
 
 
 def transcribe_audio_bytes(audio_bytes: bytes) -> str:
-    """Transcribe in-memory WAV audio and remove every temporary artifact."""
+    """Transcribe audio WAV en memoria y elimina todos los artefactos temporales."""
     if not isinstance(audio_bytes, bytes) or not audio_bytes:
         return ""
 
@@ -264,7 +266,7 @@ def correct(subtitle_file, video_script):
 
             if similarity(script_line, combined_subtitle) > 0.8:
                 logger.warning(
-                    f"Merged/Corrected - Script: {script_line}, Subtitle: {combined_subtitle}"
+                    f"Fusionado/corregido - Guion: {script_line}, Subtítulo: {combined_subtitle}"
                 )
                 new_subtitle_items.append(
                     (
@@ -276,7 +278,7 @@ def correct(subtitle_file, video_script):
                 corrected = True
             else:
                 logger.warning(
-                    f"Mismatch - Script: {script_line}, Subtitle: {combined_subtitle}"
+                    f"No coincide - Guion: {script_line}, Subtítulo: {combined_subtitle}"
                 )
                 new_subtitle_items.append(
                     (
@@ -290,9 +292,9 @@ def correct(subtitle_file, video_script):
             script_index += 1
             subtitle_index = next_subtitle_index
 
-    # Process the remaining lines of the script.
+    # Procesa las líneas restantes del guion.
     while script_index < len(script_lines):
-        logger.warning(f"Extra script line: {script_lines[script_index]}")
+        logger.warning(f"Línea de guion sobrante: {script_lines[script_index]}")
         if subtitle_index < len(subtitle_items):
             new_subtitle_items.append(
                 (
@@ -315,8 +317,8 @@ def correct(subtitle_file, video_script):
 
     if subtitle_index < len(subtitle_items):
         logger.warning(
-            f"Dropping {len(subtitle_items) - subtitle_index} transcription cue(s) "
-            "after the script ends"
+            f"Se descartan {len(subtitle_items) - subtitle_index} subtítulo(s) de la transcripción "
+            "posteriores al final del guion"
         )
         corrected = True
 
@@ -326,9 +328,9 @@ def correct(subtitle_file, video_script):
             for i, item in enumerate(new_subtitle_items)
         )
         write_subtitle_file(subtitle_file, content)
-        logger.info("Subtitle corrected")
+        logger.info("Subtítulo corregido")
     else:
-        logger.success("Subtitle is correct")
+        logger.success("El subtítulo es correcto")
 
 
 if __name__ == "__main__":

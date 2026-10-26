@@ -18,8 +18,8 @@ def _get(tmp_path, headers=None):
 
 
 def test_stream_returns_empty_body_for_empty_file_without_range(tmp_path):
-    # 416 only answers a Range request; a plain GET of an empty artifact is a
-    # complete zero-length representation, matching /download.
+    # El 416 solo responde a una solicitud Range; un GET normal de un artefacto vacío es
+    # una representación completa de longitud cero, igual que /download.
     (tmp_path / "empty.srt").write_bytes(b"")
 
     response = _get(tmp_path)

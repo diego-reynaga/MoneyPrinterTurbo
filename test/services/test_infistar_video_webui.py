@@ -1,4 +1,6 @@
-"""真实渲染新视频源及独立凭据，切换模型不得沿用上一模型的付费确认。"""
+"""Renderiza de verdad la nueva fuente de vídeo y sus credenciales independientes; al
+cambiar de modelo no debe heredarse la confirmación de pago del modelo anterior.
+"""
 
 from pathlib import Path
 from unittest.mock import patch
@@ -11,7 +13,7 @@ from app.config import config
 WEBUI = Path(__file__).parents[2] / "webui/Main.py"
 
 
-@pytest.mark.parametrize("language", ["zh", "en", "de"])
+@pytest.mark.parametrize("language", ["es"])
 def test_infistar_video_models_specs_and_billing_confirmation(language):
     values = {
         "llm_provider": "infistar",
@@ -27,11 +29,10 @@ def test_infistar_video_models_specs_and_billing_confirmation(language):
         app.session_state["ui_language"] = language
         app.run()
         assert not app.exception
-        if language == "de":
-            assert any(
-                "Each generated clip is billed by Infistar." in warning.value
-                for warning in app.warning
-            )
+        assert any(
+            "Infistar factura cada clip generado." in warning.value
+            for warning in app.warning
+        )
         selector = app.selectbox(key=f"infistar_video_model_select_{language}")
         assert selector.options == ["Seedance 2.0 Fast", "MiniMax H3", "Kling 2.6"]
         assert app.selectbox(key=f"video_clip_duration_select_{language}").value == 5
@@ -79,7 +80,7 @@ def test_video_credentials_are_editable_with_any_llm(llm_provider):
         patch.object(config, "try_save_config", return_value=True),
     ):
         app = AppTest.from_file(str(WEBUI), default_timeout=60)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.session_state["settings_dialog_open"] = True
         app.run()
         assert not app.exception

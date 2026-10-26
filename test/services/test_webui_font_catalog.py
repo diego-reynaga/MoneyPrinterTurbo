@@ -1,4 +1,6 @@
-"""Font choices must resolve to the file the recursive UI catalog discovered."""
+"""Las opciones de fuente deben resolverse al archivo que descubrió el catálogo recursivo
+de la interfaz.
+"""
 
 import ast
 import os
@@ -14,8 +16,9 @@ ROOT = Path(__file__).parents[2]
 
 
 def _catalog(font_dir):
-    # Follow the existing headless WebUI tests: execute the actual helper body
-    # without running the full page or retaining the 30-second UI cache.
+    # Sigue los tests de WebUI sin interfaz existentes: ejecuta el cuerpo real de la
+    # función auxiliar sin ejecutar la página completa ni conservar la caché de 30
+    # segundos de la interfaz.
     source = ROOT / "webui" / "Main.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
     function = next(
@@ -52,7 +55,7 @@ def test_duplicate_basenames_keep_distinct_faces_and_root_choice(tmp_path):
     _copy_font(root_font, "Regular")
     _copy_font(nested_font, "Bold")
     options = _catalog(font_dir)
-    assert "Shared.ttf" in options  # Existing root-level selections stay valid.
+    assert "Shared.ttf" in options  # Las selecciones existentes del nivel raíz siguen siendo válidas.
     assert len(options) == len(set(options)) == 2
     faces = {
         ImageFont.truetype(

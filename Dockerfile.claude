@@ -1,15 +1,15 @@
-# Claude Code 变体镜像：在官方发布镜像的基础上安装 claude CLI。
+# Imagen variante para Claude Code: instala la CLI claude sobre la imagen oficial publicada.
 #
-# Claude 订阅（Pro / Max / Team）不签发 API Key，只有 Claude Code 官方客户端
-# 能使用订阅凭证，所以 `claude_code` Provider 依赖容器内存在可执行的 claude
-# CLI。这里复用发布镜像，避免重新安装 Python 依赖。
+# La suscripción de Claude (Pro / Max / Team) no emite claves API, y solo el cliente oficial de Claude Code
+# puede usar sus credenciales, así que el proveedor `claude_code` necesita que haya una CLI claude
+# ejecutable dentro del contenedor. Aquí se reutiliza la imagen publicada, para no volver a instalar las dependencias de Python.
 FROM ghcr.io/harry0703/moneyprinterturbo:latest
 
-# CLI 版本固定，避免镜像重建时行为漂移；升级时改这里的版本号即可。
+# La versión de la CLI está fijada, para que el comportamiento no cambie al reconstruir la imagen; para actualizar basta con cambiar aquí el número de versión.
 ARG CLAUDE_CODE_VERSION=2.1.260
 ARG NODE_MAJOR=22
 
-# claude CLI 通过 npm 分发，发布镜像里没有 Node.js，需要先装 NodeSource 源。
+# La CLI claude se distribuye por npm y la imagen publicada no tiene Node.js, así que primero hay que instalar el repositorio de NodeSource.
 RUN set -eu; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl gnupg; \

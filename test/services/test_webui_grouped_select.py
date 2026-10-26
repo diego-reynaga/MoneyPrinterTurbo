@@ -15,7 +15,9 @@ WEBUI_MAIN = ROOT_DIR / "webui" / "Main.py"
 
 
 class _GroupedSelectHarness:
-    """只替换视频来源组件，保留页面中其它 Components v2 的真实实现。"""
+    """Solo sustituye el componente de fuente de vídeo y conserva la implementación real
+    del resto de Components v2 de la página.
+    """
 
     def __init__(self):
         self.selected = None
@@ -24,8 +26,10 @@ class _GroupedSelectHarness:
         self._original_component = st.components.v2.component
 
     def declare(self, name, *args, **kwargs):
-        # 新手引导等第三方组件同样使用 Components v2。透传这些声明可以避免
-        # 测试桩改变页面其它功能，只控制本用例关心的视频来源选择结果。
+        # Componentes de terceros como la guía de bienvenida también usan Components v2.
+        # Dejar pasar esas declaraciones evita que el stub del test cambie otras
+        # funciones de la página y solo controla el resultado de selección de fuente de
+        # vídeo que interesa aquí.
         if name != "mpt_grouped_select":
             return self._original_component(name, *args, **kwargs)
 
@@ -40,9 +44,11 @@ class _GroupedSelectHarness:
 
 @contextmanager
 def _running_app(harness, *, saved_video_source="pexels"):
-    """在整个用例期间保持组件、配置和外部音色查询隔离。"""
+    """Mantiene aislados el componente, la configuración y las consultas de voces externas
+    durante todo el caso.
+    """
     test_app_config = dict(config.app, video_source=saved_video_source)
-    test_ui_config = dict(config.ui, language="en")
+    test_ui_config = dict(config.ui, language="es")
     with (
         patch(
             "streamlit.components.v2.component",
@@ -58,59 +64,66 @@ def _running_app(harness, *, saved_video_source="pexels"):
         ),
     ):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=60)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.run()
         assert [str(item.value) for item in app.exception] == []
         yield app
 
 
 def test_grouped_video_source_applies_first_change_and_allows_switching_back():
-    """一次 change 事件就应更新业务状态，不能要求用户重复选择。"""
+    """Un solo evento change debe actualizar el estado de negocio, sin obligar al usuario a
+    elegir dos veces.
+    """
     harness = _GroupedSelectHarness()
     with _running_app(harness) as app:
-        assert app.session_state["video_source_select_en"] == "pexels"
+        assert app.session_state["video_source_select_es"] == "pexels"
         assert harness.calls[-1]["data"]["value"] == "pexels"
 
         harness.selected = "pixabay"
         app.run()
         assert [str(item.value) for item in app.exception] == []
-        assert app.session_state["video_source_select_en"] == "pixabay"
-        # grouped_selectbox 会在事件轮次主动 rerun；最后一次渲染必须把新值
-        # 回传给前端，否则组件仍可能被旧 data 覆盖。
+        assert app.session_state["video_source_select_es"] == "pixabay"
+        # grouped_selectbox hace un rerun activo en la vuelta del evento; el último
+        # renderizado debe devolver el nuevo valor al frontend, o el componente podría
+        # quedar sobrescrito por los datos antiguos.
         assert harness.calls[-1]["data"]["value"] == "pixabay"
 
         harness.selected = "pexels"
         app.run()
         assert [str(item.value) for item in app.exception] == []
-        assert app.session_state["video_source_select_en"] == "pexels"
+        assert app.session_state["video_source_select_es"] == "pexels"
         assert harness.calls[-1]["data"]["value"] == "pexels"
 
 
 def test_grouped_video_source_ignores_unknown_event_and_repairs_saved_value():
-    """过期配置和伪造事件都不能让页面进入未知素材来源状态。"""
+    """Ni una configuración obsoleta ni un evento falsificado deben dejar la página con una
+    fuente de material desconocida.
+    """
     harness = _GroupedSelectHarness()
     with _running_app(harness, saved_video_source="removed-provider") as app:
-        assert app.session_state["video_source_select_en"] == "pexels"
+        assert app.session_state["video_source_select_es"] == "pexels"
         assert harness.calls[-1]["data"]["value"] == "pexels"
 
         harness.selected = "unknown-provider"
         app.run()
         assert [str(item.value) for item in app.exception] == []
-        assert app.session_state["video_source_select_en"] == "pexels"
+        assert app.session_state["video_source_select_es"] == "pexels"
         assert harness.calls[-1]["data"]["value"] == "pexels"
 
 
 def test_grouped_video_source_keeps_groups_and_accessible_label_binding():
-    """组件数据应保持分组顺序，并为可见标签提供稳定控件 ID。"""
+    """Los datos del componente deben mantener el orden de los grupos y dar un ID de
+    control estable a cada etiqueta visible.
+    """
     harness = _GroupedSelectHarness()
     with _running_app(harness):
         data = harness.calls[-1]["data"]
-        assert data["controlId"] == "video_source_select_en_control"
+        assert data["controlId"] == "video_source_select_es_control"
         assert [group["label"] for group in data["groups"]] == [
-            "Stock Video",
-            "AI Video",
-            "AI Image",
-            "Local Files",
+            "Vídeos de stock",
+            "Vídeo con IA",
+            "Imagen con IA",
+            "Archivos locales",
         ]
         assert [
             option["value"] for group in data["groups"] for option in group["options"]
@@ -129,15 +142,19 @@ def test_grouped_video_source_keeps_groups_and_accessible_label_binding():
             "local",
         ]
 
-        # AppTest 当前不会暴露 Components v2 的内部 DOM，因此同时校验组件声明
-        # 确实使用 controlId 关联 label/select，并允许窄屏下标签行自然换行。
+        # AppTest no expone actualmente el DOM interno de Components v2, así que también
+        # se verifica que la declaración del componente usa de verdad controlId para
+        # asociar label/select y que permite que la fila de etiquetas se ajuste de forma
+        # natural en pantallas estrechas.
         assert "label.htmlFor = data.controlId" in harness.declaration["js"]
         assert "select.id = data.controlId" in harness.declaration["js"]
         assert "flex-wrap: wrap" in harness.declaration["css"]
 
 
 def test_stock_concurrency_only_appears_for_stock_sources():
-    """库存并发仅对三家库存素材显示，切换来源时保留显式设置。"""
+    """La concurrencia de stock solo se muestra para los tres proveedores de material de
+    stock, y al cambiar de fuente se conserva el ajuste explícito.
+    """
     harness = _GroupedSelectHarness()
     with _running_app(harness) as app:
         stock = next(

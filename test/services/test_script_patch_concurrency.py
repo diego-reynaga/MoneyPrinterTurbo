@@ -38,8 +38,9 @@ def test_concurrent_real_manifest_updates_preserve_both_fields(tmp_path, monkeyp
     a.start()
     assert first_read.wait(2)
     b.start()
-    # The old implementation lets the second update commit while the first
-    # still holds stale JSON. A serialized implementation waits instead.
+    # La implementación antigua deja que la segunda actualización se confirme mientras
+    # la primera todavía tiene el JSON desactualizado. Una implementación serializada
+    # espera.
     second_finished.wait(0.05)
     release_read.set()
     a.join(2)

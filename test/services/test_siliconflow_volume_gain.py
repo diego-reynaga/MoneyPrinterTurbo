@@ -25,8 +25,9 @@ class _RejectedResponse:
 def test_siliconflow_gain_is_decibels_for_linear_volume(
     voice_volume, expected_gain, tmp_path
 ):
-    # SiliconFlow's gain is in dB. The WebUI preview passes the same linear
-    # multiplier that the final mix applies, so the preview must match it.
+    # La ganancia de SiliconFlow está en dB. La vista previa de la WebUI pasa el mismo
+    # multiplicador lineal que aplica la mezcla final, así que la vista previa debe
+    # coincidir con ella.
     payloads = []
 
     def fake_post(url, json=None, **kwargs):

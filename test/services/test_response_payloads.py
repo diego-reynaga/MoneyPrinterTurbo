@@ -1,4 +1,4 @@
-"""The shared API envelope must preserve explicit data values."""
+"""El envoltorio compartido de la API debe conservar los valores de datos explícitos."""
 
 import json
 

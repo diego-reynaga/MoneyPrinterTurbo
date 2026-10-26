@@ -1,4 +1,4 @@
-"""ModelBest VoxCPM provider tests without external credentials or network access."""
+"""Tests del proveedor ModelBest VoxCPM sin credenciales externas ni acceso a la red."""
 
 import base64
 import io
@@ -238,7 +238,7 @@ def test_prepare_voxcpm_reference_audio_bounds_conversion_and_cleans_temps(monke
 def test_prepare_voxcpm_reference_audio_rejects_oversized_upload(monkeypatch):
     monkeypatch.setattr(voice, "VOXCPM_REFERENCE_AUDIO_MAX_UPLOAD_BYTES", 2)
 
-    with pytest.raises(ValueError, match="exceeds"):
+    with pytest.raises(ValueError, match="supera"):
         voice.prepare_voxcpm_reference_audio(b"123", ".wav")
 
 
@@ -248,7 +248,7 @@ def test_prepare_voxcpm_reference_audio_reports_conversion_timeout(monkeypatch):
 
     monkeypatch.setattr(voice.subprocess, "run", timeout)
 
-    with pytest.raises(ValueError, match="timed out"):
+    with pytest.raises(ValueError, match="agotó el tiempo"):
         voice.prepare_voxcpm_reference_audio(b"audio", ".wav")
 
 
@@ -316,7 +316,9 @@ def test_voxcpm_http_error_is_retried_and_preserves_output(
 def test_voxcpm_does_not_repeat_speech_after_ambiguous_transport_failure(
     monkeypatch, tmp_path, voxcpm_config, failure_stage
 ):
-    """A dropped POST response or SSE stream can follow a completed generation."""
+    """Una respuesta POST o un flujo SSE perdidos pueden llegar después de una generación
+    completada.
+    """
 
     def interrupted_stream(**_kwargs):
         yield (_sse_event(

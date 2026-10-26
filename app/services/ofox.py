@@ -16,12 +16,15 @@ from app.models.schema import MaterialInfo, VideoAspect
 DEFAULT_BASE_URL = "https://api.ofox.ai/v1"
 DEFAULT_MODEL_ID = "bytedance/seedance-2.0-fast"
 DEFAULT_RESOLUTION = "720p"
-# 默认钉定国际厂商通道：面向全球受众时内容政策更一致；显式配置为空则交回
-# 网关按权重在可用厂商间分发。
+# Por defecto se fija el canal del proveedor internacional: con un público global la
+# política de contenido es más coherente; si se configura explícitamente vacío, se
+# devuelve al gateway el reparto por pesos entre los proveedores disponibles.
 DEFAULT_PROVIDER_TYPE = "byteplus"
-# 默认模型 bytedance/seedance-2.0-fast 只接受 4-15 秒（服务端实测校验值）。
-# 其它可选模型区间不同（如 alibaba/wan-2.7 为 2-15 秒），切换模型时应同步
-# 调整配置里的区间；超出区间的请求会被 API 以明确的 400 拒绝，不会计费。
+# El modelo por defecto bytedance/seedance-2.0-fast solo acepta de 4 a 15 segundos
+# (valor validado en el servidor en pruebas reales). Otros modelos opcionales tienen
+# rangos distintos (por ejemplo alibaba/wan-2.7 admite de 2 a 15 segundos); al cambiar
+# de modelo hay que ajustar también el rango en la configuración. Las solicitudes fuera
+# de rango la API las rechaza con un 400 claro y no se facturan.
 DEFAULT_MIN_DURATION_SECONDS = 4
 DEFAULT_MAX_DURATION_SECONDS = 15
 DEFAULT_POLL_INTERVAL_SECONDS = 5.0
@@ -34,29 +37,36 @@ TERMINAL_SUCCESS_STATUSES = frozenset({"completed", "succeeded"})
 TERMINAL_FAILURE_STATUSES = frozenset(
     {"failed", "error", "cancelled", "canceled", "expired"}
 )
-# 官方成功路径: pending(收单待上游提交) → queued → in_progress → completed
+# Ruta de éxito oficial: pending (recibido, pendiente de enviar al proveedor) → queued →
+# in_progress → completed
 ACTIVE_STATUSES = frozenset({"pending", "queued", "in_progress"})
 
 
 class OFoxError(RuntimeError):
-    """确定性的配置、请求或响应错误。"""
+    """Error determinista de configuración, solicitud o respuesta."""
 
     def __init__(self, message: str, task_id: str = ""):
         super().__init__(message)
-        # 只要远端任务已经创建，所有错误类型都统一携带任务 ID。上层无需
-        # 根据异常子类分别维护恢复逻辑，WebUI/API 也能稳定展示排障依据。
+        # Una vez creada la tarea remota, todos los tipos de error llevan el ID de la
+        # tarea. La capa superior no necesita mantener lógica de recuperación según la
+        # subclase de excepción, y la WebUI/API pueden mostrar de forma estable los
+        # datos para diagnosticar.
         self.task_id = task_id
 
 
 class OFoxUnconfirmedTaskError(OFoxError):
-    """远端可能已创建付费任务，但本机无法确认其最终状态。"""
+    """Puede que se haya creado una tarea de pago remota, pero no se puede confirmar su
+    estado final desde aquí.
+    """
 
     def __init__(self, message: str, task_id: str = ""):
         super().__init__(message, task_id=task_id)
 
 
 class OFoxDownloadError(OFoxError):
-    """远端付费任务已成功，但生成的视频未能下载到本机。"""
+    """La tarea de pago remota terminó bien, pero el vídeo generado no pudo descargarse a
+    este equipo.
+    """
 
     def __init__(self, message: str, task_id: str):
         super().__init__(message, task_id=task_id)
@@ -64,10 +74,11 @@ class OFoxDownloadError(OFoxError):
 
 def get_api_key(settings: Mapping[str, Any] | None = None) -> str:
     """
-    按明确且唯一的优先级读取 OFox 凭据。
+    Lee las credenciales de OFox con una prioridad clara y única.
 
-    配置文件里的专用键优先级最高；唯一支持的运行时环境变量是语义明确的
-    ``OFOX_API_KEY``。
+    La clave propia del archivo de configuración tiene la prioridad más alta; la única
+    variable de entorno admitida en tiempo de ejecución es ``OFOX_API_KEY``, de
+    significado claro.
     """
     settings = config.app if settings is None else settings
     configured = str(settings.get("ofox_api_key", "") or "").strip()
@@ -93,12 +104,14 @@ def _model_id() -> str:
 
 def _resolution() -> str:
     """
-    读取生成分辨率。
+    Lee la resolución de generación.
 
-    OFox 按模型在服务端校验分辨率（例如默认 Seedance fast 模型只接受
-    480p/720p），无效值会得到一个明确的 400 拒绝且不会创建付费任务，
-    因此这里只做去空白，不维护本地白名单——白名单会随远端模型目录
-    变化而过期。空值退回默认，避免把空字符串提交到远端。
+    OFox valida la resolución en el servidor según el modelo (por ejemplo, el modelo
+    Seedance fast por defecto solo acepta 480p/720p); un valor no válido recibe un
+    rechazo 400 claro y no crea una tarea de pago, así que aquí solo se quitan los
+    espacios, sin mantener una lista blanca local, que se quedaría obsoleta al cambiar
+    el catálogo remoto de modelos. Un valor vacío vuelve al predeterminado, para no
+    enviar una cadena vacía al servidor.
     """
     value = str(config.app.get("ofox_resolution", DEFAULT_RESOLUTION) or "").strip()
     return value or DEFAULT_RESOLUTION
@@ -106,14 +119,17 @@ def _resolution() -> str:
 
 def _provider_type() -> str:
     """
-    读取上游厂商钉定（provider routing）。
+    Lee el proveedor fijado (provider routing).
 
-    OFox 的部分模型由多个上游厂商供货（如 Seedance 系列的 volcengine 与
-    byteplus），各厂商有各自的内容政策与区域可用性。默认钉定 byteplus
-    （国际厂商，对全球受众内容政策更一致、路由可预期）；配置为其它厂商名
-    则钉定那一家；显式配置为空字符串则不钉定，由网关按权重分发。非法厂商
-    名会被 API 以专属的 400 ``invalid_provider_type`` 拒绝且不创建付费
-    任务，因此本地不维护厂商白名单。
+    Algunos modelos de OFox los suministran varios proveedores (por ejemplo volcengine y
+    byteplus para la serie Seedance), cada uno con su propia política de contenido y
+    disponibilidad regional. Por defecto se fija byteplus (proveedor internacional, con
+    una política de contenido más coherente para un público global y un enrutamiento
+    previsible); si se configura otro nombre de proveedor se fija ese; si se configura
+    explícitamente una cadena vacía no se fija nada y el gateway reparte por pesos. Un
+    nombre de proveedor no válido la API lo rechaza con un 400 ``invalid_provider_type``
+    específico sin crear tareas de pago, así que no se mantiene una lista blanca local
+    de proveedores.
     """
     value = config.app.get("ofox_provider", DEFAULT_PROVIDER_TYPE)
     if value is None:
@@ -143,8 +159,8 @@ def _duration_bounds() -> tuple[int, int]:
         try:
             value = int(config.app.get(key, default))
         except (TypeError, ValueError, OverflowError):
-            # TOML accepts `inf`; int(inf) raises OverflowError, which is not
-            # a provider error and would abort the task with a traceback.
+            # TOML acepta `inf`; int(inf) lanza OverflowError, que no es un error del
+            # proveedor y abortaría la tarea con una traza.
             return default
         return value if value >= 1 else default
 
@@ -215,32 +231,38 @@ def generate_videos(
     minimum_duration: int,
     video_aspect: VideoAspect = VideoAspect.portrait,
 ) -> list[MaterialInfo]:
-    """提交一个 OFox 文生视频任务，并等待可下载的结果地址。"""
+    """Envía una tarea de texto a vídeo de OFox y espera la dirección de un resultado
+    descargable.
+    """
     api_key = get_api_key()
     if not api_key:
-        raise OFoxError("OFox video generation requires an OFox API key")
+        raise OFoxError("La generación de vídeo con OFox necesita una clave API de OFox")
 
     term = str(search_term or "").strip()
     if not term:
-        # 空提示词可能来自上游脚本拆分异常。付费生成源不能把它提交到远端，
-        # 否则即使接口接受请求，也只会得到无法使用且已经计费的视频。
-        raise OFoxError("OFox search term must not be empty")
+        # Un prompt vacío puede venir de un fallo al dividir el guion en el paso
+        # anterior. Una fuente de generación de pago no puede enviarlo al servidor,
+        # porque aunque la interfaz acepte la solicitud solo daría un vídeo inutilizable
+        # y ya facturado.
+        raise OFoxError("El término de búsqueda de OFox no puede estar vacío")
 
     aspect = VideoAspect(video_aspect)
     video_width, video_height = aspect.to_resolution()
     try:
         requested_duration = max(int(minimum_duration), 1)
     except (TypeError, ValueError, OverflowError) as exc:
-        raise OFoxError("OFox clip duration must be a positive integer") from exc
+        raise OFoxError("La duración del clip de OFox debe ser un entero positivo") from exc
     minimum, maximum = _duration_bounds()
     duration = min(max(requested_duration, minimum), maximum)
     if duration != requested_duration:
-        # 生成比请求更长不会影响成片：剪辑流程仍按片段时长裁剪；生成比请求
-        # 更短只发生在请求超过模型上限时，此时也只能收敛到上限。
+        # Generar más de lo pedido no afecta al vídeo final: el montaje sigue recortando
+        # según la duración del clip; generar menos de lo pedido solo ocurre cuando la
+        # solicitud supera el máximo del modelo, y entonces solo se puede ajustar a ese
+        # máximo.
         logger.info(
-            f"ofox clip duration clamped to the configured model range: "
+            f"duración del clip de ofox ajustada al rango del modelo configurado: "
             f"requested={requested_duration}s, using={duration}s "
-            f"(configured {minimum}-{maximum}s)"
+            f"(configurado {minimum}-{maximum}s)"
         )
     payload = {
         "model": _model_id(),
@@ -258,12 +280,14 @@ def generate_videos(
     }
     videos_url = f"{_base_url()}/videos"
     logger.info(
-        "generating video with OFox: "
+        "generando vídeo con OFox: "
         f"model={payload['model']}, term={term!r}, duration={duration}s"
     )
 
-    # 提交接口不做自动重试：超时或 5xx 可能发生在付费任务已经创建之后，
-    # 盲目重试会造成重复扣费。只有拿到明确拒绝响应时才判定为确定性失败。
+    # La interfaz de envío no se reintenta automáticamente: un tiempo de espera o un 5xx
+    # pueden ocurrir después de crearse la tarea de pago, y reintentar a ciegas cobraría
+    # dos veces. Solo se considera fallo determinista cuando hay una respuesta de
+    # rechazo explícita.
     try:
         response = trace_http_call(
             "POST", requests.post,
@@ -277,43 +301,45 @@ def generate_videos(
         )
     except Exception as exc:
         raise OFoxUnconfirmedTaskError(
-            "OFox submission returned no response; a paid task may already "
-            "exist remotely: "
+            "El envío a OFox no devolvió respuesta; puede que ya exista "
+            "una tarea de pago en remoto: "
             f"error={type(exc).__name__}, detail={_redact_secret(exc, api_key)}"
         ) from exc
 
     status_code = _status_code(response)
     if 300 <= status_code < 400:
         raise OFoxUnconfirmedTaskError(
-            "OFox submission returned a redirect; the paid task state is "
-            "unknown and the request was not replayed"
+            "El envío a OFox devolvió una redirección; el estado de la tarea de pago es "
+            "desconocido y la solicitud no se repitió"
         )
     if status_code >= 500:
         raise OFoxUnconfirmedTaskError(
-            f"OFox submission failed with HTTP {status_code}; a paid task may "
-            "already exist remotely"
+            f"El envío a OFox falló con HTTP {status_code}; puede que ya exista "
+            "una tarea de pago en remoto"
         )
     if not 200 <= status_code < 300:
-        # 4xx 是明确拒绝（如 duration/resolution 超出模型支持范围），远端
-        # 没有创建任务，不存在重复计费风险；错误信息里带着服务端给出的
-        # 合法取值范围，直接抛给用户修配置。
+        # Un 4xx es un rechazo explícito (por ejemplo, duration/resolution fuera del
+        # rango que admite el modelo): el servidor no ha creado ninguna tarea y no hay
+        # riesgo de cobro doble; el mensaje de error incluye el rango de valores válidos
+        # que da el servidor, y se pasa directamente al usuario para que corrija la
+        # configuración.
         raise OFoxError(
-            "OFox video generation request rejected: "
+            "Solicitud de generación de vídeo de OFox rechazada: "
             f"HTTP {status_code}, {_response_error(response, api_key)}"
         )
     try:
         body = response.json()
     except Exception as exc:
         raise OFoxUnconfirmedTaskError(
-            "OFox submission returned an unreadable response; a paid task may "
-            f"already exist remotely: error={type(exc).__name__}"
+            "El envío a OFox devolvió una respuesta ilegible; puede que ya exista "
+            f"una tarea de pago en remoto: error={type(exc).__name__}"
         ) from exc
     task_id = str(body.get("id") or "").strip() if isinstance(body, dict) else ""
     if not task_id:
         raise OFoxUnconfirmedTaskError(
-            "OFox accepted the submission without returning a task id"
+            "OFox aceptó el envío sin devolver un id de tarea"
         )
-    logger.info(f"OFox video task created: id={task_id}")
+    logger.info(f"Tarea de vídeo de OFox creada: id={task_id}")
 
     task = _wait_for_task(
         task_id=task_id,
@@ -324,9 +350,12 @@ def generate_videos(
     if task is None:
         return []
 
-    # 官方推荐优先使用 mirror_urls（OFox CDN 持久签名地址，仅在上游开启镜像
-    # 时返回），缺失时回退到 unsigned_urls（上游临时直链，可能 24 小时内过
-    # 期）。两者都必须整体保留并立即用于下载，不写入长期的 source_info。
+    # La recomendación oficial es usar primero mirror_urls (direcciones firmadas
+    # persistentes de la CDN de OFox, que solo se devuelven cuando el proveedor tiene
+    # activado el espejo) y, si faltan, volver a unsigned_urls (enlaces directos
+    # temporales del proveedor, que pueden caducar en 24 horas). Ambas deben conservarse
+    # enteras y usarse de inmediato para descargar, sin escribirlas en el source_info de
+    # larga duración.
     video_url = ""
     for field in ("mirror_urls", "unsigned_urls"):
         urls = task.get(field)
@@ -340,7 +369,7 @@ def generate_videos(
             break
     if not video_url:
         raise OFoxError(
-            f"OFox task completed without a downloadable video: id={task_id}",
+            f"La tarea de OFox terminó sin un vídeo descargable: id={task_id}",
             task_id=task_id,
         )
 
@@ -387,14 +416,16 @@ def _wait_for_task(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise OFoxUnconfirmedTaskError(
-                "OFox task is still running after the configured local wait "
-                f"timeout: id={task_id}",
+                "La tarea de OFox sigue en curso tras el tiempo de espera local "
+                f"configurado: id={task_id}",
                 task_id=task_id,
             )
 
-        # requests 的 connect/read timeout 分别计时，因此各使用剩余总时间的
-        # 一半。即使连接和读取都走到上限，单轮请求也不会有意超过总截止时间；
-        # 网络库仍可能有极小调度误差，下一处 deadline 检查会阻止再次重试。
+        # Los tiempos de espera de conexión y lectura de requests se cuentan por
+        # separado, así que cada uno usa la mitad del tiempo total restante. Aunque la
+        # conexión y la lectura lleguen al máximo, una vuelta no supera a propósito el
+        # plazo total; la librería de red aún puede tener un pequeño error de
+        # planificación, y la siguiente comprobación del plazo impide otro reintento.
         phase_timeout = max(min(remaining / 2.0, 30.0), 0.001)
         try:
             response = trace_http_call(
@@ -413,7 +444,7 @@ def _wait_for_task(
                 )
             if not 200 <= status_code < 300:
                 raise OFoxUnconfirmedTaskError(
-                    "OFox task status is unknown: "
+                    "El estado de la tarea de OFox es desconocido: "
                     f"http_status={status_code}, "
                     f"detail={_response_error(response, api_key)}",
                     task_id=task_id,
@@ -421,14 +452,14 @@ def _wait_for_task(
             body = response.json()
             if not isinstance(body, dict):
                 raise OFoxUnconfirmedTaskError(
-                    "OFox task status response is malformed", task_id=task_id
+                    "La respuesta de estado de la tarea de OFox está mal formada", task_id=task_id
                 )
         except OFoxUnconfirmedTaskError:
             raise
         except Exception as exc:
             if not _is_retryable_error(exc):
                 raise OFoxUnconfirmedTaskError(
-                    "OFox polling failed and the paid task state is unknown: "
+                    "Falló el sondeo de OFox y el estado de la tarea de pago es desconocido: "
                     f"error={type(exc).__name__}, "
                     f"detail={_redact_secret(exc, api_key)}",
                     task_id=task_id,
@@ -437,20 +468,20 @@ def _wait_for_task(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise OFoxUnconfirmedTaskError(
-                    "OFox task is still running after the configured local wait "
-                    f"timeout: id={task_id}",
+                    "La tarea de OFox sigue en curso tras el tiempo de espera local "
+                    f"configurado: id={task_id}",
                     task_id=task_id,
                 ) from exc
             consecutive_failures += 1
             if consecutive_failures > MAX_POLL_RETRIES:
                 raise OFoxUnconfirmedTaskError(
-                    "OFox polling failed after retries; the paid task may still "
-                    f"be running remotely: id={task_id}",
+                    "El sondeo de OFox falló tras los reintentos; la tarea de pago puede seguir "
+                    f"en curso en remoto: id={task_id}",
                     task_id=task_id,
                 ) from exc
             delay = min(RETRY_BASE_SECONDS * consecutive_failures, remaining)
             logger.warning(
-                "OFox polling hit a transient error; retrying the same task: "
+                "El sondeo de OFox encontró un error pasajero; se reintenta la misma tarea: "
                 f"id={task_id}, attempt={consecutive_failures}/{MAX_POLL_RETRIES}, "
                 f"retry_in={delay:.1f}s"
             )
@@ -464,24 +495,25 @@ def _wait_for_task(
         if status in TERMINAL_FAILURE_STATUSES:
             error_detail = body.get("error")
             logger.error(
-                "OFox task did not produce a video: "
+                "La tarea de OFox no produjo ningún vídeo: "
                 f"id={task_id}, status={status}, "
                 f"detail={_redact_secret(error_detail, api_key)}"
             )
-            # 远端明确失败意味着任务已经结束，可以安全地继续后续片段；由
-            # 调用方决定是否换一个关键词重试。
+            # Un fallo remoto explícito significa que la tarea ya ha terminado y se
+            # puede seguir con los clips siguientes con seguridad; quien llama decide si
+            # reintenta con otra palabra clave.
             return None
         if status not in ACTIVE_STATUSES:
             raise OFoxUnconfirmedTaskError(
-                f"OFox returned an unknown task status: id={task_id}, "
+                f"OFox devolvió un estado de tarea desconocido: id={task_id}, "
                 f"status={status!r}",
                 task_id=task_id,
             )
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise OFoxUnconfirmedTaskError(
-                "OFox task is still running after the configured local wait "
-                f"timeout: id={task_id}",
+                "La tarea de OFox sigue en curso tras el tiempo de espera local "
+                f"configurado: id={task_id}",
                 task_id=task_id,
             )
         time.sleep(min(poll_interval, remaining))

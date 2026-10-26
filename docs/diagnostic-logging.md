@@ -1,11 +1,11 @@
-# 诊断日志
+# Registro de diagnóstico
 
-在 WebUI 的 **设置 → 界面设置 → 诊断日志** 中选择日志等级，按需开启
-**记录 API 请求参数**，点击 **应用日志设置**。设置立即作用于当前服务，
-包括正在运行任务的后续日志；同一服务的所有浏览器会话共用该设置。
-开启「隐藏日志」只隐藏界面日志，不会关闭终端输出。
+En la WebUI, en **Ajustes → Configuración de interfaz → Registro de diagnóstico**, elige el nivel de registro, activa si lo necesitas
+**Rastrear parámetros de las solicitudes a la API** y pulsa **Aplicar ajustes de registro**. Los ajustes se aplican de inmediato al servicio actual,
+incluidos los logs posteriores de las tareas en ejecución; todas las sesiones del navegador del mismo servicio comparten esos ajustes.
+Activar «Ocultar registro» solo oculta los logs de la interfaz y no desactiva la salida del terminal.
 
-API、CLI 和 WebUI 使用相同的配置：
+La API, la CLI y la WebUI usan la misma configuración:
 
 ```toml
 [diagnostics]
@@ -13,28 +13,28 @@ log_level = "INFO"
 log_requests = false
 ```
 
-`log_level` 可选 TRACE、DEBUG、INFO、SUCCESS、WARNING、ERROR、CRITICAL。
-省略时沿用原来的顶层 `log_level`，默认 DEBUG。手工修改文件后需要重启，
-WebUI 的「应用」只即时更新当前进程，不会远程修改其它 API 或 CLI 进程。
+`log_level` admite TRACE, DEBUG, INFO, SUCCESS, WARNING, ERROR y CRITICAL.
+Si se omite, se usa el `log_level` de nivel superior original, que por defecto es DEBUG. Tras editar el archivo a mano hay que reiniciar;
+el botón «Aplicar» de la WebUI solo actualiza al momento el proceso actual y no modifica a distancia otros procesos de la API o la CLI.
 
-请求追踪是独立开关，在 ERROR 等级下也能开启。它默认关闭，记录内容为：
+El rastreo de solicitudes es un interruptor independiente y también se puede activar con el nivel ERROR. Está desactivado por defecto y registra:
 
-- 请求 ID、HTTP 方法、脱敏地址、经过长度限制的请求参数。
-- 返回状态（可取得时）、耗时，或失败的异常类型。
-- LLM SDK 调用参数。此处是 SDK 的输入，不是 SDK 最终发送的原始 JSON；
-  SDK 内部自动重试不会逐次显示。流式请求的耗时只统计到取得响应或流对象，
-  不包含后续下载时间。
+- El ID de la solicitud, el método HTTP, la dirección censurada y los parámetros de la solicitud con longitud limitada.
+- El estado devuelto (cuando se puede obtener), el tiempo empleado o el tipo de excepción del fallo.
+- Los parámetros de las llamadas al SDK del LLM. Son la entrada del SDK, no el JSON en bruto que envía finalmente el SDK;
+  los reintentos automáticos internos del SDK no se muestran uno a uno. En las solicitudes en streaming el tiempo solo se cuenta hasta obtener la respuesta o el objeto de flujo,
+  sin incluir el tiempo de descarga posterior.
 
-覆盖项目显式使用 `requests` 的素材、视频、语音、发布及登录等请求，以及
-OpenAI 兼容、Azure OpenAI、Qwen、Gemini 和 LiteLLM 文案调用。
-不捕获浏览器自身的网络流量、入站 API 正文、CLI 子进程、Edge TTS WebSocket
-或其它 SDK 内部传输。正常应用日志与第三方 SDK 自己的日志等级也不是同一开关。
+Cubre las solicitudes que el proyecto hace explícitamente con `requests` para material, vídeo, voz, publicación, inicio de sesión, etc., así como
+las llamadas de texto compatibles con OpenAI, Azure OpenAI, Qwen, Gemini y LiteLLM.
+No captura el propio tráfico de red del navegador, los cuerpos de la API entrantes, los subprocesos de la CLI, el WebSocket de Edge TTS
+ni el transporte interno de otros SDK. Los logs normales de la aplicación y los niveles de log propios de los SDK de terceros tampoco son el mismo interruptor.
 
-不会记录请求头、响应正文或上传文件内容。密钥、Token、Cookie、密码及签名
-字段会遮盖，URL 查询参数的值统一隐藏，音视频/base64 等内容省略。原始
-非结构化请求体不记录。**提示词和其它业务参数可能出现在日志中**，排查结束后
-请关闭追踪，分享日志前仍需检查其中是否包含私人内容。诊断不会向外部发送日志，
-也不会额外发起、重试或重放请求。
+No se registran las cabeceras de las solicitudes, los cuerpos de las respuestas ni el contenido de los archivos subidos. Las claves, tokens, cookies, contraseñas y campos de firma
+se ocultan, los valores de los parámetros de consulta de las URL se ocultan siempre, y el contenido de audio/vídeo/base64, etc., se omite. Los cuerpos de solicitud
+en bruto no estructurados no se registran. **Los prompts y otros parámetros de negocio pueden aparecer en los logs**: al terminar de diagnosticar,
+desactiva el rastreo, y antes de compartir logs comprueba igualmente si contienen contenido privado. El diagnóstico no envía logs al exterior
+ni lanza, reintenta o repite solicitudes adicionales.
 
-CLI 日志仍输出到 stderr，stdout 保持机器可读 JSON。WebUI 任务日志沿用现有
-线程归属过滤和条数上限，不会因为切换等级移除正在运行任务的日志处理器。
+Los logs de la CLI se siguen enviando a stderr, y stdout mantiene un JSON legible por máquina. Los logs de tareas de la WebUI mantienen el filtrado actual por
+pertenencia a hilo y el límite de líneas, y cambiar de nivel no elimina el manejador de logs de las tareas en ejecución.

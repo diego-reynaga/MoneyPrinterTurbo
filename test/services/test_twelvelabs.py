@@ -18,9 +18,11 @@ RUN_INTEGRATION_TESTS = os.environ.get("MPT_RUN_INTEGRATION_TESTS", "").lower() 
 
 class TestTwelveLabsService(unittest.TestCase):
     """
-    TwelveLabs 集成是完全 opt-in 的：未配置 twelvelabs_api_keys 时所有函数
-    都必须是无副作用的 no-op，行为与不接入 TwelveLabs 完全一致。
-    这些用例全部用 mock 替换 SDK 客户端，CI 不依赖真实网络或真实 API key。
+    La integración de TwelveLabs es totalmente opcional: si no se configura
+    twelvelabs_api_keys, todas las funciones deben ser no-op sin efectos secundarios,
+    con el mismo comportamiento que sin TwelveLabs. Todos estos casos sustituyen el
+    cliente del SDK por un mock, así que la CI no depende de la red ni de una clave API
+    reales.
     """
 
     def setUp(self):
@@ -32,33 +34,36 @@ class TestTwelveLabsService(unittest.TestCase):
         config.app.update(self.original_app_config)
         twelvelabs._embed_text_cached.cache_clear()
 
-    # ---------------- disabled / no-op behavior ----------------
+    # ---------------- comportamiento desactivado / no-op ----------------
 
     def test_disabled_when_no_api_key(self):
         config.app.pop("twelvelabs_api_keys", None)
         self.assertFalse(twelvelabs.is_enabled())
-        # rerank must return the input list unchanged
+        # rerank debe devolver la lista de entrada sin cambios
         terms = ["b", "a", "c"]
         self.assertEqual(
             twelvelabs.rerank_terms_by_subject("subject", terms), terms
         )
-        # analyze must be a no-op returning None
+        # analyze debe ser un no-op que devuelve None
         self.assertIsNone(twelvelabs.analyze_clip("https://x/y.mp4"))
 
     def test_rerank_skipped_when_flag_off(self):
         config.app["twelvelabs_api_keys"] = ["tlk_test"]
         config.app["twelvelabs_rerank_terms"] = False
         terms = ["b", "a"]
-        # Even enabled, with the flag off we must not touch order or call the API.
+        # Aunque esté activado, con la opción apagada no debemos tocar el orden ni
+        # llamar a la API.
         with patch.object(twelvelabs, "_client") as client:
             result = twelvelabs.rerank_terms_by_subject("subject", terms)
         self.assertEqual(result, terms)
         client.assert_not_called()
 
-    # ---------------- enabled rerank behavior ----------------
+    # ---------------- comportamiento de rerank activado ----------------
 
     def _client_returning(self, vectors_by_text):
-        """Build a fake TwelveLabs client whose embed.create returns canned vectors."""
+        """Construye un cliente falso de TwelveLabs cuyo embed.create devuelve vectores
+        predefinidos.
+        """
 
         def fake_create(*, model_name, text):
             seg = MagicMock()
@@ -75,11 +80,11 @@ class TestTwelveLabsService(unittest.TestCase):
         config.app["twelvelabs_api_keys"] = ["tlk_test"]
         config.app["twelvelabs_rerank_terms"] = True
 
-        # subject aligned with "city"; "kitten" is orthogonal.
+        # el tema está alineado con "city"; "kitten" es ortogonal.
         vectors = {
             "city skyline": [1.0, 0.0, 0.0],
-            "downtown buildings": [0.9, 0.1, 0.0],  # close to subject
-            "cute kitten": [0.0, 1.0, 0.0],  # far from subject
+            "downtown buildings": [0.9, 0.1, 0.0],  # cerca del tema
+            "cute kitten": [0.0, 1.0, 0.0],  # lejos del tema
         }
         client = self._client_returning(vectors)
 
@@ -88,7 +93,7 @@ class TestTwelveLabsService(unittest.TestCase):
                 "city skyline", ["cute kitten", "downtown buildings"]
             )
 
-        # most relevant term must come first
+        # el término más relevante debe ir primero
         self.assertEqual(result, ["downtown buildings", "cute kitten"])
 
     def test_rerank_falls_back_on_embed_failure(self):
@@ -102,7 +107,7 @@ class TestTwelveLabsService(unittest.TestCase):
         with patch.object(twelvelabs, "_client", return_value=client):
             result = twelvelabs.rerank_terms_by_subject("subject", terms)
 
-        # any failure must preserve the original order (never make things worse)
+        # cualquier fallo debe conservar el orden original (nunca empeorar las cosas)
         self.assertEqual(result, terms)
 
     def test_rerank_noop_for_single_term(self):
@@ -118,11 +123,11 @@ class TestTwelveLabsService(unittest.TestCase):
     def test_analyze_clip_returns_model_text(self):
         config.app["twelvelabs_api_keys"] = ["tlk_test"]
 
-        # analyze_clip() lazily imports `twelvelabs.types.VideoContext_Url`.
-        # The SDK is an optional extra, so the deterministic unit test must pass
-        # even without `uv sync --extra twelvelabs`. Inject lightweight stub
-        # modules so the internal import resolves; the mocked _client below does
-        # the rest. (When the real SDK *is* installed, these stubs are ignored.)
+        # analyze_clip() importa de forma diferida `twelvelabs.types.VideoContext_Url`.
+        # El SDK es un extra opcional, así que el test unitario determinista debe pasar
+        # incluso sin `uv sync --extra twelvelabs`. Se inyectan módulos stub ligeros
+        # para que se resuelva la importación interna; el _client simulado de abajo hace
+        # el resto. (Cuando el SDK real *sí* está instalado, estos stubs se ignoran.)
         stub_types = type(sys)("twelvelabs.types")
         stub_types.VideoContext_Url = lambda *, url: {"url": url}
         stub_pkg = sys.modules.get("twelvelabs") or type(sys)("twelvelabs")
@@ -143,7 +148,7 @@ class TestTwelveLabsService(unittest.TestCase):
             )
 
         self.assertEqual(out, "A city skyline at dusk.")
-        # max_tokens must be clamped to the Pegasus minimum (>=512)
+        # max_tokens debe limitarse al mínimo de Pegasus (>=512)
         self.assertGreaterEqual(client.analyze.call_args.kwargs["max_tokens"], 512)
 
 
@@ -153,7 +158,9 @@ class TestTwelveLabsService(unittest.TestCase):
     "against the real TwelveLabs API",
 )
 class TestTwelveLabsLive(unittest.TestCase):
-    """Live contract check — only runs with MPT_RUN_INTEGRATION_TESTS=1 + a key."""
+    """Comprobación del contrato en vivo: solo se ejecuta con MPT_RUN_INTEGRATION_TESTS=1 y
+    una clave.
+    """
 
     def setUp(self):
         self.original_app_config = dict(config.app)

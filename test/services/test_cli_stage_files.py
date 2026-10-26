@@ -48,5 +48,5 @@ def test_video_stage_still_validates_background_music():
     with patch(
         "app.services.bgm.resolve_bgm_file", side_effect=ValueError("missing music")
     ):
-        with pytest.raises(ValueError, match="background music"):
+        with pytest.raises(ValueError, match="música de fondo"):
             cli._validate_cli_files(params, "video")

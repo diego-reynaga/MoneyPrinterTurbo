@@ -20,8 +20,9 @@ class TestAzureBoundaryDuration(unittest.TestCase):
                     return Mock()
 
                 def speak(ssml):
-                    # This duration-only SDK fixture must also fulfill the
-                    # completed file-output contract before publication.
+                    # Este fixture del SDK que solo indica duración también debe cumplir
+                    # el contrato de archivo de salida completado antes de la
+                    # publicación.
                     Path(captured["filename"]).write_bytes(b"fixture-audio")
                     captured["callback"](SimpleNamespace(duration=duration, audio_offset=123, text="word"))
                     return SimpleNamespace(get=lambda: SimpleNamespace(reason=sdk.ResultReason.SynthesizingAudioCompleted))

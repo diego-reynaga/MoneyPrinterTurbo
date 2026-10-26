@@ -46,7 +46,7 @@ def test_paid_image_submission_does_not_follow_redirects(status):
         with (
             patch.object(material.config, "proxy", {}),
             patch.object(material.config, "app", {"openai_image_api_keys": []}),
-            pytest.raises(material.OpenAIImageUnconfirmedError, match="redirect"),
+            pytest.raises(material.OpenAIImageUnconfirmedError, match="redirección"),
         ):
             material._request_openai_image(f"http://127.0.0.1:{server.server_port}/generation", {"prompt": "fixture"})
         assert requests == [("POST", "/generation")]

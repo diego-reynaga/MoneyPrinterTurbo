@@ -1,4 +1,6 @@
-"""Execute the real WebUI picker expressions without starting the full app."""
+"""Ejecuta las expresiones reales del selector de la WebUI sin arrancar la aplicación
+completa.
+"""
 
 import ast
 from pathlib import Path

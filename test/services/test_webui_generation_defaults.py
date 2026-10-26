@@ -21,18 +21,21 @@ def _widget_by_key(elements, key):
 
 
 def _new_app():
-    # A cold Python 3.11 environment can spend over 30 seconds importing the
-    # full Streamlit entrypoint and optional media stack. Keep the assertion
-    # timeout above that one-time startup cost so targeted runs do not flake.
+    # Un entorno frío de Python 3.11 puede tardar más de 30 segundos en importar el
+    # punto de entrada completo de Streamlit y la pila multimedia opcional. Se mantiene
+    # el tiempo de espera de la aserción por encima de ese coste inicial para que las
+    # ejecuciones parciales no fallen al azar.
     app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=60)
-    app.session_state["ui_language"] = "en"
+    app.session_state["ui_language"] = "es"
     app.run()
     assert [str(item.value) for item in app.exception] == []
     return app
 
 
 def test_reusable_generation_settings_survive_a_new_webui_session():
-    """Reusable controls should persist while per-video content stays session-only."""
+    """Los controles reutilizables deben persistir, mientras que el contenido de cada vídeo
+    queda solo en la sesión.
+    """
     test_app_config = dict(
         config.app,
         video_source="pexels",
@@ -40,7 +43,7 @@ def test_reusable_generation_settings_survive_a_new_webui_session():
     )
     test_ui_config = dict(
         config.ui,
-        language="en",
+        language="es",
         voice_mode="tts",
         tts_server="azure-tts-v1",
         voice_name="en-US-JennyNeural-Female",
@@ -105,14 +108,15 @@ def test_reusable_generation_settings_survive_a_new_webui_session():
         _widget_by_key(first_session.slider, "stroke_width_slider").set_value(2.5)
         first_session.run()
 
-        # Aspect is a per-source preference: Coverr's common landscape default
-        # must not replace an explicit portrait choice or the Pexels preference.
-        first_session.session_state["video_source_select_en"] = "coverr"
+        # La relación de aspecto es una preferencia por fuente: el horizontal habitual
+        # por defecto de Coverr no debe sustituir una elección vertical explícita ni la
+        # preferencia de Pexels.
+        first_session.session_state["video_source_select_es"] = "coverr"
         first_session.run()
         _widget_by_key(first_session.selectbox, "video_aspect_for_coverr").set_value(
             "9:16"
         ).run()
-        first_session.session_state["video_source_select_en"] = "pexels"
+        first_session.session_state["video_source_select_es"] = "pexels"
         first_session.run()
 
         _widget_by_key(first_session.selectbox, "bgm_volume_select").set_value(0.4)
@@ -196,12 +200,12 @@ def test_reusable_generation_settings_survive_a_new_webui_session():
         assert _widget_by_key(
             second_session.selectbox, "video_fit_mode_select"
         ).value == "contain"
-        second_session.session_state["video_source_select_en"] = "coverr"
+        second_session.session_state["video_source_select_es"] = "coverr"
         second_session.run()
         assert _widget_by_key(
             second_session.selectbox, "video_aspect_for_coverr"
         ).value == "9:16"
-        second_session.session_state["video_source_select_en"] = "pexels"
+        second_session.session_state["video_source_select_es"] = "pexels"
         second_session.run()
         assert _widget_by_key(
             second_session.selectbox, "video_clip_duration_select"
@@ -245,7 +249,7 @@ def test_reusable_generation_settings_survive_a_new_webui_session():
         ).value == "#123456"
         assert _widget_by_key(second_session.slider, "stroke_width_slider").value == 2.5
 
-        # Per-video content must not leak into a new session.
+        # El contenido de cada vídeo no debe filtrarse a una sesión nueva.
         assert second_session.session_state["video_subject"] == ""
         assert second_session.session_state["video_script"] == ""
         assert second_session.session_state["video_terms"] == ""
@@ -269,7 +273,9 @@ def test_reusable_generation_settings_survive_a_new_webui_session():
 
 
 def test_invalid_saved_generation_settings_fall_back_without_breaking_webui():
-    """Stale or manually edited TOML values must not poison Streamlit widgets."""
+    """Los valores TOML obsoletos o editados a mano no deben envenenar los widgets de
+    Streamlit.
+    """
     test_app_config = dict(
         config.app,
         video_source="pexels",
@@ -277,7 +283,7 @@ def test_invalid_saved_generation_settings_fall_back_without_breaking_webui():
     )
     test_ui_config = dict(
         config.ui,
-        language="en",
+        language="es",
         voice_mode="tts",
         tts_server="azure-tts-v1",
         voice_name="en-US-JennyNeural-Female",
@@ -347,7 +353,7 @@ def test_ofox_source_shows_unchecked_paid_task_confirmation():
     )
     test_ui_config = dict(
         config.ui,
-        language="en",
+        language="es",
         voice_mode="none",
     )
 
@@ -358,7 +364,7 @@ def test_ofox_source_shows_unchecked_paid_task_confirmation():
     ):
         app = _new_app()
 
-    assert app.session_state["video_source_select_en"] == "ofox"
+    assert app.session_state["video_source_select_es"] == "ofox"
     assert _widget_by_key(app.checkbox, "ofox_confirm_charge").value is False
 
 
@@ -370,7 +376,7 @@ def test_seedance_source_shows_unchecked_paid_task_confirmation():
     )
     test_ui_config = dict(
         config.ui,
-        language="en",
+        language="es",
         voice_mode="none",
     )
 
@@ -381,14 +387,16 @@ def test_seedance_source_shows_unchecked_paid_task_confirmation():
     ):
         app = _new_app()
 
-    assert app.session_state["video_source_select_en"] == "volcengine_seedance"
+    assert app.session_state["video_source_select_es"] == "volcengine_seedance"
     assert _widget_by_key(
         app.checkbox, "volcengine_seedance_confirm_charge"
     ).value is False
 
 
 def test_loomloom_tuning_survives_restart_without_persisting_payment_state():
-    """Paid-provider tuning is reusable; quotes and confirmations are not."""
+    """El ajuste de los proveedores de pago es reutilizable; los presupuestos y las
+    confirmaciones no.
+    """
     test_app_config = dict(
         config.app,
         video_source="loomloom",
@@ -398,7 +406,7 @@ def test_loomloom_tuning_survives_restart_without_persisting_payment_state():
     )
     test_ui_config = dict(
         config.ui,
-        language="en",
+        language="es",
         voice_mode="tts",
         tts_server="azure-tts-v1",
         voice_name="en-US-JennyNeural-Female",
@@ -455,7 +463,9 @@ def test_loomloom_tuning_survives_restart_without_persisting_payment_state():
 
 
 def test_script_order_constraint_does_not_replace_saved_concat_preference():
-    """A derived sequential mode must not become the user's reusable default."""
+    """Un modo secuencial derivado no debe convertirse en el valor por defecto reutilizable
+    del usuario.
+    """
     test_app_config = dict(
         config.app,
         video_source="pexels",
@@ -463,7 +473,7 @@ def test_script_order_constraint_does_not_replace_saved_concat_preference():
     )
     test_ui_config = dict(
         config.ui,
-        language="en",
+        language="es",
         video_concat_mode="random",
         voice_mode="tts",
         tts_server="azure-tts-v1",
@@ -488,8 +498,9 @@ def test_script_order_constraint_does_not_replace_saved_concat_preference():
         assert constrained_concat.disabled is True
         assert test_ui_config["video_concat_mode"] == "random"
 
-        # A later session without the constraint should recover the user's actual
-        # preference, not the derived value shown while script-order matching ran.
+        # Una sesión posterior sin la restricción debe recuperar la preferencia real del
+        # usuario, no el valor derivado que se mostraba mientras se aplicaba la
+        # correspondencia en orden del guion.
         test_app_config["match_materials_to_script"] = False
         unconstrained_session = _new_app()
         assert _widget_by_key(

@@ -1,4 +1,4 @@
-# Keep legacy pip install support; primary deps moved to pyproject.toml / uv.lock.
+# Se mantiene la instalación antigua con pip; las dependencias principales están ahora en pyproject.toml / uv.lock.
 moviepy==2.2.1
 streamlit==1.59.1
 starlette==1.2.1
@@ -8,7 +8,7 @@ fastapi==0.136.3
 uvicorn==0.32.1
 openai==2.24.0
 faster-whisper==1.1.0
-# faster-whisper passes metadata_errors to av.open(), which PyAV 19 removed
+# faster-whisper pasa metadata_errors a av.open(), que PyAV 19 eliminó
 av<19
 toml==0.10.2
 imageio-ffmpeg==0.6.0

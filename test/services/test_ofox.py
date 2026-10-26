@@ -62,7 +62,7 @@ class TestOFoxService(unittest.TestCase):
                     with self.assertRaises(ofox.OFoxError) as raised:
                         ofox.generate_videos(invalid, 5)
 
-                self.assertIn("search term must not be empty", str(raised.exception))
+                self.assertIn("no puede estar vacío", str(raised.exception))
                 post.assert_not_called()
 
     def test_search_term_is_trimmed_consistently_in_request_and_source_record(self):
@@ -144,8 +144,10 @@ class TestOFoxService(unittest.TestCase):
         config.app["ofox_resolution"] = "   "
         self.assertEqual(ofox._resolution(), ofox.DEFAULT_RESOLUTION)
 
-        # 分辨率白名单随远端模型目录变化，本地不做校验；配置值原样提交，
-        # 由服务端按模型给出明确的 400 拒绝（不创建付费任务）。
+        # La lista blanca de resoluciones cambia con el catálogo remoto de modelos, así
+        # que no se valida en local; el valor configurado se envía tal cual y el
+        # servidor responde con un 400 claro según el modelo (sin crear una tarea de
+        # pago).
         config.app["ofox_resolution"] = " 480p "
         self.assertEqual(ofox._resolution(), "480p")
 
@@ -156,11 +158,12 @@ class TestOFoxService(unittest.TestCase):
                     with self.assertRaises(ofox.OFoxError) as raised:
                         ofox.generate_videos("sunrise", invalid)
 
-                self.assertIn("clip duration", str(raised.exception))
+                self.assertIn("uración del clip", str(raised.exception))
                 post.assert_not_called()
 
     def test_provider_pinning_defaults_to_byteplus_and_stays_configurable(self):
-        # 未配置时默认钉定国际厂商 byteplus（内容政策一致、路由可预期）。
+        # Sin configuración se fija por defecto el proveedor internacional byteplus
+        # (política de contenido coherente y enrutamiento previsible).
         submit = self._response({"id": "vid-route", "status": "queued"}, 202)
         completed = self._response(
             {
@@ -179,7 +182,8 @@ class TestOFoxService(unittest.TestCase):
             post.call_args.kwargs["json"]["provider"], {"type": "byteplus"}
         )
 
-        # None 视同未配置（配置解析异常时的兜底），仍走默认。
+        # None se trata como sin configurar (respaldo ante errores al analizar la
+        # configuración) y sigue usando el valor por defecto.
         config.app["ofox_provider"] = None
         with (
             patch.object(ofox.requests, "post", return_value=submit) as post,
@@ -190,7 +194,8 @@ class TestOFoxService(unittest.TestCase):
             post.call_args.kwargs["json"]["provider"], {"type": "byteplus"}
         )
 
-        # 显式配置为空字符串 = 不钉定，交回网关按权重自动分发。
+        # Configurar explícitamente una cadena vacía = no fijar, y se devuelve al
+        # gateway el reparto automático por pesos.
         for blank in ("", "   "):
             with self.subTest(blank=blank):
                 config.app["ofox_provider"] = blank
@@ -201,8 +206,9 @@ class TestOFoxService(unittest.TestCase):
                     ofox.generate_videos("sunrise", 5)
                 self.assertNotIn("provider", post.call_args.kwargs["json"])
 
-        # 配置其它厂商名则钉定那一家；非法厂商名由服务端以 400
-        # invalid_provider_type 拒绝（不创建付费任务），走常规 4xx 路径。
+        # Si se configura otro nombre de proveedor se fija ese; un nombre no válido lo
+        # rechaza el servidor con un 400 invalid_provider_type (sin crear una tarea de
+        # pago) y sigue la ruta 4xx habitual.
         config.app["ofox_provider"] = " volcengine "
         with (
             patch.object(ofox.requests, "post", return_value=submit) as post,
@@ -303,8 +309,9 @@ class TestOFoxService(unittest.TestCase):
                 self.assertEqual(post.call_count, 1)
 
     def test_pending_status_is_active_and_polling_continues(self):
-        # 官方成功路径为 pending → queued → in_progress → completed；首次轮询
-        # 拿到 pending 属于正常在途状态，不能当作未知状态终止任务。
+        # La ruta de éxito oficial es pending → queued → in_progress → completed;
+        # recibir pending en el primer sondeo es un estado en curso normal y no debe
+        # tratarse como estado desconocido que termine la tarea.
         submit = self._response({"id": "vid-pending", "status": "queued"}, 202)
         polls = [
             self._response({"id": "vid-pending", "status": "pending"}),
@@ -349,8 +356,9 @@ class TestOFoxService(unittest.TestCase):
         )
 
     def test_missing_or_invalid_mirror_urls_fall_back_to_unsigned_urls(self):
-        # mirror_urls 仅在上游开启镜像时返回；缺失、为空或不含合法直链时都
-        # 必须回退到 unsigned_urls，不能让任务失败。
+        # mirror_urls solo se devuelve cuando el proveedor tiene activado el espejo; si
+        # falta, está vacío o no contiene enlaces directos válidos, hay que volver a
+        # unsigned_urls sin que falle la tarea.
         for mirror in (None, [], ["not-a-url", 123]):
             with self.subTest(mirror=mirror):
                 submit = self._response({"id": "vid-fallback", "status": "queued"}, 202)
@@ -432,8 +440,9 @@ class TestOFoxService(unittest.TestCase):
         self.assertEqual(raised.exception.task_id, "vid-running")
 
     def test_network_retry_stops_when_total_run_deadline_is_reached(self):
-        # 第一次请求前仍有 59 秒；请求异常返回时总截止时间已经过去，不能继续
-        # 执行其余五次网络重试，也不能再进入退避 sleep。
+        # Antes de la primera solicitud quedan 59 segundos; cuando la solicitud vuelve
+        # con error, el plazo total ya ha pasado, así que no deben ejecutarse los otros
+        # cinco reintentos de red ni entrar en el sleep de espera.
         config.app["ofox_run_timeout"] = 60
         clock = iter([0.0, 1.0, 61.0])
         with (
@@ -484,8 +493,10 @@ class TestOFoxService(unittest.TestCase):
             }
         )
         running = self._response({"id": "vid-running", "status": "in_progress"})
-        # 第一次响应完成时只剩 0.25 秒，应只休眠剩余时间；下一轮在发起
-        # 网络请求前发现截止时间已过，避免额外一次远端请求。
+        # Cuando termina la primera respuesta solo quedan 0,25 segundos, así que solo
+        # debe dormir el tiempo restante; la siguiente vuelta detecta que el plazo ha
+        # pasado antes de lanzar la solicitud de red, evitando una solicitud remota
+        # extra.
         clock = iter([0.0, 59.0, 59.75, 60.1])
         with (
             patch.object(ofox.requests, "get", return_value=running) as get,
@@ -566,8 +577,10 @@ class TestOFoxService(unittest.TestCase):
                 self.assertEqual(raised.exception.task_id, "vid-malformed")
 
     def test_all_terminal_failure_statuses_end_the_task_without_billing_doubt(self):
-        # 远端明确失败（如触发内容审核）意味着任务已结束、无计费悬念。返回
-        # None 让上层跳过该关键词继续生成，而不是中止整条视频。
+        # Un fallo explícito remoto (por ejemplo, por moderación de contenido) significa
+        # que la tarea ha terminado y no hay dudas de facturación. Devolver None permite
+        # que la capa superior se salte esa palabra clave y siga generando, en lugar de
+        # abortar todo el vídeo.
         for status in ofox.TERMINAL_FAILURE_STATUSES:
             with self.subTest(status=status):
                 terminal = self._response(
@@ -712,8 +725,9 @@ class TestOFoxMaterialIntegration(unittest.TestCase):
         self.assertEqual(len(persist.call_args.args[1]), 2)
 
     def test_failed_keyword_is_skipped_and_generation_continues(self):
-        # 单个关键词被远端明确判失败（generate_videos 返回空列表）时应跳过该
-        # 片段继续下一个关键词，而不是中止整条视频。
+        # Cuando el servidor da explícitamente por fallida una palabra clave
+        # (generate_videos devuelve una lista vacía), debe saltarse ese clip y seguir
+        # con la siguiente palabra clave, en lugar de abortar todo el vídeo.
         with (
             patch.object(
                 ofox,
@@ -774,7 +788,7 @@ class TestOFoxMaterialIntegration(unittest.TestCase):
                             max_clip_duration=5,
                         )
 
-                self.assertIn("audio duration", str(raised.exception))
+                self.assertIn("duración del audio", str(raised.exception))
                 generate.assert_not_called()
 
     def test_invalid_clip_duration_fails_before_paid_submission(self):
@@ -790,7 +804,7 @@ class TestOFoxMaterialIntegration(unittest.TestCase):
                             max_clip_duration=clip_duration,
                         )
 
-                self.assertIn("clip duration", str(raised.exception))
+                self.assertIn("uración del clip", str(raised.exception))
                 generate.assert_not_called()
 
     def test_unconfirmed_task_stops_later_paid_submissions(self):
@@ -882,7 +896,7 @@ class TestOFoxMaterialIntegration(unittest.TestCase):
             result = task_service.start("ofox-preflight", params, stop_at="materials")
 
         self.assertEqual(result["failed_stage"], "preflight")
-        self.assertIn("OFox API key", result["error"])
+        self.assertIn("API Key de OFox", result["error"])
         generate_script.assert_not_called()
 
     def test_task_records_ofox_material_error_and_remote_task_id(self):

@@ -1,4 +1,6 @@
-"""验证图片动态效果的兼容默认值、参数传递和真实渲染像素。"""
+"""Verifica los valores por defecto compatibles, el paso de parámetros y los píxeles
+renderizados reales de los efectos de movimiento de imagen.
+"""
 
 from pathlib import Path
 from unittest.mock import patch

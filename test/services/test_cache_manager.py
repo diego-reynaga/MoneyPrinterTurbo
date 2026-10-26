@@ -8,7 +8,9 @@ from app.services import cache_manager
 
 
 class TestVideoCacheManager(unittest.TestCase):
-    """验证缓存管理只处理受控文件，并按元数据完成轻量统计与清理。"""
+    """Verifica que la gestión de caché solo trata archivos controlados y hace estadísticas
+    y limpiezas ligeras a partir de los metadatos.
+    """
 
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -32,7 +34,9 @@ class TestVideoCacheManager(unittest.TestCase):
 
     def test_stats_only_include_managed_top_level_regular_files(self):
         """
-        未知文件、嵌套文件和符号链接可能属于用户，不能进入容量统计或清理候选。
+        Los archivos desconocidos, anidados y los enlaces simbólicos pueden ser del
+        usuario; no deben entrar en las estadísticas de capacidad ni en los candidatos a
+        limpieza.
         """
         now = 2_000_000_000.0
         self._create_cache_file("a" * 32, 10, now - 40 * 86400)
@@ -46,7 +50,8 @@ class TestVideoCacheManager(unittest.TestCase):
         try:
             symlink_path.symlink_to(self.cache_dir / "personal.mp4")
         except (OSError, NotImplementedError):
-            # Windows 未开启开发者模式时创建符号链接可能没有权限，不影响其余断言。
+            # En Windows sin el modo desarrollador puede no haber permiso para crear
+            # enlaces simbólicos; no afecta al resto de comprobaciones.
             pass
 
         with patch.object(cache_manager.time, "time", return_value=now):
@@ -95,7 +100,9 @@ class TestVideoCacheManager(unittest.TestCase):
         self.assertFalse(second.exists())
 
     def test_cleanup_preserves_file_replaced_after_scan(self):
-        """A fresh atomic download must survive a cleanup that scanned its old file."""
+        """Una descarga atómica reciente debe sobrevivir a una limpieza que analizó su
+        archivo antiguo.
+        """
         now = 2_000_000_000.0
         cache_file = self._create_cache_file("a" * 32, 10, now - 40 * 86400)
         original_iterator = cache_manager._iter_video_cache_entries
@@ -123,7 +130,7 @@ class TestVideoCacheManager(unittest.TestCase):
         self.assertEqual(cache_file.read_bytes(), b"new complete video")
 
     def test_cleanup_reclaims_only_stale_atomic_downloads(self):
-        """An interrupted download must not accumulate without deleting an active one."""
+        """Una descarga interrumpida no debe acumularse sin borrar una descarga activa."""
         now = 2_000_000_000.0
         stale = self.cache_dir / f".vid-{'a' * 32}-abcdefgh.mp4"
         active = self.cache_dir / f".vid-{'b' * 32}-abcdefgh.mp4"

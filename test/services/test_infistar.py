@@ -1,4 +1,6 @@
-"""验证 Infistar 的真实 SDK 请求、默认配置和自定义覆盖。"""
+"""Verifica las solicitudes reales del SDK de Infistar, la configuración por defecto y las
+personalizaciones.
+"""
 
 import json
 from unittest.mock import patch
@@ -26,7 +28,9 @@ from app.services import llm
 def test_infistar_chat_completion_request(
     base_url, model, expected_url, expected_model
 ):
-    """通过真实 OpenAI SDK 编解码，避免只检查模拟客户端的调用参数。"""
+    """Codifica y decodifica con el SDK real de OpenAI, para no comprobar solo los
+    parámetros de un cliente simulado.
+    """
     received = []
 
     def respond(request):
@@ -77,7 +81,9 @@ def test_infistar_chat_completion_request(
 
 
 def test_infistar_missing_key_does_not_send_request():
-    """选择新 Provider 后必须使用专属 Key，不能意外复用其他服务的凭据。"""
+    """Al elegir el nuevo proveedor debe usarse su clave propia y no reutilizar por error
+    las credenciales de otros servicios.
+    """
     app_config = dict(
         config.app,
         llm_provider="infistar",
@@ -85,5 +91,5 @@ def test_infistar_missing_key_does_not_send_request():
         openai_api_key="other-key",
     )
     with patch.object(config, "app", app_config), patch.object(llm, "OpenAI") as client:
-        assert "infistar: api_key is not set" in llm._generate_response("test")
+        assert "infistar: api_key no está configurada" in llm._generate_response("test")
     client.assert_not_called()

@@ -14,15 +14,16 @@ from app.models.schema import (
 from app.services import llm
 from app.utils import utils
 
-# LLM 接口与视频接口共用同一鉴权规则，避免新增端点时遗漏保护。
-# api_key 为空时 verify_token 直接放行，不改变默认本地使用体验。
+# Las rutas de LLM y de vídeo comparten la misma regla de autenticación, para no olvidar
+# la protección al añadir endpoints. Si api_key está vacía, verify_token deja pasar
+# directamente y no cambia la experiencia local por defecto.
 router = new_router(dependencies=[Depends(base.verify_token)])
 
 
 @router.post(
     "/scripts",
     response_model=VideoScriptResponse,
-    summary="Create a script for the video",
+    summary="Crear un guion para el vídeo",
 )
 def generate_video_script(request: Request, body: VideoScriptRequest):
     video_script = llm.generate_script(
@@ -35,7 +36,7 @@ def generate_video_script(request: Request, body: VideoScriptRequest):
     if not video_script or video_script.startswith("Error: "):
         raise HttpException(
             task_id=base.get_task_id(request), status_code=503,
-            message="script generation is unavailable",
+            message="la generación de guiones no está disponible",
         )
     response = {"video_script": video_script}
     return utils.get_response(200, response)
@@ -44,7 +45,7 @@ def generate_video_script(request: Request, body: VideoScriptRequest):
 @router.post(
     "/terms",
     response_model=VideoTermsResponse,
-    summary="Generate video terms based on the video script",
+    summary="Generar los términos del vídeo a partir del guion",
 )
 def generate_video_terms(request: Request, body: VideoTermsRequest):
     video_terms = llm.generate_terms(
@@ -56,7 +57,7 @@ def generate_video_terms(request: Request, body: VideoTermsRequest):
     if not video_terms:
         raise HttpException(
             task_id=base.get_task_id(request), status_code=503,
-            message="search term generation is unavailable",
+            message="la generación de términos de búsqueda no está disponible",
         )
     response = {"video_terms": video_terms}
     return utils.get_response(200, response)
@@ -65,7 +66,7 @@ def generate_video_terms(request: Request, body: VideoTermsRequest):
 @router.post(
     "/social-metadata",
     response_model=VideoSocialMetadataResponse,
-    summary="Generate social publishing metadata",
+    summary="Generar metadatos de publicación en redes sociales",
 )
 def generate_video_social_metadata(
     request: Request, body: VideoSocialMetadataRequest

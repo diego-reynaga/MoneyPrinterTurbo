@@ -27,8 +27,9 @@ def _edge_sub_maker():
 
 @pytest.mark.parametrize("separator", ["* * *", "———", "• • •", "= = ="])
 def test_symbol_only_script_lines_do_not_drop_edge_subtitles(tmp_path, separator):
-    # Scene-break lines made only of symbols are never spoken, so Edge emits
-    # no word boundary for them. They must not block every other caption.
+    # Las líneas de cambio de escena formadas solo por símbolos nunca se pronuncian, así
+    # que Edge no emite límites de palabra para ellas. No deben bloquear el resto de
+    # subtítulos.
     subtitle_file = tmp_path / "subtitle.srt"
 
     voice.create_subtitle(

@@ -23,12 +23,13 @@ class ChunkedResponse(requests.Response):
 @pytest.mark.parametrize("terminated", [True, False])
 def test_oversized_sonilo_event_rejected_before_json_or_entire_response(tmp_path, terminated):
     limit = 64
-    # Last chunk must not be consumed: even an unterminated line is bounded.
+    # El último fragmento no debe consumirse: incluso una línea sin terminar tiene
+    # límite.
     response = ChunkedResponse([b"x" * 33, b"x" * 33 + (b"\n" if terminated else b""), b"tail"])
     with (
         patch.object(sonilo, "MAX_STREAM_EVENT_BYTES", limit, create=True),
         patch.object(sonilo, "_parse_event") as parse,
-        pytest.raises(sonilo.SoniloError, match="event.*limit"),
+        pytest.raises(sonilo.SoniloError, match="evento.*límite"),
     ):
         sonilo._stream_audio(response, str(tmp_path / "staged.m4a"))
     parse.assert_not_called()

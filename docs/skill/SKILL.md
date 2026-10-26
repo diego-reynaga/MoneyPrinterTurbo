@@ -1,107 +1,107 @@
 ---
 name: moneyprinterturbo-video
-description: Use this skill whenever the user wants to create a finished video from a topic, title, idea, prompt, or script with MoneyPrinterTurbo. This includes short-form, voice-over, educational, marketing, social-media, and stock-footage videos. Also use it when the user mentions MoneyPrinterTurbo, provides this Skill URL, asks an AI agent to install or configure MoneyPrinterTurbo, needs missing API keys identified, wants a failed generation repaired, or wants a generated MP4 located and delivered. Use this skill when the expected outcome is a final video file, not setup instructions.
-compatibility: Requires an AI agent with terminal, network, filesystem, and long-running command support. Supports macOS and Windows and uses uv exclusively.
+description: Usa esta skill siempre que el usuario quiera crear un vídeo terminado con MoneyPrinterTurbo a partir de un tema, un título, una idea, un prompt o un guion. Incluye vídeos cortos, con locución, educativos, de marketing, para redes sociales y con material de stock. Úsala también cuando el usuario mencione MoneyPrinterTurbo, proporcione la URL de esta Skill, pida a un agente de IA que instale o configure MoneyPrinterTurbo, necesite identificar claves API que faltan, quiera reparar una generación fallida o quiera localizar y recibir un MP4 generado. Usa esta skill cuando el resultado esperado sea un archivo de vídeo final, no instrucciones de instalación.
+compatibility: Requiere un agente de IA con terminal, red, sistema de archivos y soporte para comandos de larga duración. Admite macOS y Windows y usa exclusivamente uv.
 metadata:
   author: "harry0703@hotmail.com"
   version: "1.3.2"
   upstream: "https://github.com/harry0703/MoneyPrinterTurbo"
 ---
 
-# MoneyPrinterTurbo Video Generation
+# Generación de vídeo con MoneyPrinterTurbo
 
-The user only needs to provide a video topic or script. Complete installation, configuration reuse, generation, waiting, and final MP4 delivery automatically. Do not stop after giving instructions or commands.
+El usuario solo tiene que dar un tema o un guion de vídeo. Completa automáticamente la instalación, la reutilización de la configuración, la generación, la espera y la entrega del MP4 final. No te detengas tras dar instrucciones o comandos.
 
-## Required Behavior
+## Comportamiento obligatorio
 
-1. Ask the user only for required API credentials that are missing, rejected, or unusable. Combine all required credentials into one request.
-2. Do not ask for confirmation before installing, generating, waiting, using defaults, or returning the result.
-3. Do not create or repeatedly update a detailed plan for a standard generation request. Send one short progress update and execute.
-4. Run the helper as one foreground command with a timeout of at least 20 minutes.
-5. Never poll with `sleep`, `echo`, `ps`, repeated `ls`, or repeated `tail`. If the terminal returns a resumable session ID, continue waiting on that same session.
-6. Do not read the full log after success. Read only the short reported error or the relevant log tail after failure.
-7. Never print API keys, tokens, the full `config.toml`, or credential-bearing configuration fragments.
+1. Pide al usuario solo las credenciales de API necesarias que falten, se hayan rechazado o no se puedan usar. Junta todas las credenciales necesarias en una sola petición.
+2. No pidas confirmación antes de instalar, generar, esperar, usar valores por defecto o devolver el resultado.
+3. No crees ni actualices repetidamente un plan detallado para una solicitud de generación estándar. Envía un único aviso de progreso breve y ejecuta.
+4. Ejecuta el helper como un solo comando en primer plano con un tiempo de espera de al menos 20 minutos.
+5. Nunca sondees con `sleep`, `echo`, `ps`, `ls` repetidos ni `tail` repetidos. Si el terminal devuelve un ID de sesión reanudable, sigue esperando en esa misma sesión.
+6. No leas el log completo tras un éxito. Tras un fallo, lee solo el breve error notificado o el final relevante del log.
+7. Nunca imprimas claves API, tokens, el `config.toml` completo ni fragmentos de configuración que contengan credenciales.
 
-## Defaults
+## Valores por defecto
 
-Unless the user requests otherwise, generate one Chinese `9:16` portrait video with Pexels footage, the default Chinese Edge TTS voice, subtitles, and background music. Install MoneyPrinterTurbo under the user's home directory.
+Salvo que el usuario pida otra cosa, genera un vídeo vertical `9:16` con material de Pexels, la voz de Edge TTS española por defecto, subtítulos y música de fondo; el idioma del guion se detecta a partir del tema. Instala MoneyPrinterTurbo en el directorio personal del usuario.
 
-## Execution
+## Ejecución
 
-### 1. Locate the helper
+### 1. Localiza el helper
 
-Resolve `SKILL_DIR` from this `SKILL.md` file. The helper is the adjacent `mpt_agent.py`. Set the terminal tool's working directory to `SKILL_DIR` and invoke the helper by its relative filename. Do not put the absolute helper path in the command, and do not run an extra `ls` or `dir` check.
+Resuelve `SKILL_DIR` a partir de este archivo `SKILL.md`. El helper es el `mpt_agent.py` contiguo. Pon el directorio de trabajo de la herramienta de terminal en `SKILL_DIR` e invoca el helper por su nombre de archivo relativo. No pongas la ruta absoluta del helper en el comando ni ejecutes una comprobación extra con `ls` o `dir`.
 
-This is required on Windows because some agent terminal validators remove backslashes from absolute paths embedded in commands. Using `mpt_agent.py` with `workdir=SKILL_DIR` avoids that failure and works on both macOS and Windows.
+Esto es obligatorio en Windows porque algunos validadores de terminal de agentes quitan las barras invertidas de las rutas absolutas incrustadas en los comandos. Usar `mpt_agent.py` con `workdir=SKILL_DIR` evita ese fallo y funciona tanto en macOS como en Windows.
 
-If the client loaded only the remote `SKILL.md`, download the helper from the official repository to a temporary directory, then use that temporary directory as the command working directory:
+Si el cliente solo cargó el `SKILL.md` remoto, descarga el helper del repositorio oficial en un directorio temporal y luego usa ese directorio temporal como directorio de trabajo del comando:
 
 ```text
 https://raw.githubusercontent.com/harry0703/MoneyPrinterTurbo/main/docs/skill/mpt_agent.py
 ```
 
-### 2. Run the helper
+### 2. Ejecuta el helper
 
-Do not run a separate `uv --version` preflight. Run the helper directly. If the shell explicitly reports that uv is missing, install uv and retry the same helper command once.
+No ejecutes una comprobación previa aparte con `uv --version`. Ejecuta el helper directamente. Si la shell informa explícitamente de que falta uv, instala uv y reintenta una vez el mismo comando del helper.
 
-macOS uv installation:
+Instalación de uv en macOS:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Windows PowerShell uv installation:
+Instalación de uv en Windows PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Use this foreground command with `workdir=SKILL_DIR` and a timeout of at least 20 minutes:
+Usa este comando en primer plano con `workdir=SKILL_DIR` y un tiempo de espera de al menos 20 minutos:
 
 ```bash
-uv run --no-project --python 3.11 python mpt_agent.py --subject "<video topic>"
+uv run --no-project --python 3.11 python mpt_agent.py --subject "<tema del vídeo>"
 ```
 
-On Windows, do not try absolute backslash paths, absolute forward-slash paths, or copies in the workspace before this relative command. If a terminal tool reports `referenced_script_path_missing`, verify that its working directory is exactly `SKILL_DIR` and retry the relative command once. Do not cycle through path variants.
+En Windows, no pruebes rutas absolutas con barras invertidas, rutas absolutas con barras normales ni copias en el espacio de trabajo antes de este comando relativo. Si una herramienta de terminal informa `referenced_script_path_missing`, comprueba que su directorio de trabajo sea exactamente `SKILL_DIR` y reintenta una vez el comando relativo. No vayas probando variantes de ruta.
 
-Do not use Docker, Conda, system pip, or a manually managed virtual environment.
+No uses Docker, Conda, el pip del sistema ni un entorno virtual gestionado a mano.
 
-## Exit Handling
+## Tratamiento de los códigos de salida
 
-### Exit code 0: deliver the result
+### Código de salida 0: entrega el resultado
 
-Successful output has this form:
+La salida correcta tiene esta forma:
 
 ```text
 MPT_RESULT
-VIDEO_FILE=<absolute path>/final-1.mp4
-TASK_DIR=<absolute path>/storage/tasks/<task_id>
-LOG_FILE=<absolute path>/run-<task_id>.log
-RESULT_FILE=<absolute path>/latest-result.json
+VIDEO_FILE=<ruta absoluta>/final-1.mp4
+TASK_DIR=<ruta absoluta>/storage/tasks/<task_id>
+LOG_FILE=<ruta absoluta>/run-<task_id>.log
+RESULT_FILE=<ruta absoluta>/latest-result.json
 ```
 
-`mpt_agent.py` emits `VIDEO_FILE` only after confirming that the file exists and is non-empty. Do not run another `ls`, `stat`, or file validation command.
+`mpt_agent.py` solo emite `VIDEO_FILE` tras confirmar que el archivo existe y no está vacío. No ejecutes otro `ls`, `stat` ni ninguna comprobación del archivo.
 
-If the terminal reports `exitCode=0` but truncates the output or returns a history-file reference without `MPT_RESULT`, do not infer failure and do not inspect old logs. Read this file once:
+Si el terminal informa `exitCode=0` pero trunca la salida o devuelve una referencia a un archivo de historial sin `MPT_RESULT`, no deduzcas que ha fallado ni revises logs antiguos. Lee una vez este archivo:
 
 ```text
 ~/MoneyPrinterTurbo/.agent-logs/moneyprinterturbo-video/latest-result.json
 ```
 
-Treat `status=completed` as success. Return only the absolute video path and a concise description, for example:
+Trata `status=completed` como éxito. Devuelve solo la ruta absoluta del vídeo y una descripción concisa, por ejemplo:
 
 ```text
-The video is ready.
-Topic: ...
-Video file: /absolute/path/to/final-1.mp4
-Summary: Chinese portrait video with voice-over, subtitles, and background music.
+El vídeo está listo.
+Tema: ...
+Archivo de vídeo: /ruta/absoluta/a/final-1.mp4
+Resumen: vídeo vertical con locución, subtítulos y música de fondo.
 ```
 
-### Exit code 10: request credentials once
+### Código de salida 10: pide las credenciales una vez
 
-`MPT_NEEDS_INPUT` includes only the required fields, recommended LLM providers and signup links, custom OpenAI-compatible requirements, and material-provider signup links. Ask only for the listed values and do not request credentials already found in `config.toml`.
+`MPT_NEEDS_INPUT` solo incluye los campos necesarios, los proveedores LLM recomendados y sus enlaces de registro, los requisitos de un endpoint personalizado compatible con OpenAI y los enlaces de registro de los proveedores de material. Pide solo los valores indicados y no pidas credenciales que ya estén en `config.toml`.
 
-After the user responds, rerun the same foreground command with only the required environment variables:
+Cuando el usuario responda, vuelve a ejecutar el mismo comando en primer plano solo con las variables de entorno necesarias:
 
 ```text
 MPT_LLM_PROVIDER
@@ -116,49 +116,49 @@ MPT_MUAPI_API_KEY
 MPT_INFISTAR_VIDEO_API_KEY
 ```
 
-When `SEEDANCE_CHARGE_CONFIRMATION_REQUIRED` is present, explain that every
-generated Seedance clip creates a paid Ark task. Only after the user explicitly
-confirms, rerun with `--confirm-seedance-charge`; never add this flag silently.
+Cuando aparezca `SEEDANCE_CHARGE_CONFIRMATION_REQUIRED`, explica que cada
+clip de Seedance generado crea una tarea de Ark de pago. Solo después de que el usuario
+lo confirme explícitamente, vuelve a ejecutar con `--confirm-seedance-charge`; nunca añadas este flag en silencio.
 
-When `WAVESPEED_CHARGE_CONFIRMATION_REQUIRED` is present, explain that every
-generated WaveSpeed clip is billed per request by WaveSpeed. Only after the user
-explicitly confirms, rerun with `--confirm-wavespeed-charge`; never add this
-flag silently.
+Cuando aparezca `WAVESPEED_CHARGE_CONFIRMATION_REQUIRED`, explica que cada
+clip de WaveSpeed generado lo factura WaveSpeed por solicitud. Solo después de que el usuario
+lo confirme explícitamente, vuelve a ejecutar con `--confirm-wavespeed-charge`; nunca añadas este
+flag en silencio.
 
-When `OFOX_CHARGE_CONFIRMATION_REQUIRED` is present, explain that every
-generated OFox clip creates a paid task. Only after the user explicitly
-confirms, rerun with `--confirm-ofox-charge`; never add this flag silently.
+Cuando aparezca `OFOX_CHARGE_CONFIRMATION_REQUIRED`, explica que cada
+clip de OFox generado crea una tarea de pago. Solo después de que el usuario
+lo confirme explícitamente, vuelve a ejecutar con `--confirm-ofox-charge`; nunca añadas este flag en silencio.
 
-When `METASO_MINIMAX_CHARGE_CONFIRMATION_REQUIRED` is present, explain that
-every generated MiniMax H3 clip creates a paid Metaso task. Only after the user
-explicitly confirms, rerun with `--confirm-metaso-minimax-charge`; never add
-this flag silently.
+Cuando aparezca `METASO_MINIMAX_CHARGE_CONFIRMATION_REQUIRED`, explica que
+cada clip de MiniMax H3 generado crea una tarea de Metaso de pago. Solo después de que el usuario
+lo confirme explícitamente, vuelve a ejecutar con `--confirm-metaso-minimax-charge`; nunca añadas
+este flag en silencio.
 
-When `MUAPI_CHARGE_CONFIRMATION_REQUIRED` is present, explain that every
-generated MuAPI clip creates a paid task. Only after the user explicitly
-confirms, rerun with `--confirm-muapi-charge`; never add this flag silently.
+Cuando aparezca `MUAPI_CHARGE_CONFIRMATION_REQUIRED`, explica que cada
+clip de MuAPI generado crea una tarea de pago. Solo después de que el usuario
+lo confirme explícitamente, vuelve a ejecutar con `--confirm-muapi-charge`; nunca añadas este flag en silencio.
 
-When `INFISTAR_CHARGE_CONFIRMATION_REQUIRED` is present, explain that every
-generated Infistar clip creates a paid task. Only after the user explicitly
-confirms, rerun with `--confirm-infistar-charge`; never add this flag silently.
-Use the dedicated video key, separate from the Infistar LLM key.
+Cuando aparezca `INFISTAR_CHARGE_CONFIRMATION_REQUIRED`, explica que cada
+clip de Infistar generado crea una tarea de pago. Solo después de que el usuario
+lo confirme explícitamente, vuelve a ejecutar con `--confirm-infistar-charge`; nunca añadas este flag en silencio.
+Usa la clave de vídeo propia, distinta de la clave del LLM de Infistar.
 
-### Exit code 1: repair or report
+### Código de salida 1: repara o informa
 
-Use `MPT_ERROR` and `LOG_FILE` to repair a recoverable problem and retry once. Ask the user only if the repair requires a new API key. If the retry fails, report the failed stage, a short error, and the log path.
+Usa `MPT_ERROR` y `LOG_FILE` para reparar un problema recuperable y reintenta una vez. Pregunta al usuario solo si la reparación necesita una clave API nueva. Si el reintento falla, informa de la etapa fallida, un error breve y la ruta del log.
 
-A terminal-tool path validation error is not a video-generation failure because the helper did not start. Correct the working directory and retry the relative command once. Never ask the user to copy `mpt_agent.py`, run commands manually, or confirm whether the agent should continue.
+Un error de validación de rutas de la herramienta de terminal no es un fallo de generación del vídeo, porque el helper no llegó a arrancar. Corrige el directorio de trabajo y reintenta una vez el comando relativo. Nunca pidas al usuario que copie `mpt_agent.py`, que ejecute comandos a mano ni que confirme si el agente debe continuar.
 
-## Configuration and Background Fallback
+## Configuración y modo en segundo plano de respaldo
 
-The helper may read the complete local `config.toml` to reuse existing settings, but it must never print its contents. It reuses a working LLM provider automatically and validates configured Pexels keys through the authenticated My Collections endpoint before generation.
+El helper puede leer el `config.toml` local completo para reutilizar los ajustes existentes, pero nunca debe imprimir su contenido. Reutiliza automáticamente un proveedor LLM que funcione y valida las claves de Pexels configuradas a través del endpoint autenticado My Collections antes de generar.
 
-Use background mode only if the agent platform cannot wait for a foreground process. Wait for the platform's process-completion notification without polling, then read `latest-result.json` once.
+Usa el modo en segundo plano solo si la plataforma del agente no puede esperar a un proceso en primer plano. Espera la notificación de finalización del proceso de la plataforma sin sondear y luego lee `latest-result.json` una vez.
 
-## Scope
+## Alcance
 
-- Support macOS and Windows only.
-- Use uv and the MoneyPrinterTurbo CLI only.
-- Do not start Docker, WebUI, or API services.
-- Do not run multiple video jobs concurrently.
-- Pass additional video requirements after `--`. Run `cli.py --help` once only when an unfamiliar option must be verified.
+- Solo se admiten macOS y Windows.
+- Usa solo uv y la CLI de MoneyPrinterTurbo.
+- No arranques Docker, la WebUI ni los servicios de la API.
+- No ejecutes varios trabajos de vídeo a la vez.
+- Pasa los requisitos de vídeo adicionales después de `--`. Ejecuta `cli.py --help` una sola vez solo cuando haya que verificar una opción desconocida.

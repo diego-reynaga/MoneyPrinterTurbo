@@ -1,4 +1,4 @@
-"""Real ASGI HEAD requests through the authenticated artifact router."""
+"""Solicitudes HEAD reales de ASGI a través del enrutador autenticado de artefactos."""
 
 from unittest.mock import patch
 

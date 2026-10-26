@@ -30,4 +30,4 @@ def test_provider_failure_does_not_return_success(service, handler, body, failed
         with pytest.raises(HttpException) as raised:
             handler(request, body)
     assert raised.value.status_code == 503
-    assert "unavailable" in raised.value.message
+    assert "no está disponible" in raised.value.message

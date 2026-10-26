@@ -26,18 +26,22 @@ MAX_PROMPT_LENGTH = 2000
 MAX_PROXY_BYTES = 300 * 1024 * 1024
 MAX_GENERATED_AUDIO_BYTES = 30 * 1024 * 1024
 MAX_ERROR_BODY_BYTES = 500
-# One event can hold the full permitted audio as base64, plus JSON metadata.
+# Un evento puede contener todo el audio permitido en base64, más metadatos JSON.
 MAX_STREAM_EVENT_BYTES = 4 * ((MAX_GENERATED_AUDIO_BYTES + 2) // 3) + 64 * 1024
 _STREAM_READ_BYTES = 64 * 1024
 VIDEO_TO_MUSIC_SERVICE_ID = "video_to_music"
 
 
 class SoniloError(RuntimeError):
-    """表示 Sonilo 请求、响应协议或生成音频校验失败。"""
+    """Indica que falló la solicitud a Sonilo, el protocolo de respuesta o la validación
+    del audio generado.
+    """
 
 
 def get_api_key() -> str:
-    """优先读取 WebUI 保存的配置，未配置时允许使用环境变量。"""
+    """Lee primero la configuración guardada por la WebUI; si no está configurada, se
+    permite usar la variable de entorno.
+    """
     configured_key = str(config.app.get("sonilo_api_key", "") or "").strip()
     return configured_key or os.getenv("SONILO_API_KEY", "").strip()
 
@@ -55,7 +59,9 @@ def _base_url() -> str:
 
 
 def _request_timeout() -> tuple[int, int]:
-    """限制配置值范围，避免无穷大或负数让请求永久挂起或立即失败。"""
+    """Limita el rango de los valores de configuración, para que un infinito o un negativo
+    no dejen la solicitud colgada para siempre ni fallen al instante.
+    """
     raw_timeout = config.app.get("sonilo_timeout", 600)
     try:
         read_timeout = float(raw_timeout)
@@ -63,24 +69,31 @@ def _request_timeout() -> tuple[int, int]:
         read_timeout = 600
     if not math.isfinite(read_timeout) or read_timeout <= 0:
         read_timeout = 600
-    # Requests 不接受 0 秒读取超时。向上取整既保留小数配置的有效含义，也能
-    # 避免 0.1~0.9 被 int() 截断为 0 后抛出未进入 Sonilo 降级链路的 ValueError。
+    # Requests no acepta un tiempo de espera de lectura de 0 segundos. Redondear hacia
+    # arriba conserva el sentido de las configuraciones decimales y evita que int()
+    # trunque 0,1-0,9 a 0 y lance un ValueError que no entra en la cadena de degradación
+    # de Sonilo.
     return 15, max(1, math.ceil(min(read_timeout, 1800)))
 
 
 def _normalize_service_id(service_id: str) -> str:
     """
-    将 Sonilo 服务标识统一为项目内部使用的下划线格式。
+    Normaliza el identificador de servicio de Sonilo al formato con guion bajo que usa
+    internamente el proyecto.
 
-    2026-07-14 实际接口返回 ``video_to_music``，但同日公开文档示例使用
-    ``video-to-music``。差异仅在单词分隔符，因此在第三方协议边界统一格式，
-    避免 UI 连接测试因提供方文档与生产响应暂时不一致而误报失败。
+    El 2026-07-14 la interfaz real devolvía ``video_to_music``, pero el ejemplo de la
+    documentación pública del mismo día usaba ``video-to-music``. La diferencia es solo
+    el separador de palabras, así que se unifica el formato en el límite del protocolo
+    del tercero, para que la prueba de conexión de la interfaz no dé un falso fallo
+    porque la documentación y la respuesta de producción no coincidan por un tiempo.
     """
     return service_id.strip().lower().replace("-", "_")
 
 
 def _safe_response_error(response: requests.Response) -> str:
-    """只读取有限的第三方错误正文，避免异常响应耗尽内存或污染任务日志。"""
+    """Solo lee una cantidad limitada del cuerpo de error del tercero, para que una
+    respuesta anómala no agote la memoria ni ensucie el log de la tarea.
+    """
     try:
         body_bytes = next(
             response.iter_content(chunk_size=MAX_ERROR_BODY_BYTES),
@@ -95,26 +108,31 @@ def _safe_response_error(response: requests.Response) -> str:
                 errors="replace",
             )
         except LookupError:
-            # response.encoding 直接取自上游声明的 charset，未知取值（例如
-            # charset=unknown-charset）会让 codecs 抛 LookupError，而 errors
-            # 只影响 UnicodeDecodeError。旧的 response.text 会在内部退回
-            # UTF-8，这里保持同样行为，避免该异常绕过调用方的 Sonilo 降级链路。
+            # response.encoding se toma directamente del charset que declara el
+            # proveedor; un valor desconocido (por ejemplo charset=unknown-charset) hace
+            # que codecs lance LookupError, mientras que errors solo afecta a
+            # UnicodeDecodeError. El antiguo response.text volvía internamente a UTF-8;
+            # aquí se mantiene el mismo comportamiento, para que esa excepción no se
+            # salte la cadena de degradación de Sonilo de quien llama.
             body = body_bytes.decode("utf-8", errors="replace")
     else:
         body = str(body_bytes)
     body = body.strip().replace("\n", " ")[:MAX_ERROR_BODY_BYTES]
-    return body or response.reason or "request failed"
+    return body or response.reason or "la petición falló"
 
 
 def test_connection() -> dict[str, Any]:
     """
-    使用不消耗配乐额度的服务列表接口验证 API Key。
+    Valida la clave API con la interfaz de lista de servicios, que no consume saldo de
+    música.
 
-    返回原始 JSON 便于 UI 展示可用服务，但日志中绝不记录 Key 或请求头。
+    Devuelve el JSON original para que la interfaz pueda mostrar los servicios
+    disponibles, pero nunca registra en el log la clave ni las cabeceras de la
+    solicitud.
     """
     api_key = get_api_key()
     if not api_key:
-        raise SoniloError("Sonilo API key is required")
+        raise SoniloError("Hace falta la clave API de Sonilo")
     try:
         with trace_http_call(
             "GET", requests.get,
@@ -126,56 +144,61 @@ def test_connection() -> dict[str, Any]:
         ) as response:
             if 300 <= response.status_code < 400:
                 raise SoniloError(
-                    "Sonilo connection check returned a redirect; "
-                    "the API key was not forwarded"
+                    "La comprobación de conexión de Sonilo devolvió una redirección; "
+                    "no se reenvió la clave API"
                 )
             if not response.ok:
                 raise SoniloError(
-                    f"Sonilo connection failed ({response.status_code}): "
+                    f"Falló la conexión con Sonilo ({response.status_code}): "
                     f"{_safe_response_error(response)}"
                 )
             try:
                 payload = response.json()
             except ValueError as exc:
                 raise SoniloError(
-                    "Sonilo returned an invalid service response"
+                    "Sonilo devolvió una respuesta de servicio no válida"
                 ) from exc
     except requests.RequestException as exc:
-        raise SoniloError(f"failed to connect to Sonilo: {exc}") from exc
+        raise SoniloError(f"no se pudo conectar con Sonilo: {exc}") from exc
     if not isinstance(payload, dict):
-        raise SoniloError("Sonilo returned an unexpected service response")
+        raise SoniloError("Sonilo devolvió una respuesta de servicio inesperada")
     available_services = payload.get("available_services")
     if not isinstance(available_services, list) or not all(
         isinstance(service_id, str) for service_id in available_services
     ):
-        raise SoniloError("Sonilo returned an invalid service list")
+        raise SoniloError("Sonilo devolvió una lista de servicios no válida")
     normalized_services = {
         _normalize_service_id(service_id) for service_id in available_services
     }
     if VIDEO_TO_MUSIC_SERVICE_ID not in normalized_services:
-        raise SoniloError("Sonilo video-to-music service is not available for this key")
-    logger.info("Sonilo connection test succeeded")
+        raise SoniloError("El servicio video-to-music de Sonilo no está disponible para esta clave")
+    logger.info("La prueba de conexión con Sonilo fue correcta")
     return payload
 
 
 def _remove_file(file_path: str) -> None:
-    """尽力清理 Sonilo 中间文件，不覆盖调用方正在处理的原始异常。"""
+    """Intenta limpiar los archivos intermedios de Sonilo sin sobrescribir la excepción
+    original que está tratando quien llama.
+    """
     if not file_path or not os.path.exists(file_path):
         return
     try:
         os.remove(file_path)
     except OSError as exc:
         logger.warning(
-            f"failed to remove Sonilo temporary file: path={file_path}, error={exc}"
+            f"no se pudo eliminar el archivo temporal de Sonilo: path={file_path}, error={exc}"
         )
 
 
 def _create_video_proxy(video_path: str) -> str:
     """
-    生成无音轨、最长边 1280 像素的 H.264 代理视频。
+    Genera un vídeo proxy H.264 sin pista de audio y con el lado más largo de 1280
+    píxeles.
 
-    Sonilo 只需分析画面节奏和内容，上传原始高清成片会增加等待时间和流量，
-    对生成质量没有实际收益。代理文件放在输入文件同目录，任务结束后统一清理。
+    Sonilo solo necesita analizar el ritmo y el contenido de la imagen; subir el vídeo
+    final original en alta definición aumenta la espera y el tráfico sin mejorar la
+    calidad de la generación. El archivo proxy se guarda en el mismo directorio que el
+    de entrada y se limpia al terminar la tarea.
     """
     descriptor, proxy_path = tempfile.mkstemp(
         prefix=".sonilo-proxy-",
@@ -223,36 +246,36 @@ def _create_video_proxy(video_path: str) -> str:
         )
     except subprocess.TimeoutExpired as exc:
         _remove_file(proxy_path)
-        raise SoniloError("Sonilo video proxy generation timed out") from exc
+        raise SoniloError("Se agotó el tiempo al generar el proxy de vídeo para Sonilo") from exc
     except OSError as exc:
         _remove_file(proxy_path)
-        raise SoniloError("failed to run FFmpeg for Sonilo video proxy") from exc
+        raise SoniloError("no se pudo ejecutar FFmpeg para el proxy de vídeo de Sonilo") from exc
     if result.returncode != 0:
         _remove_file(proxy_path)
         detail = (result.stderr or "").strip().replace("\n", " ")[-500:]
-        raise SoniloError(f"failed to generate Sonilo video proxy: {detail}")
+        raise SoniloError(f"no se pudo generar el proxy de vídeo de Sonilo: {detail}")
     proxy_size = os.path.getsize(proxy_path) if os.path.isfile(proxy_path) else 0
     if proxy_size <= 0 or proxy_size > MAX_PROXY_BYTES:
         _remove_file(proxy_path)
-        raise SoniloError("Sonilo video proxy is empty or exceeds the 300 MB limit")
+        raise SoniloError("El proxy de vídeo de Sonilo está vacío o supera el límite de 300 MB")
     logger.info(
-        f"Sonilo video proxy prepared: source={video_path}, size={proxy_size} bytes"
+        f"Proxy de vídeo de Sonilo preparado: source={video_path}, size={proxy_size} bytes"
     )
     return proxy_path
 
 
 def _iter_bounded_events(response: requests.Response):
-    """Read NDJSON without Requests' unbounded unterminated-line buffer."""
+    """Lee NDJSON sin el búfer ilimitado de líneas sin terminar de Requests."""
     pending = bytearray()
     for chunk in response.iter_content(chunk_size=_STREAM_READ_BYTES):
         if not chunk:
             continue
-        # Split only the bounded transport chunk; never concatenate an
-        # oversized line before checking its accumulated size.
+        # Solo divide el fragmento de transporte acotado; nunca se concatena una línea
+        # demasiado grande antes de comprobar su tamaño acumulado.
         pieces = chunk.split(b"\n")
         for index, piece in enumerate(pieces):
             if len(pending) + len(piece) > MAX_STREAM_EVENT_BYTES:
-                raise SoniloError("Sonilo streaming event exceeds the size limit")
+                raise SoniloError("El evento de streaming de Sonilo supera el límite de tamaño")
             pending.extend(piece)
             if index < len(pieces) - 1:
                 if pending:
@@ -263,22 +286,26 @@ def _iter_bounded_events(response: requests.Response):
 
 
 def _parse_event(raw_line: bytes) -> dict[str, Any]:
-    """严格解析单条 NDJSON，禁止静默忽略截断或非对象响应。"""
+    """Analiza estrictamente una línea NDJSON, sin ignorar en silencio respuestas truncadas
+    o que no sean objetos.
+    """
     try:
         event = json.loads(raw_line.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SoniloError("Sonilo returned malformed streaming data") from exc
+        raise SoniloError("Sonilo devolvió datos de streaming mal formados") from exc
     if not isinstance(event, dict) or not isinstance(event.get("type"), str):
-        raise SoniloError("Sonilo returned an invalid streaming event")
+        raise SoniloError("Sonilo devolvió un evento de streaming no válido")
     return event
 
 
 def _stream_audio(response: requests.Response, temp_audio_path: str) -> tuple[int, str]:
     """
-    把第一条配乐流按事件顺序写入临时文件，并限制最大体积。
+    Escribe en un archivo temporal el primer flujo de música en el orden de los eventos,
+    limitando su tamaño máximo.
 
-    API 可能同时返回多条候选流；当前产品只需要一条 BGM，所以固定选择
-    stream_index=0。只有收到 complete 事件并通过 FFmpeg 完整解码后才会发布。
+    La API puede devolver varios flujos candidatos a la vez; el producto actual solo
+    necesita una BGM, así que se elige siempre stream_index=0. Solo se publica tras
+    recibir el evento complete y decodificarlo entero con FFmpeg.
     """
     total_bytes = 0
     title = ""
@@ -291,9 +318,9 @@ def _stream_audio(response: requests.Response, temp_audio_path: str) -> tuple[in
             event_type = event["type"]
             if event_type == "error":
                 message = str(
-                    event.get("message") or event.get("error") or "unknown error"
+                    event.get("message") or event.get("error") or "error desconocido"
                 )
-                raise SoniloError(f"Sonilo generation failed: {message}")
+                raise SoniloError(f"Falló la generación de Sonilo: {message}")
             if event_type == "title":
                 title = str(event.get("title") or event.get("data") or "")[:200]
                 continue
@@ -301,7 +328,7 @@ def _stream_audio(response: requests.Response, temp_audio_path: str) -> tuple[in
                 completed = True
                 break
             if event_type != "audio_chunk":
-                logger.debug(f"ignoring unsupported Sonilo event: type={event_type}")
+                logger.debug(f"se ignora un evento de Sonilo no admitido: type={event_type}")
                 continue
 
             stream_index = event.get("stream_index", 0)
@@ -309,29 +336,31 @@ def _stream_audio(response: requests.Response, temp_audio_path: str) -> tuple[in
                 continue
             encoded_chunk = event.get("data") or event.get("audio")
             if not isinstance(encoded_chunk, str) or not encoded_chunk:
-                raise SoniloError("Sonilo returned an empty audio chunk")
+                raise SoniloError("Sonilo devolvió un fragmento de audio vacío")
             try:
                 chunk = base64.b64decode(encoded_chunk, validate=True)
             except (binascii.Error, ValueError) as exc:
-                raise SoniloError("Sonilo returned an invalid audio chunk") from exc
+                raise SoniloError("Sonilo devolvió un fragmento de audio no válido") from exc
             if not chunk:
-                raise SoniloError("Sonilo returned an empty audio chunk")
+                raise SoniloError("Sonilo devolvió un fragmento de audio vacío")
             total_bytes += len(chunk)
             if total_bytes > MAX_GENERATED_AUDIO_BYTES:
-                raise SoniloError("Sonilo audio exceeds the 30 MB limit")
+                raise SoniloError("El audio de Sonilo supera el límite de 30 MB")
             output.write(chunk)
         output.flush()
         os.fsync(output.fileno())
 
     if not completed:
-        raise SoniloError("Sonilo stream ended before completion")
+        raise SoniloError("El stream de Sonilo terminó antes de completarse")
     if total_bytes <= 0:
-        raise SoniloError("Sonilo returned no audio data")
+        raise SoniloError("Sonilo no devolvió datos de audio")
     return total_bytes, title
 
 
 def _request_bgm(video_path: str, output_path: str, prompt: str) -> str:
-    """请求配乐并在完整协议及音频校验通过后原子保存。"""
+    """Pide la música y la guarda de forma atómica cuando pasan la validación completa del
+    protocolo y del audio.
+    """
     output_dir = os.path.dirname(os.path.abspath(output_path))
     os.makedirs(output_dir, exist_ok=True)
     descriptor, temp_audio_path = tempfile.mkstemp(
@@ -342,7 +371,7 @@ def _request_bgm(video_path: str, output_path: str, prompt: str) -> str:
     os.close(descriptor)
     try:
         logger.info(
-            f"requesting Sonilo background music: video={video_path}, "
+            f"pidiendo música de fondo a Sonilo: video={video_path}, "
             f"prompt_provided={bool(prompt)}"
         )
         try:
@@ -360,28 +389,29 @@ def _request_bgm(video_path: str, output_path: str, prompt: str) -> str:
                 with response:
                     if 300 <= response.status_code < 400:
                         raise SoniloError(
-                            "Sonilo generation returned a redirect; "
-                            "the video and API key were not forwarded"
+                            "La generación de Sonilo devolvió una redirección; "
+                            "no se reenviaron el vídeo ni la clave API"
                         )
                     if not response.ok:
                         raise SoniloError(
-                            f"Sonilo generation failed ({response.status_code}): "
+                            f"Falló la generación de Sonilo ({response.status_code}): "
                             f"{_safe_response_error(response)}"
                         )
                     total_bytes, title = _stream_audio(response, temp_audio_path)
         except requests.RequestException as exc:
-            # iter_lines() 期间的网络中断同样属于 requests 异常，不能只捕获
-            # 建立连接阶段，否则半条音频可能让任务直接异常退出而无法降级。
-            raise SoniloError(f"failed to request Sonilo music: {exc}") from exc
+            # Los cortes de red durante iter_lines() también son excepciones de
+            # requests; no se puede capturar solo la fase de conexión, o medio audio
+            # podría hacer que la tarea termine con una excepción sin poder degradar.
+            raise SoniloError(f"no se pudo pedir la música a Sonilo: {exc}") from exc
 
         try:
             bgm_service.validate_audio_file(temp_audio_path, timeout_seconds=120)
         except (bgm_service.BgmUploadError, bgm_service.BgmServiceError) as exc:
-            raise SoniloError("Sonilo returned audio that FFmpeg cannot decode") from exc
+            raise SoniloError("Sonilo devolvió un audio que FFmpeg no puede decodificar") from exc
         os.replace(temp_audio_path, output_path)
         temp_audio_path = ""
         logger.info(
-            f"Sonilo background music generated: output={output_path}, "
+            f"Música de fondo de Sonilo generada: output={output_path}, "
             f"size={total_bytes} bytes, title={title or '-'}"
         )
         return output_path
@@ -395,22 +425,22 @@ def generate_bgm(
     video_duration: float,
     prompt: str = "",
 ) -> str:
-    """为一条已拼接视频生成时长匹配的 Sonilo 背景音乐。"""
+    """Genera una música de fondo de Sonilo que encaje en duración con un vídeo ya montado."""
     if not get_api_key():
-        raise SoniloError("Sonilo API key is required")
+        raise SoniloError("Hace falta la clave API de Sonilo")
     if not os.path.isfile(video_path):
-        raise SoniloError("Sonilo input video does not exist")
+        raise SoniloError("El vídeo de entrada de Sonilo no existe")
     try:
         duration = float(video_duration)
     except (TypeError, ValueError) as exc:
-        raise SoniloError("Sonilo video duration is invalid") from exc
+        raise SoniloError("La duración del vídeo para Sonilo no es válida") from exc
     if not math.isfinite(duration) or duration <= 0:
-        raise SoniloError("Sonilo video duration is invalid")
+        raise SoniloError("La duración del vídeo para Sonilo no es válida")
     if duration > MAX_VIDEO_DURATION_SECONDS:
-        raise SoniloError("Sonilo supports videos up to 360 seconds")
+        raise SoniloError("Sonilo admite vídeos de hasta 360 segundos")
     prompt = str(prompt or "").strip()
     if len(prompt) > MAX_PROMPT_LENGTH:
-        raise SoniloError("Sonilo music prompt exceeds 2000 characters")
+        raise SoniloError("El prompt de música de Sonilo supera los 2000 caracteres")
 
     proxy_path = ""
     try:
@@ -419,8 +449,10 @@ def generate_bgm(
     except SoniloError:
         raise
     except OSError as exc:
-        # 临时目录、代理文件和最终原子替换都可能发生文件系统错误。统一转换为
-        # SoniloError，任务编排层才能按设计降级为“无背景音乐”并保留成片。
-        raise SoniloError(f"Sonilo local file operation failed: {exc}") from exc
+        # El directorio temporal, el archivo proxy y la sustitución atómica final pueden
+        # sufrir errores del sistema de archivos. Se convierten todos en SoniloError
+        # para que la capa de orquestación de tareas pueda degradar, según lo previsto,
+        # a "sin música de fondo" y conservar el vídeo final.
+        raise SoniloError(f"Falló una operación con archivos locales de Sonilo: {exc}") from exc
     finally:
         _remove_file(proxy_path)

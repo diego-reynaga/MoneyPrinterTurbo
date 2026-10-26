@@ -137,7 +137,9 @@ def test_loomloom_quote_signature_changes_with_billable_inputs():
 
 
 def test_loomloom_model_reference_prices_match_known_models_and_ignore_new_ones():
-    """价格仅是本地展示增强，未知后端模型不能因此变成不可选。"""
+    """El precio solo es una mejora de visualización local; un modelo de backend
+    desconocido no debe dejar de poder elegirse por ello.
+    """
     tree = ast.parse(WEBUI_MAIN.read_text(encoding="utf-8"))
     price_table = next(
         node
@@ -164,15 +166,15 @@ def test_loomloom_model_reference_prices_match_known_models_and_ignore_new_ones(
     exec(compile(module, str(WEBUI_MAIN), "exec"), namespace)
 
     known_models = (
-        ("google/veo3.1-fast-preview", "Veo3.1-fast", "￥0.700/秒"),
-        ("", "通义万相2.2-文生视频-Fast-Lora", "￥0.350–0.770/条"),
-        ("", "即梦3.0-文生视频-720P", "￥0.230/秒"),
-        ("", "即梦3.0Pro-视频", "￥1.000/秒"),
-        ("", "Veo3", "￥1.400/秒"),
-        ("", "Veo3.1", "￥1.400/秒"),
-        ("", "KlingV2", "￥10.00–20.00/条"),
-        ("", "Kling V2.1 Master", "￥10.00–20.00/条"),
-        ("", "ViduQ3-Pro", "￥0.440–1.000/秒"),
+        ("google/veo3.1-fast-preview", "Veo3.1-fast", "￥0.700/s"),
+        ("", "通义万相2.2-文生视频-Fast-Lora", "￥0.350–0.770/clip"),
+        ("", "即梦3.0-文生视频-720P", "￥0.230/s"),
+        ("", "即梦3.0Pro-视频", "￥1.000/s"),
+        ("", "Veo3", "￥1.400/s"),
+        ("", "Veo3.1", "￥1.400/s"),
+        ("", "KlingV2", "￥10.00–20.00/clip"),
+        ("", "Kling V2.1 Master", "￥10.00–20.00/clip"),
+        ("", "ViduQ3-Pro", "￥0.440–1.000/s"),
     )
     unknown = SimpleNamespace(model_id="future/model", display_name="Future Model")
 
@@ -231,7 +233,7 @@ def test_loomloom_webui_quotes_then_requires_confirmation_before_execute():
         ),
     ):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=30)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.run()
 
         assert quote_call.call_count == 0
@@ -269,7 +271,9 @@ def test_loomloom_webui_quotes_then_requires_confirmation_before_execute():
 
 
 def test_generated_long_script_autofills_video_count_once_and_shows_shortfall():
-    """推荐数受五段上限约束，且用户手动调整后不能被下一次 rerun 覆盖。"""
+    """La recomendación está limitada a cinco segmentos, y tras un ajuste manual del
+    usuario no debe sobrescribirse en el siguiente rerun.
+    """
     long_script = " ".join(
         [
             "Robots cross the ruined city while alarms echo through every street"
@@ -293,7 +297,7 @@ def test_generated_long_script_autofills_video_count_once_and_shows_shortfall():
         patch.object(llm, "generate_terms", return_value=["robot city"]),
     ):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=30)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.run()
 
         _widget_by_key(app.text_area, "video_subject").set_value("Robot city").run()
@@ -304,16 +308,17 @@ def test_generated_long_script_autofills_video_count_once_and_shows_shortfall():
         )
         assert scene_count.value == loomloom.MAX_VIDEO_SCENES
         warning_text = " ".join(str(item.value) for item in app.warning).lower()
-        assert "shortfall" in warning_text
-        assert "black screen" not in warning_text
-        assert "cover approximately 15.0 sec" in warning_text
+        assert "déficit" in warning_text
+        assert "pantalla negra" not in warning_text
+        assert "cubren aproximadamente 15.0 s" in warning_text
         assert app.session_state["loomloom_video_scene_autofill_digest"] == ""
 
         scene_count.set_value(3).run()
         assert _widget_by_key(
             app.number_input, "loomloom_video_scene_count"
         ).value == 3
-        # 任意普通 rerun 也应保留用户的手动选择，而不是再次跳回推荐值 5。
+        # Cualquier rerun normal también debe conservar la elección manual del usuario
+        # en lugar de volver al valor recomendado 5.
         _widget_by_key(app.text_area, "video_subject").set_value(
             "Robot city updated"
         ).run()
@@ -344,7 +349,8 @@ def test_loomloom_video_source_quotes_then_passes_secret_in_confirmed_request():
 
     with (
         patch.object(config, "app", test_config),
-        # 显式从两段切到一段，不能依赖开发者 config.toml 中的历史值。
+        # Cambia explícitamente de dos segmentos a uno, sin depender de valores
+        # históricos del config.toml del desarrollador.
         patch.object(
             config,
             "ui",
@@ -364,7 +370,7 @@ def test_loomloom_video_source_quotes_then_passes_secret_in_confirmed_request():
         patch("app.services.webui_task.submit_generation") as submit_generation,
     ):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=30)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.run()
 
         _widget_by_key(app.text_area, "video_subject").set_value("AI office").run()
@@ -374,30 +380,31 @@ def test_loomloom_video_source_quotes_then_passes_secret_in_confirmed_request():
         _widget_by_key(app.text_area, "video_terms").set_value(
             "office worker, AI assistant, productive team"
         ).run()
-        app.session_state["video_source_select_en"] = "loomloom"
+        app.session_state["video_source_select_es"] = "loomloom"
         app.run()
         _widget_by_key(app.number_input, "loomloom_video_scene_count").set_value(
             1
         ).run()
-        model_select = _widget_by_key(app.selectbox, "loomloom_video_model_select_en")
+        model_select = _widget_by_key(app.selectbox, "loomloom_video_model_select_es")
         assert model_select.value == "model-a"
         assert model_select.options == ["Model A", "Model B"]
         assert resolve_call.call_count == 1
         assert all(item.key != "loomloom_user_api_token" for item in app.text_input)
-        # 切换来源后取得初始报价；场景数归一为 1 后再刷新一次。
+        # Tras cambiar de fuente se obtiene el presupuesto inicial; después de
+        # normalizar las escenas a 1 se refresca otra vez.
         assert quote_call.call_count == 2
         assert all(item.key != "loomloom_quote_videos" for item in app.button)
         quoted_batch = quote_call.call_args.args[0]
         assert quoted_batch.input_rows[0]["modelChoice"] == "model-a"
 
-        model_select = _widget_by_key(app.selectbox, "loomloom_video_model_select_en")
+        model_select = _widget_by_key(app.selectbox, "loomloom_video_model_select_es")
         model_select.select("model-b").run()
         assert quote_call.call_count == 3
         assert not _widget_by_key(
             app.checkbox, "loomloom_video_confirm_charge"
         ).value
 
-        _widget_by_key(app.selectbox, "loomloom_video_model_select_en").select(
+        _widget_by_key(app.selectbox, "loomloom_video_model_select_es").select(
             "model-a"
         ).run()
         assert quote_call.call_count == 4
@@ -438,21 +445,21 @@ def test_loomloom_refresh_keeps_unavailable_selection_until_user_changes_it():
         ),
     ):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=30)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.run()
 
-        app.session_state["video_source_select_en"] = "loomloom"
+        app.session_state["video_source_select_es"] = "loomloom"
         app.run()
-        _widget_by_key(app.selectbox, "loomloom_video_model_select_en").select(
+        _widget_by_key(app.selectbox, "loomloom_video_model_select_es").select(
             "model-b"
         ).run()
         _widget_by_key(app.button, "loomloom_refresh_video_models").click().run()
 
-        selected = _widget_by_key(app.selectbox, "loomloom_video_model_select_en")
+        selected = _widget_by_key(app.selectbox, "loomloom_video_model_select_es")
         assert selected.value == "model-b"
-        assert selected.options[0] == "Unavailable: model-b"
+        assert selected.options[0] == "No disponible: model-b"
         assert any(
-            "no longer available" in str(item.value).lower() for item in app.error
+            "ya no está disponible" in str(item.value).lower() for item in app.error
         )
         assert all(item.key != "loomloom_quote_videos" for item in app.button)
         assert [str(item.value) for item in app.exception] == []
@@ -492,22 +499,22 @@ def test_loomloom_zero_video_quote_warns_about_actual_charges():
         ),
     ):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=30)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.run()
 
         _widget_by_key(app.text_area, "video_subject").set_value("AI office").run()
         _widget_by_key(app.text_area, "video_script").set_value("AI at work").run()
         _widget_by_key(app.text_area, "video_terms").set_value("office").run()
-        app.session_state["video_source_select_en"] = "loomloom"
+        app.session_state["video_source_select_es"] = "loomloom"
         app.run()
         test_config["loomloom_api_token"] = "session-user-token"
         app.run()
 
         warnings = " ".join(str(item.value) for item in app.warning).lower()
         assert all(item.key != "loomloom_quote_videos" for item in app.button)
-        assert "complete cost estimate" in warnings
-        assert "final billing" in warnings
-        assert "free" not in warnings
+        assert "estimación de coste completa" in warnings
+        assert "facturación final" in warnings
+        assert "gratis" not in warnings
         assert not _widget_by_key(
             app.checkbox, "loomloom_video_confirm_charge"
         ).disabled
@@ -529,25 +536,25 @@ def test_selected_shengsuanyun_provider_hides_duplicate_loomloom_key_input():
         patch.object(config, "try_save_config", return_value=True),
     ):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=30)
-        app.session_state["ui_language"] = "zh"
+        app.session_state["ui_language"] = "es"
         app.run()
 
         assert all(item.key != "loomloom_user_api_token" for item in app.text_input)
         generation_method = _widget_by_key(
-            app.selectbox, "script_generation_backend_select_zh"
+            app.selectbox, "script_generation_backend_select_es"
         )
         assert generation_method.value == "local"
-        assert "使用“设置”中当前选择的大模型 Provider 生成文案" in generation_method.help
+        assert "Genera el guion con el proveedor LLM actual" in generation_method.help
         assert "LoomLoom" not in generation_method.help
         assert "https://console.shengsuanyun.com/user/keys" not in generation_method.help
 
         generation_method.select("loomloom").run()
         generation_method = _widget_by_key(
-            app.selectbox, "script_generation_backend_select_zh"
+            app.selectbox, "script_generation_backend_select_es"
         )
         assert generation_method.value == "loomloom"
-        assert "LoomLoom 会批量生成多个独立文案候选" in generation_method.help
-        assert "已复用“设置 → 大模型提供商”中的胜算云 API Key" in generation_method.help
+        assert "LoomLoom genera varios guiones independientes" in generation_method.help
+        assert "Aquí se reutiliza la clave API de Shengsuan Cloud" in generation_method.help
         assert (
             "https://console.shengsuanyun.com/user/keys" in generation_method.help
         )
@@ -576,7 +583,7 @@ def test_paused_script_run_keeps_remote_id_until_user_stops_tracking():
         patch.object(config, "try_save_config", return_value=True),
     ):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=30)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.session_state["loomloom_run_id"] = "paid-run-1"
         app.session_state["loomloom_run_error"] = "temporary network failure"
         app.session_state["loomloom_poll_paused"] = True

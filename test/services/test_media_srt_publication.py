@@ -108,12 +108,12 @@ def test_complete_body_is_still_published(tmp_path):
 
 @pytest.mark.parametrize('script', ['---', '***', '___', '   ', '[pause: 3s]'])
 def test_correction_that_drops_every_cue_preserves_published_captions(tmp_path, script):
-    """A script that normalizes to nothing must not delete the transcript.
+    """Un guion que al normalizarse queda vacío no debe borrar la transcripción.
 
-    whisper ``correct()`` merges cues against the script. When the script
-    carries no line to merge against, the corrected body is empty; writing it
-    would delete the cues whisper already produced, so the original
-    transcription has to survive for ``task.generate_subtitle`` to publish.
+    ``correct()`` de whisper fusiona los subtítulos con el guion. Cuando el guion no
+    tiene ninguna línea con la que fusionar, el cuerpo corregido queda vacío; escribirlo
+    borraría los subtítulos que whisper ya produjo, así que la transcripción original
+    debe sobrevivir para que ``task.generate_subtitle`` la publique.
     """
     destination = tmp_path / 'subtitle.srt'
     destination.write_text(CUE, encoding='utf-8')

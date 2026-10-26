@@ -15,8 +15,9 @@ PUNCTUATIONS = [
     "：",
     "！",
     "...",
-    # 阿拉伯语常用标点也应作为自然断句点，避免脚本文本和 edge-tts
-    # 返回的字幕停顿边界不一致，导致后续逐行匹配失败。
+    # La puntuación habitual del árabe también debe tratarse como punto de corte natural
+    # de frase, para que el texto del guion y las pausas de subtítulos devueltas por
+    # edge-tts no difieran y no falle después la correspondencia línea a línea.
     "،",
     "؛",
     "؟",

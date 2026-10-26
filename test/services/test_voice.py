@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-# add project root to python path
+# añade la raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.utils import utils
@@ -55,9 +55,10 @@ class TestVoiceService(unittest.TestCase):
 
     def test_get_all_azure_voices(self):
         voices = vs.get_all_azure_voices()
-        # 数据已从内联字符串迁移到 azure_voices.json，确保仍能完整加载
+        # Los datos se han migrado de cadenas en línea a azure_voices.json; se asegura
+        # que siguen cargándose por completo
         self.assertEqual(len(voices), 331)
-        # 结果应为 "Name-Gender" 格式且已排序
+        # El resultado debe tener el formato "Name-Gender" y estar ordenado
         self.assertEqual(voices, sorted(voices))
         for v in voices:
             self.assertTrue(v.endswith("-Male") or v.endswith("-Female"))
@@ -98,9 +99,11 @@ class TestVoiceService(unittest.TestCase):
 
     def test_no_voice_tts_generates_silent_audio_and_subtitle_timeline(self):
         """
-        无配音模式不调用任何外部 TTS provider，只生成静音音频作为时间轴占位。
-        这里 mock FFmpeg，验证请求参数、输出文件和 legacy 字幕结构都符合后续
-        视频合成链路的预期。
+        El modo sin locución no llama a ningún proveedor TTS externo y solo genera audio
+        silencioso como marcador de la línea de tiempo. Aquí se simula FFmpeg y se
+        verifica que los parámetros de la solicitud, el archivo de salida y la
+        estructura legacy de subtítulos cumplen lo que espera la cadena posterior de
+        composición del vídeo.
         """
 
         def fake_run(command, capture_output, text, check, **kwargs):
@@ -131,9 +134,10 @@ class TestVoiceService(unittest.TestCase):
 
     def test_get_audio_duration_accepts_non_mp3_files(self):
         """
-        自定义音频（custom_audio_file）常见为 m4a/wav/aac 等非 mp3 格式。
-        get_audio_duration 不应因扩展名不是 .mp3 就报 "Invalid target type" 并返回 0，
-        而应交给 moviepy(ffmpeg) 读取真实时长。
+        El audio personalizado (custom_audio_file) suele estar en formatos distintos de
+        mp3, como m4a/wav/aac. get_audio_duration no debe informar "Invalid target type"
+        y devolver 0 solo porque la extensión no sea .mp3, sino dejar que moviepy
+        (ffmpeg) lea la duración real.
         """
         for path in ("custom-audio.m4a", "voice.wav", "clip.aac"):
             with patch.object(vs.os.path, "exists", return_value=True), \
@@ -143,14 +147,17 @@ class TestVoiceService(unittest.TestCase):
                 mock_afc.assert_called_once_with(path)
 
     def test_get_audio_duration_missing_file_returns_zero(self):
-        """音频文件不存在时安全返回 0，而不是抛异常或读取失败。"""
+        """Si el archivo de audio no existe, devuelve 0 de forma segura en lugar de lanzar
+        una excepción o fallar al leer.
+        """
         with patch.object(vs.os.path, "exists", return_value=False):
             self.assertEqual(vs.get_audio_duration("does-not-exist.m4a"), 0.0)
 
     def test_no_voice_alias_none_is_supported_temporarily(self):
         """
-        兼容 PR #981 曾使用过的 none sentinel，避免少量直接调用 API 的用户
-        升级后立即失效。新 UI 和新代码仍统一使用 no-voice。
+        Se admite el centinela none que usó el PR #981, para que los pocos usuarios que
+        llaman directamente a la API no dejen de funcionar de inmediato al actualizar.
+        La nueva interfaz y el código nuevo siguen usando siempre no-voice.
         """
         self.assertTrue(vs.is_no_voice("none"))
         self.assertTrue(vs.is_no_voice(vs.NO_VOICE_NAME))
@@ -158,8 +165,10 @@ class TestVoiceService(unittest.TestCase):
 
     def test_no_voice_duration_estimates_non_ascii_languages(self):
         """
-        无配音没有真实 TTS 音频，只能根据脚本文字估算阅读时间。俄语、阿拉伯语、
-        日文假名、韩文等非 ASCII 文本也必须参与估算，不能都落到最短 3 秒。
+        Sin locución no hay audio TTS real, así que el tiempo de lectura solo se puede
+        estimar a partir del texto del guion. Los textos no ASCII como ruso, árabe, kana
+        japonés o coreano también deben contar en la estimación, sin caer todos en el
+        mínimo de 3 segundos.
         """
         russian_text = (
             "Это длинный тестовый сценарий без озвучки. "
@@ -172,8 +181,9 @@ class TestVoiceService(unittest.TestCase):
 
     def test_generate_silent_audio_rejects_missing_output_file(self):
         """
-        即使 FFmpeg 进程返回成功，也要确认输出文件真实存在且非空。这样可以把
-        异常收敛在 TTS 阶段，而不是拖到后续视频合成阶段才暴露。
+        Aunque el proceso de FFmpeg devuelva éxito, hay que confirmar que el archivo de
+        salida existe de verdad y no está vacío. Así la anomalía se contiene en la fase
+        TTS, en lugar de aparecer más tarde en la fase de composición del vídeo.
         """
         with tempfile.TemporaryDirectory() as tmp_dir, patch.object(
             vs.utils,
@@ -204,8 +214,10 @@ class TestVoiceService(unittest.TestCase):
 
     def test_empty_voice_name_does_not_enable_no_voice_mode(self):
         """
-        空 voice 通常意味着配置缺失或接口参数错误，不能自动切到无配音模式。
-        否则用户填错 TTS 配置时也会得到一个“成功”的静音视频，定位成本更高。
+        Una voz vacía suele significar que falta configuración o que hay un error en los
+        parámetros de la interfaz, y no se puede pasar automáticamente al modo sin
+        locución. Si no, aunque el usuario configure mal el TTS obtendría un vídeo
+        silencioso "correcto", y sería más difícil localizar el problema.
         """
         sentinel = object()
 
@@ -225,9 +237,10 @@ class TestVoiceService(unittest.TestCase):
         "MPT_RUN_INTEGRATION_TESTS not set",
     )
     def test_siliconflow(self):
-        # SiliconFlow 的 API Key 存在 [siliconflow].api_key 中，运行时代码也是从
-        # config.siliconflow 读取；这里必须使用同一配置源，避免正确配置凭据时
-        # 测试仍然被误跳过。
+        # La clave API de SiliconFlow está en [siliconflow].api_key, y el código en
+        # tiempo de ejecución también la lee de config.siliconflow; aquí hay que usar la
+        # misma fuente de configuración, para que el test no se omita por error aunque
+        # las credenciales estén bien configuradas.
         if not vs.config.siliconflow.get("api_key"):
             self.skipTest("siliconflow_api_key is not configured")
 
@@ -238,10 +251,10 @@ class TestVoiceService(unittest.TestCase):
             parts = voice_name.split(":")
             if len(parts) >= 3:
                 model = parts[1]
-                # 移除性别后缀，例如 "alex-Male" -> "alex"
+                # Quita el sufijo de género, por ejemplo "alex-Male" -> "alex"
                 voice_with_gender = parts[2]
                 voice = voice_with_gender.split("-")[0]
-                # 构建完整的voice参数，格式为 "model:voice"
+                # Construye el parámetro voice completo, con el formato "model:voice"
                 full_voice = f"{model}:{voice}"
                 voice_file = f"{temp_dir}/tts-siliconflow-{voice}.mp3"
                 subtitle_file = f"{temp_dir}/tts-siliconflow-{voice}.srt"
@@ -280,12 +293,14 @@ class TestVoiceService(unittest.TestCase):
 
     def test_azure_tts_v1_supports_legacy_edge_tts_without_boundary(self):
         """
-        验证 Azure TTS V1 在旧版 edge_tts 依赖残留时仍可继续工作。
+        Verifica que Azure TTS V1 sigue funcionando cuando queda una dependencia
+        edge_tts antigua.
 
-        这个回归场景对应 Windows 便携包更新失败后，现场环境还停留在旧版
-        edge_tts 的情况：
-        1. `Communicate.__init__()` 不接受 `boundary`
-        2. 只有异步 `stream()`，没有 `stream_sync()`
+        Este escenario de regresión corresponde al caso en que, tras fallar la
+        actualización del paquete portátil de Windows, el entorno sigue con un edge_tts
+        antiguo:
+        1. `Communicate.__init__()` no acepta `boundary`
+        2. solo existe el `stream()` asíncrono, sin `stream_sync()`
         """
 
         class _LegacyCommunicate:
@@ -332,7 +347,7 @@ class TestVoiceService(unittest.TestCase):
             self.assertEqual(sub_maker.events[0]["type"], "WordBoundary")
 
     def test_azure_tts_v1_rejects_boundary_only_stream(self):
-        """Subtitle events without audio must not produce a successful TTS result."""
+        """Los eventos de subtítulos sin audio no deben producir un resultado TTS correcto."""
 
         class _BoundaryOnlyCommunicate:
             def __init__(self, text, voice, rate="+0%", boundary=None):
@@ -372,12 +387,14 @@ class TestVoiceService(unittest.TestCase):
 
     def test_azure_tts_v1_times_out_hanging_stream_sync(self):
         """
-        验证 Azure TTS V1 在 edge_tts 同步流卡住时能够快速失败。
+        Verifica que Azure TTS V1 falla rápido cuando el flujo síncrono de edge_tts se
+        atasca.
 
-        真实现场里，网络异常、服务端限流、voice 语言与文本不匹配时，
-        `stream_sync()` 可能长时间不返回，导致 WebUI 任务只停在
-        `start, voice name...`。这里用阻塞的 fake stream 复现该场景，
-        确认超时保护会让函数结束并返回 None。
+        En la práctica, ante problemas de red, límites del servidor o una voz cuyo
+        idioma no coincide con el texto, `stream_sync()` puede tardar mucho en volver, y
+        la tarea de la WebUI se queda parada en `start, voice name...`. Aquí se
+        reproduce ese caso con un stream falso que bloquea, confirmando que la
+        protección por tiempo de espera hace que la función termine y devuelva None.
         """
 
         class _HangingCommunicate:
@@ -449,7 +466,9 @@ class TestVoiceService(unittest.TestCase):
         self.loop.run_until_complete(_do())
 
     def test_azure_tts_v2_ssml_applies_rate_and_escapes_text(self):
-        """Azure V2 必须通过 SSML 应用语速，并避免用户文案破坏 XML。"""
+        """Azure V2 debe aplicar la velocidad mediante SSML, sin que el texto del usuario
+        rompa el XML.
+        """
         ssml = vs._build_azure_v2_ssml(
             text='A < B & "quoted"',
             voice_name="zh-CN-XiaoxiaoMultilingualNeural",
@@ -461,7 +480,7 @@ class TestVoiceService(unittest.TestCase):
         self.assertIn("A &lt; B &amp; \"quoted\"", ssml)
 
     def test_tts_forwards_rate_to_azure_v2(self):
-        """统一 TTS 入口不能在分发 Azure V2 时丢失 voice_rate。"""
+        """La entrada TTS común no puede perder voice_rate al despachar Azure V2."""
         voice_name = "zh-CN-XiaoxiaoMultilingualNeural-V2-Female"
         with patch.object(vs, "azure_tts_v2", return_value=object()) as mock_tts:
             result = vs.tts(
@@ -480,7 +499,9 @@ class TestVoiceService(unittest.TestCase):
         )
 
     def test_tts_strips_gemini_style_metadata_before_dispatch(self):
-        """Gemini 下拉框的官方风格描述不能成为 API voice_name 的一部分。"""
+        """La descripción del estilo oficial del desplegable de Gemini no puede formar
+        parte del voice_name de la API.
+        """
         sentinel = object()
 
         with patch.object(vs, "gemini_tts", return_value=sentinel) as gemini_tts:
@@ -503,10 +524,13 @@ class TestVoiceService(unittest.TestCase):
 
     def test_gemini_tts_uses_google_genai_and_compatible_submaker_fields(self):
         """
-        验证 Gemini TTS 在 edge_tts 7.x 环境下仍会返回项目兼容的字幕结构，
-        并且可以被 `subtitle_provider=edge` 的字幕生成链路直接消费，
-        避免再次回退 Whisper。同时使用不存在的嵌套输出目录，覆盖 API 或
-        CLI 直接调用服务时没有提前创建任务目录的边界情况。
+        Verifica que Gemini TTS sigue devolviendo una estructura de subtítulos
+        compatible con el proyecto en un entorno con edge_tts 7.x, y que la cadena de
+        generación de subtítulos con `subtitle_provider=edge` puede consumirla
+        directamente, para no volver a caer en Whisper. También se usa un directorio de
+        salida anidado que no existe, cubriendo el caso límite de que la API o la CLI
+        llamen directamente al servicio sin haber creado antes el directorio de la
+        tarea.
         """
 
         class _InlineData:
@@ -601,11 +625,13 @@ class TestVoiceService(unittest.TestCase):
 
     def test_mimo_tts_uses_openai_compatible_audio_response(self):
         """
-        验证 Xiaomi MiMo TTS 可以消费 OpenAI-compatible 的音频响应结构。
+        Verifica que Xiaomi MiMo TTS puede consumir la estructura de respuesta de audio
+        compatible con OpenAI.
 
-        这里用 fake OpenAI client 和 fake AudioSegment 覆盖真实网络与 ffmpeg，
-        确认运行时代码会把待合成文本放到 assistant message，并把返回的
-        base64 WAV 音频导出到项目后续流程使用的音频文件。
+        Aquí se usan un cliente OpenAI falso y un AudioSegment falso para sustituir la
+        red real y ffmpeg, confirmando que el código en tiempo de ejecución pone el
+        texto a sintetizar en el mensaje assistant y exporta el audio WAV base64
+        devuelto al archivo de audio que usa el resto del flujo del proyecto.
         """
 
         class _FakeAudio:
@@ -746,7 +772,9 @@ class TestVoiceService(unittest.TestCase):
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def test_minimax_tts_reuses_cn_llm_key_and_endpoint(self):
-        """TTS 未单独配置时，应复用同区域的 MiniMax LLM 凭证和地址。"""
+        """Si el TTS no se configura aparte, debe reutilizar las credenciales y la
+        dirección del LLM de MiniMax de la misma región.
+        """
         class _Response:
             status_code, text = 200, ""
 
@@ -788,7 +816,9 @@ class TestVoiceService(unittest.TestCase):
         self.assertEqual(captured["headers"]["Authorization"], "Bearer shared-cn-key")
 
     def test_get_minimax_voice_catalog_normalizes_all_voice_types(self):
-        """音色查询应统一不同来源的响应结构，并忽略重复或空 Voice ID。"""
+        """La consulta de voces debe unificar las estructuras de respuesta de las distintas
+        fuentes e ignorar los Voice ID repetidos o vacíos.
+        """
 
         class _Response:
             status_code, text = 200, ""
@@ -845,7 +875,9 @@ class TestVoiceService(unittest.TestCase):
         )
 
     def test_get_minimax_voice_catalog_exposes_provider_error(self):
-        """远端业务错误应明确抛出，不能被伪装成账号没有可用音色。"""
+        """Los errores de negocio remotos deben lanzarse claramente, sin disfrazarse de que
+        la cuenta no tiene voces disponibles.
+        """
 
         class _Response:
             status_code, text = 200, ""
@@ -865,7 +897,9 @@ class TestVoiceService(unittest.TestCase):
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def test_minimax_tts_does_not_leave_invalid_audio_output(self):
-        """响应音频无法解析时，不应覆盖已有文件或留下临时文件。"""
+        """Si no se puede analizar el audio de la respuesta, no debe sobrescribirse el
+        archivo existente ni dejar archivos temporales.
+        """
         class _Response:
             status_code, text = 200, ""
 
@@ -902,14 +936,14 @@ class TestVoiceService(unittest.TestCase):
         implementation.assert_called_once_with("test", "narrator", 1.0, "voice.mp3", 1.0)
 
     def test_chatterbox_voice_helpers(self):
-        """is_chatterbox_voice / get_chatterbox_voices basics and normalisation."""
+        """Aspectos básicos y normalización de is_chatterbox_voice / get_chatterbox_voices."""
         self.assertTrue(vs.is_chatterbox_voice("chatterbox:default-Female"))
         self.assertFalse(vs.is_chatterbox_voice("elevenlabs:abc:Rachel"))
         self.assertFalse(vs.is_chatterbox_voice(""))
         self.assertFalse(vs.is_chatterbox_voice(None))
 
-        # list entries are normalised to the chatterbox:<name> dispatcher format,
-        # and entries that are already prefixed are left untouched
+        # las entradas de la lista se normalizan al formato de despacho
+        # chatterbox:<nombre>, y las que ya llevan el prefijo se dejan sin tocar
         with patch.object(
             vs.config,
             "chatterbox",
@@ -920,20 +954,23 @@ class TestVoiceService(unittest.TestCase):
                 ["chatterbox:narrator-Male", "chatterbox:host"],
             )
 
-        # a comma-separated string is also accepted (TOML-friendly)
+        # también se acepta una cadena separada por comas (cómoda en TOML)
         with patch.object(vs.config, "chatterbox", {"voices": "alpha, beta ,"}):
             self.assertEqual(
                 vs.get_chatterbox_voices(),
                 ["chatterbox:alpha", "chatterbox:beta"],
             )
 
-        # with nothing configured the dropdown still gets a usable default
+        # sin nada configurado, el desplegable sigue teniendo un valor por defecto
+        # utilizable
         with patch.object(vs.config, "chatterbox", {}):
             self.assertEqual(vs.get_chatterbox_voices(), ["chatterbox:default-Female"])
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def test_chatterbox_tts_posts_to_openai_compatible_endpoint(self):
-        """Success path: POST /audio/speech, write audio, return legacy SubMaker."""
+        """Ruta de éxito: POST /audio/speech, escribe el audio y devuelve un SubMaker
+        legacy.
+        """
 
         class _FakeResponse:
             status_code = 200
@@ -979,22 +1016,23 @@ class TestVoiceService(unittest.TestCase):
             generated_audio = Path(voice_file).read_bytes()
 
         post.assert_called_once()
-        # trailing slash on base_url is stripped before appending /audio/speech
+        # la barra final de base_url se quita antes de añadir /audio/speech
         self.assertEqual(captured["url"], "http://localhost:4123/v1/audio/speech")
         self.assertEqual(captured["json"]["model"], "chatterbox")
         self.assertEqual(captured["json"]["voice"], "default")
         self.assertEqual(captured["json"]["input"], "Hello world. Second sentence.")
         self.assertAlmostEqual(captured["json"]["speed"], 1.2)
-        # api_key is forwarded as a bearer token
+        # api_key se reenvía como token bearer
         self.assertEqual(captured["headers"].get("Authorization"), "Bearer secret")
-        # volume is intentionally not part of the OpenAI speech payload
+        # el volumen no forma parte intencionadamente de la carga útil de speech de
+        # OpenAI
         self.assertNotIn("volume", captured["json"])
         self.assertEqual(generated_audio, b"RIFF-fake-wav")
         self.assertIsNotNone(sub_maker)
         self.assertTrue(getattr(sub_maker, "subs", []))
 
     def test_chatterbox_tts_requires_base_url(self):
-        """Missing base_url short-circuits without any network call."""
+        """Sin base_url se cortocircuita sin ninguna llamada de red."""
         with patch.object(
             vs.config, "chatterbox", {"base_url": ""}
         ), patch.object(vs.requests, "post") as post:
@@ -1005,7 +1043,9 @@ class TestVoiceService(unittest.TestCase):
         post.assert_not_called()
 
     def test_chatterbox_tts_returns_none_on_http_error(self):
-        """A non-200 response is retried up to 3 times, then fails to None."""
+        """Una respuesta distinta de 200 se reintenta hasta 3 veces y luego falla
+        devolviendo None.
+        """
 
         class _FakeResponse:
             status_code = 500
@@ -1025,7 +1065,9 @@ class TestVoiceService(unittest.TestCase):
         self.assertEqual(post.call_count, 3)
 
     def _make_broken_clip_class(self, close_calls: list):
-        """Return a clip class whose .duration raises and whose .close() records calls."""
+        """Devuelve una clase de clip cuyo .duration lanza una excepción y cuyo .close()
+        registra las llamadas.
+        """
 
         class _BrokenClip:
             @property
@@ -1039,7 +1081,9 @@ class TestVoiceService(unittest.TestCase):
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def test_elevenlabs_tts_audio_clip_closed_on_duration_error(self):
-        """AudioFileClip.close() must be called even when reading .duration raises."""
+        """AudioFileClip.close() debe llamarse aunque la lectura de .duration lance una
+        excepción.
+        """
         close_calls: list = []
         BrokenClip = self._make_broken_clip_class(close_calls)
 
@@ -1076,7 +1120,9 @@ class TestVoiceService(unittest.TestCase):
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def test_chatterbox_tts_audio_clip_closed_on_duration_error(self):
-        """AudioFileClip.close() must be called even when reading .duration raises."""
+        """AudioFileClip.close() debe llamarse aunque la lectura de .duration lance una
+        excepción.
+        """
         close_calls: list = []
         BrokenClip = self._make_broken_clip_class(close_calls)
 
@@ -1107,7 +1153,9 @@ class TestVoiceService(unittest.TestCase):
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def test_fish_audio_tts_audio_clip_closed_on_duration_error(self):
-        """AudioFileClip.close() must be called even when reading .duration raises."""
+        """AudioFileClip.close() debe llamarse aunque la lectura de .duration lance una
+        excepción.
+        """
         close_calls: list = []
         BrokenClip = self._make_broken_clip_class(close_calls)
 
@@ -1138,8 +1186,9 @@ class TestVoiceService(unittest.TestCase):
 
     def test_generate_subtitle_keeps_edge_provider_for_gemini_legacy_submaker(self):
         """
-        验证 Gemini TTS 返回的 legacy 字幕结构在 edge provider 下可以直接产出
-        SRT，不会因为匹配失败而回退到 Whisper。
+        Verifica que la estructura legacy de subtítulos devuelta por Gemini TTS puede
+        producir directamente un SRT con el proveedor edge, sin volver a Whisper por un
+        fallo de correspondencia.
         """
         script = "Gemini subtitle generation should work now. Testing multiple lines."
         sub_maker = vs.populate_legacy_submaker_with_full_text(
@@ -1175,9 +1224,10 @@ class TestVoiceService(unittest.TestCase):
 
     def test_script_split_keeps_thousand_separator_comma(self):
         """
-        Edge TTS 会把 "1,000 years" 作为连续文本返回。脚本断句时不能把
-        数字中间的英文逗号当成句子边界，否则字幕聚合会出现 issue #894
-        里的 sub_items 数量少于 script_lines，并错误回退 Whisper。
+        Edge TTS devuelve "1,000 years" como texto continuo. Al dividir el guion en
+        frases no se puede tratar la coma inglesa dentro del número como límite de
+        frase; si no, la agregación de subtítulos daría, como en el issue #894, menos
+        sub_items que script_lines y volvería por error a Whisper.
         """
         text = (
             "It takes about 1,000 years for a single drop of water to finish "
@@ -1196,9 +1246,9 @@ class TestVoiceService(unittest.TestCase):
 
     def test_edge_cue_aggregation_handles_thousand_separator_comma(self):
         """
-        复现 issue #894 的关键形态：Edge cues 中最后一句作为连续文本返回，
-        包含 `1,000 years`。脚本断句必须与 cues 聚合结果一致，不能把它
-        拆成两条字幕。
+        Reproduce la forma clave del issue #894: en las cues de Edge, la última frase se
+        devuelve como texto continuo e incluye `1,000 years`. La división del guion en
+        frases debe coincidir con la agregación de cues, sin partirla en dos subtítulos.
         """
         text = (
             "The ocean isn't just sitting stil, it moves around the world like a massive "
@@ -1211,8 +1261,9 @@ class TestVoiceService(unittest.TestCase):
         script_lines = utils.split_string_by_punctuations(text)
         cues = []
         for index, line in enumerate(script_lines):
-            # Edge 的 cue content 经常没有脚本里的空格和标点布局，这里去掉空格
-            # 来模拟更严格的匹配场景。
+            # El cue content de Edge a menudo no tiene la disposición de espacios y
+            # puntuación del guion, así que aquí se quitan los espacios para simular un
+            # escenario de correspondencia más estricto.
             cues.append(
                 SimpleNamespace(
                     content=line.replace(" ", ""),
@@ -1229,8 +1280,8 @@ class TestVoiceService(unittest.TestCase):
 
     def test_script_split_keeps_clock_time_colon(self):
         """
-        Edge TTS returns a clock time such as "10:30" as one word, so the script split
-        must not break a line at its colon.
+        Edge TTS devuelve una hora como "10:30" como una sola palabra, así que la
+        división del guion no debe cortar una línea en sus dos puntos.
         """
         text = "The class starts at 10:30 every morning. We film everything in 16:9."
 
@@ -1241,9 +1292,10 @@ class TestVoiceService(unittest.TestCase):
 
     def test_edge_cue_aggregation_handles_clock_time(self):
         """
-        The word boundaries edge-tts 7.3.1 returns for this script with en-US-JennyNeural:
-        "10:30" is one word, "16:9" is three. Both lines must still get a subtitle each,
-        without falling back to Whisper.
+        Los límites de palabra que devuelve edge-tts 7.3.1 para este guion con
+        en-US-JennyNeural:
+        "10:30" es una palabra y "16:9" son tres. Ambas líneas deben seguir teniendo
+        cada una su subtítulo, sin volver a Whisper.
         """
         text = "We film everything in 16:9. The class starts at 10:30 every morning."
         script_lines = utils.split_string_by_punctuations(text)
@@ -1265,7 +1317,9 @@ class TestVoiceService(unittest.TestCase):
         self.assertIn("10:30 every morning", sub_items[-1])
 
     def test_script_split_keeps_dots_inside_abbreviations_and_names(self):
-        """A dot between two letters belongs to "U.S.", "e.g." or "example.com", not a line break."""
+        """Un punto entre dos letras pertenece a "U.S.", "e.g." o "example.com", no es un
+        salto de línea.
+        """
         text = (
             "The U.S. economy grew. Visit example.com for the details, e.g. the prices."
         )
@@ -1283,9 +1337,9 @@ class TestVoiceService(unittest.TestCase):
 
     def test_edge_cue_aggregation_handles_dotted_abbreviations(self):
         """
-        The word boundaries edge-tts 7.3.1 returns for each of these sentences with
-        en-US-AriaNeural: "U.S.", "9 a.m." and "example.com" are one word each. Every line
-        must still get its own subtitle, without falling back to Whisper.
+        Los límites de palabra que devuelve edge-tts 7.3.1 para cada una de estas frases
+        con en-US-AriaNeural: "U.S.", "9 a.m." y "example.com" son una palabra cada uno.
+        Cada línea debe seguir teniendo su propio subtítulo, sin volver a Whisper.
         """
         text = (
             "The U.S. economy grew last year. Dr. Smith arrives at 9 a.m. sharp. "
@@ -1316,8 +1370,10 @@ class TestVoiceService(unittest.TestCase):
 
     def test_script_split_supports_arabic_punctuation(self):
         """
-        阿拉伯语脚本常用 ، ؛ ؟ 作为自然断句标点。断句阶段必须识别这些
-        标点，否则 edge-tts cue 的停顿边界和脚本行边界会错位。
+        Los guiones en árabe suelen usar ، ؛ ؟ como puntuación natural de corte de
+        frase. La fase de división debe reconocer esa puntuación; si no, los límites de
+        pausa de las cues de edge-tts y los límites de línea del guion quedarían
+        desalineados.
         """
         text = "مرحبا بالعالم، كيف حالك؟ هذا اختبار؛ يعمل بشكل جيد."
 
@@ -1333,8 +1389,9 @@ class TestVoiceService(unittest.TestCase):
 
     def test_match_script_line_normalizes_arabic_letter_forms(self):
         """
-        edge-tts 可能把阿拉伯语中的不同字母形态归一化，或返回带变音符号、
-        Tatweel 的 cue 文本。匹配时应容错，但最终字幕仍保留原始脚本文案。
+        edge-tts puede normalizar distintas formas de letras del árabe, o devolver texto
+        de cues con diacríticos o Tatweel. La correspondencia debe tolerarlo, pero el
+        subtítulo final sigue conservando el texto original del guion.
         """
         script_lines = ["أهلاً وسهلاً بك في المدرسة"]
 
@@ -1348,8 +1405,10 @@ class TestVoiceService(unittest.TestCase):
 
     def test_edge_cue_aggregation_handles_arabic_variant_forms(self):
         """
-        复现阿拉伯语字幕失败的核心路径：脚本包含 أ/ة 等字母形态，edge cue
-        返回 ا/ه 等归一化形态时，聚合仍应生成完整字幕，避免回退 Whisper。
+        Reproduce la ruta principal del fallo de subtítulos en árabe: cuando el guion
+        contiene formas de letras como أ/ة y la cue de edge devuelve formas normalizadas
+        como ا/ه, la agregación debe seguir generando subtítulos completos, sin volver a
+        Whisper.
         """
         text = "أهلاً وسهلاً بك في المدرسة؟ هذا اختبار رائع، شكراً لك."
         script_lines = utils.split_string_by_punctuations(text)
@@ -1377,9 +1436,10 @@ class TestVoiceService(unittest.TestCase):
 
     def test_create_subtitle_ignores_markdown_separator_lines(self):
         """
-        用户手动脚本可能包含 `---` 这类 Markdown 分隔符。TTS 不会朗读
-        这些符号行，字幕聚合也不应把它们当成目标字幕行，否则后续真实
-        字幕会卡住并回退到 Whisper。
+        Un guion escrito a mano puede contener separadores Markdown como `---`. El TTS
+        no lee estas líneas de símbolos, y la agregación de subtítulos tampoco debe
+        tratarlas como líneas de subtítulo de destino; si no, los subtítulos reales
+        siguientes se atascarían y volverían a Whisper.
         """
         text = "第一段\n---\n第二段"
         sub_maker = SimpleNamespace(
@@ -1413,7 +1473,9 @@ class TestVoiceService(unittest.TestCase):
         self.assertNotIn("00:00:00,000 --> 00:00:00,000", subtitle_content)
 
     def test_create_subtitle_word_level_preserves_edge_cue_timing(self):
-        """Edge TTS 的细粒度 cue 应逐项写入，不能再被按标点聚合。"""
+        """Las cues detalladas de Edge TTS deben escribirse una a una, sin volver a
+        agruparse por puntuación.
+        """
         sub_maker = SimpleNamespace(
             cues=[
                 SimpleNamespace(
@@ -1446,15 +1508,19 @@ class TestVoiceService(unittest.TestCase):
 
     def test_create_subtitle_word_level_falls_back_to_provider_granularity(self):
         """
-        旧版 SubMaker 没有 cue 时，应保留语音服务返回的原始时间粒度。
+        Cuando un SubMaker antiguo no tiene cues, debe conservarse la granularidad de
+        tiempo original que devolvió el servicio de voz.
 
-        ElevenLabs、Fish Audio 等服务可能只返回短语或整句时间轴。此时不能
-        按字符平均拆分并伪造逐词精度，否则字幕会逐渐偏离真实语音。
+        Servicios como ElevenLabs o Fish Audio pueden devolver solo líneas de tiempo por
+        frase o por oración completa. En ese caso no se puede dividir de forma uniforme
+        por caracteres y fingir precisión palabra a palabra, o los subtítulos se irían
+        desviando poco a poco de la voz real.
         """
         sub_maker = SimpleNamespace(
             cues=[],
             subs=["Hello world"],
-            # 旧版 SubMaker 的 offset 使用 100 纳秒为单位的整数时间戳。
+            # El offset del SubMaker antiguo usa marcas de tiempo enteras en unidades de
+            # 100 nanosegundos.
             offset=[(2_000_000, 11_000_000)],
         )
 
@@ -1474,8 +1540,10 @@ class TestVoiceService(unittest.TestCase):
 
     def test_create_subtitle_ignores_markdown_underscore_marks(self):
         """
-        `_` 常被用户用作 Markdown 强调标记，但 TTS 返回的 cue 通常不包含
-        这些格式符。匹配时应忽略 `_`，避免生成空字幕或回退到 Whisper。
+        `_` lo usan a menudo los usuarios como marca de énfasis de Markdown, pero las
+        cues que devuelve el TTS normalmente no incluyen esos símbolos de formato. La
+        correspondencia debe ignorar `_`, para no generar subtítulos vacíos ni volver a
+        Whisper.
         """
         text = "这是_a_测试。"
         sub_maker = SimpleNamespace(
@@ -1503,9 +1571,10 @@ class TestVoiceService(unittest.TestCase):
         self.assertNotIn("00:00:00,000 --> 00:00:00,000", subtitle_content)
 
     def test_convert_rate_to_percent_signs_zero_rate(self):
-        # Rates near but not exactly 1.0 round to 0 percent. edge-tts rejects
-        # an unsigned "0%" (ValueError: Invalid rate '0%'), so the helper must
-        # emit a sign-prefixed "+0%". Regression test for that crash.
+        # Las velocidades cercanas pero no exactamente iguales a 1.0 redondean a 0 por
+        # ciento. edge-tts rechaza un "0%" sin signo (ValueError: Invalid rate '0%'),
+        # así que el helper debe emitir "+0%" con prefijo de signo. Test de regresión de
+        # ese fallo.
         self.assertEqual(vs.convert_rate_to_percent(1.0), "+0%")
         self.assertEqual(vs.convert_rate_to_percent(1.004), "+0%")
         self.assertEqual(vs.convert_rate_to_percent(0.997), "+0%")
@@ -1513,8 +1582,9 @@ class TestVoiceService(unittest.TestCase):
         self.assertEqual(vs.convert_rate_to_percent(0.8), "-20%")
 
     def test_convert_rate_to_percent_invalid_values_default_to_normal(self):
-        # API 和批处理脚本可能把空语速传成 0、None 或空字符串；这些都不应让
-        # edge-tts 收到 -100% 或触发异常，而是按正常语速处理。
+        # La API y los scripts por lotes pueden pasar una velocidad vacía como 0, None o
+        # cadena vacía; nada de eso debe hacer que edge-tts reciba -100% ni provocar una
+        # excepción, sino tratarse como velocidad normal.
         self.assertEqual(vs.convert_rate_to_percent(0), "+0%")
         self.assertEqual(vs.convert_rate_to_percent(0.0), "+0%")
         self.assertEqual(vs.convert_rate_to_percent(None), "+0%")
@@ -1622,7 +1692,7 @@ class TestElevenLabsVoice(unittest.TestCase):
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def test_elevenlabs_tts_rejects_oversize_audio_without_replacing_existing_file(self):
-        """A paid 200 response can be much larger than usable speech."""
+        """Una respuesta 200 de pago puede ser mucho más grande que una voz utilizable."""
         response = SimpleNamespace(
             status_code=200,
             content=b"oversize-audio",
@@ -1648,7 +1718,7 @@ class TestElevenLabsVoice(unittest.TestCase):
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def test_elevenlabs_tts_decode_failure_preserves_existing_file(self):
-        """A corrupt successful response must not publish a partial final MP3."""
+        """Una respuesta correcta pero dañada no debe publicar un MP3 final parcial."""
         response = SimpleNamespace(
             status_code=200,
             content=b"corrupt-audio",
@@ -1692,8 +1762,10 @@ class TestElevenLabsVoice(unittest.TestCase):
     @patch("app.services.voice.config")
     def test_elevenlabs_tts_no_api_key(self, mock_config):
         mock_config.elevenlabs.get.return_value = ""
-        # Key 解析包含环境变量回退，测试必须显式清空宿主环境，避免开发机或 CI
-        # 恰好设置 ELEVENLABS_API_KEY 后改变“未配置”的测试前提。
+        # La resolución de la clave incluye un respaldo por variable de entorno, así que
+        # el test debe vaciar explícitamente el entorno del host, para que el equipo de
+        # desarrollo o la CI no cambien la premisa de "sin configurar" por tener
+        # definida ELEVENLABS_API_KEY.
         with patch.dict(os.environ, {}, clear=True):
             result = vs.elevenlabs_tts("Hello", "abc123", "/tmp/test.mp3")
         self.assertIsNone(result)
@@ -1719,7 +1791,9 @@ class TestElevenLabsVoice(unittest.TestCase):
             self.assertEqual(vs.get_elevenlabs_api_key(), "env-key")
 
     def test_elevenlabs_api_key_matches_music_service(self):
-        """TTS 和配乐共用同一账号配置，两条生成链路必须解析出相同 Key。"""
+        """El TTS y la música comparten la misma configuración de cuenta, así que ambas
+        cadenas de generación deben resolver la misma clave.
+        """
         from app.services import elevenlabs_music
 
         for configured_key, env_key in (("config-key", "env-key"), ("", "env-key")):
@@ -1743,14 +1817,15 @@ class TestElevenLabsVoice(unittest.TestCase):
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def test_siliconflow_subtitle_spans_full_audio_duration(self):
-        """Last subtitle entry must end at the actual audio end, not truncated early.
+        """La última entrada del subtítulo debe terminar en el final real del audio, sin
+        recortarse antes.
 
-        The old ad-hoc loop applied integer division independently to every
-        sentence, so accumulated truncation meant the final subtitle always
-        ended a few units before the real audio end. Every other TTS provider
-        already delegates to populate_legacy_submaker_with_full_text, which
-        anchors the last entry to the full duration; this test verifies
-        siliconflow_tts now does the same.
+        El antiguo bucle ad hoc aplicaba la división entera por separado a cada frase,
+        así que el truncamiento acumulado hacía que el último subtítulo siempre
+        terminara unas unidades antes del final real del audio. Todos los demás
+        proveedores TTS ya delegan en populate_legacy_submaker_with_full_text, que ancla
+        la última entrada a la duración completa; este test verifica que siliconflow_tts
+        ahora hace lo mismo.
         """
         audio_duration_seconds = 7.3
         expected_end_100ns = int(audio_duration_seconds * 10_000_000)
@@ -1792,7 +1867,9 @@ class TestElevenLabsVoice(unittest.TestCase):
         )
 
     def test_siliconflow_tts_bounds_each_network_attempt(self):
-        """A pre-connect timeout can be retried without submitting paid work."""
+        """Un tiempo de espera previo a la conexión puede reintentarse sin enviar trabajo
+        de pago.
+        """
         timeouts = []
 
         def stalled_post(_url, **kwargs):
@@ -1818,7 +1895,7 @@ class TestElevenLabsVoice(unittest.TestCase):
         self.assertEqual(timeouts, [(10, 300)] * 3)
 
     def test_paid_tts_does_not_repeat_ambiguous_read_timeout(self):
-        """A lost POST response may still have created billable speech remotely."""
+        """Una respuesta POST perdida puede haber creado ya voz facturable en remoto."""
         settings = {
             "api_key": "test-key",
             "model_id": vs.MINIMAX_TTS_DEFAULT_MODEL,
@@ -1858,7 +1935,9 @@ class TestElevenLabsVoice(unittest.TestCase):
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def test_siliconflow_tts_rejects_invalid_success_audio(self):
-        """HTTP 200 with corrupt audio must not become a fake 10-second success."""
+        """Un HTTP 200 con audio dañado no debe convertirse en un falso éxito de 10
+        segundos.
+        """
         fake_response = SimpleNamespace(status_code=200, content=b"invalid mp3")
         with (
             tempfile.TemporaryDirectory() as temp_dir,
@@ -1933,7 +2012,9 @@ class TestElevenLabsVoice(unittest.TestCase):
             self.assertEqual(list(Path(temp_dir).iterdir()), [voice_file])
 
     def test_pause_tag_detection_and_parsing(self):
-        """测试多语言停顿标签的检测、解析与清洗。"""
+        """Prueba la detección, el análisis y la limpieza de etiquetas de pausa en varios
+        idiomas.
+        """
         sample_script = (
             "Hola a todos. [pausa: 2s] "
             "Welcome back. [pause: 1.5s] "
@@ -1968,7 +2049,8 @@ class TestElevenLabsVoice(unittest.TestCase):
         self.assertIn("Hola a todos", normalized)
         self.assertIn("Final sentence", normalized)
 
-        # Flexible syntax tests: without colon, with parentheses, and with default duration
+        # Tests de sintaxis flexible: sin dos puntos, con paréntesis y con duración por
+        # defecto
         flexible_script = "Intro. [pausa 1s] Middle. (pausa: 2s) Next. [pause] End."
         self.assertTrue(utils.has_pause_tags(flexible_script))
         flex_segments = utils.parse_script_with_pauses(flexible_script)
@@ -1987,7 +2069,9 @@ class TestElevenLabsVoice(unittest.TestCase):
         self.assertNotIn("[pause", flex_cleaned)
 
     def test_pause_tags_accept_duration_directly_after_cjk_keyword(self):
-        """中日文习惯不写冒号或空格，`[停顿3秒]` 也必须识别为停顿而不是被朗读。"""
+        """En chino y japonés se suele escribir sin dos puntos ni espacios, y `[停顿3秒]`
+        también debe reconocerse como pausa y no leerse.
+        """
         script = "大家好。[停顿3秒]今天聊聊理财。[ポーズ2秒]最後。[pause2s]End."
 
         self.assertTrue(utils.has_pause_tags("[暂停2秒]"))
@@ -2005,12 +2089,13 @@ class TestElevenLabsVoice(unittest.TestCase):
         )
         self.assertNotIn("停顿", utils.remove_pause_tags(script))
 
-        # 关键词后紧跟字母的普通文字仍不是停顿标签。
+        # Un texto normal en el que la palabra clave va seguida directamente de letras
+        # sigue sin ser una etiqueta de pausa.
         for text in ("[paused]", "(pauses)", "[暂停一下]"):
             self.assertFalse(utils.has_pause_tags(text), text)
 
     def test_concat_audio_files_reads_pcm_in_bounded_chunks(self):
-        """Long pause-aware narration should not load each WAV into memory."""
+        """Una narración larga con pausas no debería cargar cada WAV en memoria."""
         real_wave_open = vs.wave.open
         read_sizes = []
 
@@ -2092,7 +2177,9 @@ class TestElevenLabsVoice(unittest.TestCase):
             self.assertEqual(output.read_bytes(), b"previous-success")
 
     def test_tts_with_pauses_shifts_submaker_timeline(self):
-        """测试包含停顿标签时，SubMaker 时间轴和音频拼接正确偏移。"""
+        """Prueba que, con etiquetas de pausa, la línea de tiempo del SubMaker y el montaje
+        del audio se desplazan correctamente.
+        """
         from edge_tts.srt_composer import Subtitle
 
         fake_sub1 = vs.ensure_legacy_submaker_fields(vs.SubMaker())
@@ -2140,14 +2227,15 @@ class TestElevenLabsVoice(unittest.TestCase):
             mock_silence.assert_called_once()
             mock_concat.assert_called_once()
 
-            # 验证第二段 cues 偏移了 1.5s + 2.0s = 3.5s
+            # Verifica que las cues del segundo segmento se desplazan 1,5 s + 2,0 s =
+            # 3,5 s
             self.assertEqual(len(result_submaker.cues), 2)
             self.assertAlmostEqual(result_submaker.cues[0].start.total_seconds(), 0.1, places=2)
             self.assertAlmostEqual(result_submaker.cues[0].end.total_seconds(), 1.5, places=2)
             self.assertAlmostEqual(result_submaker.cues[1].start.total_seconds(), 3.5 + 0.2, places=2)
             self.assertAlmostEqual(result_submaker.cues[1].end.total_seconds(), 3.5 + 1.8, places=2)
 
-            # 验证 legacy offset 也正确偏移
+            # Verifica que el offset legacy también se desplaza correctamente
             self.assertEqual(len(result_submaker.offset), 2)
             self.assertEqual(result_submaker.offset[0], (1000000, 15000000))
             expected_ns_offset = int(3.5 * 10000000)
@@ -2158,8 +2246,10 @@ class TestElevenLabsVoice(unittest.TestCase):
 
 
     def test_pause_invalid_and_excessive_durations(self):
-        """测试无效时长（<= 0s）被忽略，以及超长时长被限制在最大上限内。"""
-        # 1. 无效或零时长：不应识别为停顿段
+        """Prueba que las duraciones no válidas (<= 0 s) se ignoran y que las duraciones
+        demasiado largas se limitan al máximo.
+        """
+        # 1. Duración no válida o cero: no debe reconocerse como segmento de pausa
         zero_script = "Hello [pause: 0s] world. [pause: -2s] Bye."
         segments = utils.parse_script_with_pauses(zero_script)
         speech_only = [s for s in segments if s[0] == "speech"]
@@ -2168,7 +2258,7 @@ class TestElevenLabsVoice(unittest.TestCase):
         self.assertTrue(any("Hello" in s[1] for s in speech_only))
         self.assertTrue(any("world" in s[1] for s in speech_only))
 
-        # 2. 超长停顿：超过 MAX_PAUSE_DURATION_SECONDS 被 clamp
+        # 2. Pausa demasiado larga: lo que supera MAX_PAUSE_DURATION_SECONDS se limita
         long_script = "Hello [pause: 99s] world."
         segments_long = utils.parse_script_with_pauses(long_script)
         pauses = [s for s in segments_long if s[0] == "pause"]
@@ -2176,15 +2266,18 @@ class TestElevenLabsVoice(unittest.TestCase):
         self.assertEqual(pauses[0][1], utils.MAX_PAUSE_DURATION_SECONDS)
 
     def test_pause_consecutive_merging(self):
-        """测试连续停顿标签自动合并为一个停顿段，且总时长受上限保护。"""
-        # 两个连续停顿合并为 1s + 2s = 3s
+        """Prueba que las etiquetas de pausa consecutivas se fusionan automáticamente en un
+        solo segmento de pausa, con la duración total protegida por el máximo.
+        """
+        # Dos pausas consecutivas se fusionan en 1 s + 2 s = 3 s
         script = "First part. [pause: 1s] [pause: 2s] Second part."
         segments = utils.parse_script_with_pauses(script)
         pauses = [s for s in segments if s[0] == "pause"]
         self.assertEqual(len(pauses), 1)
         self.assertEqual(pauses[0][1], 3.0)
 
-        # 多个停顿叠加超过最大上限时，合并后被截断在 MAX_PAUSE_DURATION_SECONDS
+        # Cuando la suma de varias pausas supera el máximo, tras fusionarse se recorta a
+        # MAX_PAUSE_DURATION_SECONDS
         over_script = "Start. [pause: 7s] [pause: 8s] End."
         over_segments = utils.parse_script_with_pauses(over_script)
         over_pauses = [s for s in over_segments if s[0] == "pause"]
@@ -2192,7 +2285,9 @@ class TestElevenLabsVoice(unittest.TestCase):
         self.assertEqual(over_pauses[0][1], utils.MAX_PAUSE_DURATION_SECONDS)
 
     def test_pause_leading_and_trailing(self):
-        """测试开头停顿（leading）和结尾停顿（trailing）的音轨和时间轴偏移。"""
+        """Prueba el desplazamiento de la pista de audio y de la línea de tiempo con una
+        pausa al principio (leading) y al final (trailing).
+        """
         from edge_tts.srt_composer import Subtitle
 
         fake_sub = vs.ensure_legacy_submaker_fields(vs.SubMaker())
@@ -2216,7 +2311,7 @@ class TestElevenLabsVoice(unittest.TestCase):
             patch.object(vs, "generate_silent_audio", side_effect=fake_silence) as mock_silence,
             patch.object(vs, "_concat_audio_files", return_value=True),
         ):
-            # Leading pause: [pause: 1.5s] Hello
+            # Pausa inicial: [pause: 1.5s] Hello
             out_file = str(Path(tmp_dir) / "leading.mp3")
             result = vs.tts(
                 text="[pause: 1.5s] Hello",
@@ -2226,7 +2321,7 @@ class TestElevenLabsVoice(unittest.TestCase):
             )
             self.assertIsNotNone(result)
             mock_silence.assert_called_with(1.5, mock_silence.call_args[0][1])
-            # 字幕 cue 应该从 1.5s + 0.1s = 1.6s 开始
+            # La cue del subtítulo debe empezar en 1,5 s + 0,1 s = 1,6 s
             self.assertAlmostEqual(result.cues[0].start.total_seconds(), 1.6, places=2)
 
         with (
@@ -2235,7 +2330,7 @@ class TestElevenLabsVoice(unittest.TestCase):
             patch.object(vs, "generate_silent_audio", side_effect=fake_silence) as mock_silence,
             patch.object(vs, "_concat_audio_files", return_value=True),
         ):
-            # Trailing pause: Hello [pause: 2s]
+            # Pausa final: Hello [pause: 2s]
             out_file = str(Path(tmp_dir) / "trailing.mp3")
             result = vs.tts(
                 text="Hello [pause: 2s]",
@@ -2245,12 +2340,15 @@ class TestElevenLabsVoice(unittest.TestCase):
             )
             self.assertIsNotNone(result)
             mock_silence.assert_called_with(2.0, mock_silence.call_args[0][1])
-            # 语音字幕应该保持在原本位置，不受结尾静音后移
+            # El subtítulo de la voz debe quedarse en su posición original, sin
+            # desplazarse por el silencio final
             self.assertAlmostEqual(result.cues[0].start.total_seconds(), 0.1, places=2)
             self.assertAlmostEqual(result.cues[0].end.total_seconds(), 1.2, places=2)
 
     def test_pause_script_with_only_pauses(self):
-        """测试脚本只包含停顿标签时的纯静音生成与安全性。"""
+        """Prueba la generación de silencio puro y su seguridad cuando el guion solo
+        contiene etiquetas de pausa.
+        """
         def fake_silence(duration, voice_file):
             _write_test_wav(voice_file, duration)
             return True
@@ -2272,17 +2370,21 @@ class TestElevenLabsVoice(unittest.TestCase):
             mock_silence.assert_called_once_with(2.5, out_file)
             self.assertEqual(vs.get_audio_duration(result), 2.5)
 
-            # 字幕生成应安全处理无台词脚本，不抛出异常
+            # La generación de subtítulos debe tratar con seguridad un guion sin texto,
+            # sin lanzar excepciones
             srt_path = str(Path(tmp_dir) / "only_pauses.srt")
             vs.create_subtitle(result, "[pause: 2.5s]", srt_path, word_level=False)
             vs.create_subtitle(result, "[pause: 2.5s]", srt_path, word_level=True)
 
     def test_subtitle_sync_sentence_mode_with_pauses(self):
-        """测试句子模式 (sentence) 下包含停顿标签的字幕时间轴与内容完全同步。"""
+        """Prueba que, en el modo frase (sentence), la línea de tiempo y el contenido de
+        los subtítulos con etiquetas de pausa quedan totalmente sincronizados.
+        """
         from edge_tts.srt_composer import Subtitle
 
         fake_sub = vs.ensure_legacy_submaker_fields(vs.SubMaker())
-        # 第一段话在 0.1s - 1.5s，第二段话在停顿 2s 后 (3.5s - 5.0s)
+        # La primera frase va de 0,1 s a 1,5 s, y la segunda va tras una pausa de 2 s
+        # (de 3,5 s a 5,0 s)
         fake_sub.cues = [
             Subtitle(1, timedelta(seconds=0.1), timedelta(seconds=0.7), "Primera"),
             Subtitle(2, timedelta(seconds=0.8), timedelta(seconds=1.5), "frase."),
@@ -2307,12 +2409,16 @@ class TestElevenLabsVoice(unittest.TestCase):
             self.assertIn("Primera frase", content)
             self.assertIn("Segunda frase", content)
             self.assertNotIn("[pausa", content)
-            # 第一句开始于 0.1s，第二句开始于 3.6s (体现了 2s 停顿)
+            # La primera frase empieza en 0,1 s y la segunda en 3,6 s (reflejando la
+            # pausa de 2 s)
             self.assertIn("00:00:00,100 --> 00:00:01,500", content)
             self.assertIn("00:00:03,600 --> 00:00:05,000", content)
 
     def test_subtitle_sync_word_mode_with_pauses(self):
-        """测试单字模式 (word_by_word) 下包含停顿标签的字幕时间轴与内容完全同步。"""
+        """Prueba que, en el modo palabra a palabra (word_by_word), la línea de tiempo y el
+        contenido de los subtítulos con etiquetas de pausa quedan totalmente
+        sincronizados.
+        """
         from edge_tts.srt_composer import Subtitle
 
         fake_sub = vs.ensure_legacy_submaker_fields(vs.SubMaker())
@@ -2341,13 +2447,16 @@ class TestElevenLabsVoice(unittest.TestCase):
             self.assertIn("world.", content)
             self.assertIn("Good", content)
             self.assertIn("morning.", content)
-            # 第二段词条被正确偏移到了 3.3s 和 3.9s
+            # Las entradas del segundo segmento se desplazan correctamente a 3,3 s y 3,9
+            # s
             self.assertIn("00:00:00,100 --> 00:00:00,500", content)
             self.assertIn("00:00:03,300 --> 00:00:03,800", content)
             self.assertIn("00:00:03,900 --> 00:00:04,500", content)
 
     def test_tts_without_pauses_calls_single_tts_directly(self):
-        """验证不包含停顿标签时，直接调用 _single_tts，原有行为和性能完全不变。"""
+        """Verifica que sin etiquetas de pausa se llama directamente a _single_tts, sin
+        cambiar en nada el comportamiento ni el rendimiento originales.
+        """
         with (
             patch.object(vs, "_single_tts", return_value="normal_submaker") as mock_single_tts,
             patch.object(vs, "_tts_with_pauses") as mock_pauses,
@@ -2363,8 +2472,10 @@ class TestElevenLabsVoice(unittest.TestCase):
             mock_pauses.assert_not_called()
 
     def test_pause_invalid_tags_rejected_and_cleaned(self):
-        """验证非法标签（如 [pause: -2s]、[pause: nope]、[pause: 0s]）被彻底过滤，不朗读也不生成静音。"""
-        # 1. utils.remove_pause_tags 彻底清除所有非法标签
+        """Verifica que las etiquetas no válidas (como [pause: -2s], [pause: nope] o
+        [pause: 0s]) se filtran por completo, sin leerse ni generar silencio.
+        """
+        # 1. utils.remove_pause_tags elimina por completo todas las etiquetas no válidas
         dirty_text = "Hello [pause: 0s] world. [pause: -2s] [pause: nope] Bye."
         cleaned = utils.remove_pause_tags(dirty_text)
         self.assertNotIn("[pause", cleaned)
@@ -2373,7 +2484,8 @@ class TestElevenLabsVoice(unittest.TestCase):
         self.assertIn("Hello world.", cleaned)
         self.assertIn("Bye.", cleaned)
 
-        # 2. parse_script_with_pauses 忽略非法标签，且文案中不包含这些标签
+        # 2. parse_script_with_pauses ignora las etiquetas no válidas, y el texto no las
+        #    contiene
         segments = utils.parse_script_with_pauses(dirty_text)
         pauses = [s for s in segments if s[0] == "pause"]
         speech = [s for s in segments if s[0] == "speech"]
@@ -2384,7 +2496,8 @@ class TestElevenLabsVoice(unittest.TestCase):
             self.assertNotIn("-2s", text)
             self.assertNotIn("nope", text)
 
-        # 3. 当脚本全是非法标签时，tts 回退到 _single_tts，传递清洗后的文案而不是原始脏文本
+        # 3. Cuando el guion solo tiene etiquetas no válidas, tts vuelve a _single_tts y
+        #    pasa el texto limpio en lugar del texto sucio original
         with (
             tempfile.TemporaryDirectory() as tmp_dir,
             patch.object(vs, "_single_tts", return_value="submaker_ok") as mock_single,
@@ -2405,7 +2518,9 @@ class TestElevenLabsVoice(unittest.TestCase):
             self.assertIn("Hello world", called_text)
 
     def test_pause_minimum_duration_validation(self):
-        """验证微小停顿（如 1ms）会被校验并限制在最低有效阈值 MIN_PAUSE_DURATION_SECONDS (0.1s/100ms)。"""
+        """Verifica que las pausas diminutas (como 1 ms) se validan y se limitan al umbral
+        válido mínimo MIN_PAUSE_DURATION_SECONDS (0,1 s/100 ms).
+        """
         script = "Start [pause: 1ms] End"
         segments = utils.parse_script_with_pauses(script)
         pauses = [s for s in segments if s[0] == "pause"]
@@ -2414,8 +2529,10 @@ class TestElevenLabsVoice(unittest.TestCase):
         self.assertEqual(utils.MIN_PAUSE_DURATION_SECONDS, 0.1)
 
     def test_tts_provider_limitation_to_azure_v1(self):
-        """验证仅 Azure TTS v1 (Edge TTS) 进入分段链路，Gemini/Fish Audio/SiliconFlow/Kokoro 保持单次请求。"""
-        # 1. 声音提供商判断
+        """Verifica que solo Azure TTS v1 (Edge TTS) entra en la cadena por segmentos, y
+        que Gemini/Fish Audio/SiliconFlow/Kokoro mantienen una sola solicitud.
+        """
+        # 1. Comprobación del proveedor de voz
         self.assertTrue(vs.is_azure_v1_voice("zh-CN-XiaoxiaoNeural"))
         self.assertTrue(vs.is_azure_v1_voice("es-ES-AlvaroNeural"))
         self.assertFalse(vs.is_azure_v1_voice("gemini:Puck-Male"))
@@ -2424,7 +2541,9 @@ class TestElevenLabsVoice(unittest.TestCase):
         self.assertFalse(vs.is_azure_v1_voice("kokoro:af_bella"))
         self.assertFalse(vs.is_azure_v1_voice("elevenlabs:voice-id:voice-name"))
 
-        # 2. 其他提供商脚本含停顿标签时，必须先清除标签并调用单次合成，不调用 _tts_with_pauses
+        # 2. Cuando el guion de otros proveedores tiene etiquetas de pausa, hay que
+        #    eliminarlas primero y llamar a una síntesis única, sin llamar a
+        #    _tts_with_pauses
         non_azure_voices = [
             "gemini:Puck-Male",
             "fish_audio:default",
@@ -2452,7 +2571,10 @@ class TestElevenLabsVoice(unittest.TestCase):
                 self.assertIn("Part 1. Part 2.", called_text)
 
     def test_real_multi_segment_concatenation_no_drift(self):
-        """真实音频多段拼接测试：12个1s音频与11个0.5s停顿，验证字幕偏移与真实解码样本完全一致，无累积漂移。"""
+        """Test de montaje de audio real por segmentos: 12 audios de 1 s y 11 pausas de 0,5
+        s, verificando que el desplazamiento de los subtítulos coincide exactamente con
+        las muestras reales decodificadas, sin deriva acumulada.
+        """
         import wave
         import struct
         import math
@@ -2460,7 +2582,7 @@ class TestElevenLabsVoice(unittest.TestCase):
         from edge_tts.srt_composer import Subtitle
 
         sr = 24000
-        # 生成标准 1 秒正弦波单声道 16-bit PCM WAV
+        # Genera un WAV PCM estándar de 16 bits mono con una onda senoidal de 1 segundo
         speech_pcm = bytearray()
         for i in range(sr):
             val = int(32767.0 * 0.3 * math.sin(2.0 * math.pi * 440.0 * i / sr))
@@ -2468,7 +2590,8 @@ class TestElevenLabsVoice(unittest.TestCase):
 
         def make_fake_speech_submaker(idx):
             sub = vs.ensure_legacy_submaker_fields(vs.SubMaker())
-            # 每段台词在自身片段内的 cue 从 0.0s 到 1.0s
+            # La cue de cada fragmento de texto va de 0,0 s a 1,0 s dentro de su propio
+            # segmento
             sub.cues = [
                 Subtitle(1, timedelta(seconds=0.0), timedelta(seconds=1.0), f"Word_{idx}"),
             ]
@@ -2479,7 +2602,7 @@ class TestElevenLabsVoice(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             def real_single_tts_wav(text, voice_name, voice_rate, voice_file, voice_volume=1.0):
-                # 写入真实的 1 秒 WAV 音频数据
+                # Escribe datos de audio WAV reales de 1 segundo
                 with wave.open(voice_file, "wb") as wf:
                     wf.setnchannels(1)
                     wf.setsampwidth(2)
@@ -2488,7 +2611,7 @@ class TestElevenLabsVoice(unittest.TestCase):
                 idx = int(text.split()[-1]) if text.split()[-1].isdigit() else 0
                 return make_fake_speech_submaker(idx)
 
-            # 构造 12 个台词段和 11 个 0.5s 停顿的脚本
+            # Construye un guion con 12 fragmentos de texto y 11 pausas de 0,5 s
             script_parts = []
             for i in range(12):
                 script_parts.append(f"Word {i}")
@@ -2498,7 +2621,8 @@ class TestElevenLabsVoice(unittest.TestCase):
 
             out_mp3 = str(Path(tmp_dir) / "output.mp3")
 
-            # 在不 mock _concat_audio_files 和 get_audio_duration 的情况下运行真实分段链路
+            # Ejecuta la cadena real por segmentos sin simular _concat_audio_files ni
+            # get_audio_duration
             with patch.object(vs, "_single_tts", side_effect=real_single_tts_wav):
                 result_submaker = vs._tts_with_pauses(
                     text=full_script,
@@ -2511,17 +2635,20 @@ class TestElevenLabsVoice(unittest.TestCase):
             self.assertTrue(os.path.exists(out_mp3))
             self.assertGreater(os.path.getsize(out_mp3), 0)
 
-            # 验证字幕线索数量为 12
+            # Verifica que el número de cues de subtítulos es 12
             self.assertEqual(len(result_submaker.cues), 12)
 
-            # 验证第 12 段（最后一个台词）：
-            # 前面经历了 11 个 1.0s 语音 + 11 个 0.5s 停顿 = 11.0s + 5.5s = 16.50s
+            # Verifica el segmento 12 (el último fragmento de texto):
+            # antes ha habido 11 voces de 1,0 s + 11 pausas de 0,5 s = 11,0 s + 5,5 s =
+            # 16,50 s
             last_cue = result_submaker.cues[-1]
-            # 严格断言：开始时间必须为 16.50s，绝不能漂移到 17.71s！
+            # Aserción estricta: el tiempo de inicio debe ser 16,50 s, ¡nunca puede
+            # derivar a 17,71 s!
             self.assertAlmostEqual(last_cue.start.total_seconds(), 16.50, places=2)
             self.assertAlmostEqual(last_cue.end.total_seconds(), 17.50, places=2)
 
-            # 真实解码输出的 MP3 音频，验证解码后的总样本时长为 17.50s
+            # Audio MP3 de salida decodificado de verdad; verifica que la duración total
+            # de las muestras decodificadas es de 17,50 s
             decoded_wav = str(Path(tmp_dir) / "decoded.wav")
             ffmpeg_binary = utils.get_ffmpeg_binary()
             subprocess.run(
@@ -2534,11 +2661,15 @@ class TestElevenLabsVoice(unittest.TestCase):
                 total_sr = wf.getframerate()
                 decoded_duration = total_frames / float(total_sr)
 
-            # 验证最终解码时长与字幕结尾完全一致（17.50s）
+            # Verifica que la duración final decodificada coincide exactamente con el
+            # final de los subtítulos (17,50 s)
             self.assertAlmostEqual(decoded_duration, 17.50, delta=0.06)
 
     def test_tts_with_pauses_fails_on_empty_chunk_audio(self):
-        """回归测试：当语音片段合成生成了空文件（0字节）或文件丢失时，_tts_with_pauses 报错失败返回 None，绝不能回退生成静音掩盖错误。"""
+        """Test de regresión: cuando la síntesis de un fragmento de voz genera un archivo
+        vacío (0 bytes) o el archivo falta, _tts_with_pauses debe fallar y devolver
+        None, sin volver nunca a generar silencio que oculte el error.
+        """
         from edge_tts.srt_composer import Subtitle
 
         fake_sub = vs.ensure_legacy_submaker_fields(vs.SubMaker())
@@ -2547,7 +2678,7 @@ class TestElevenLabsVoice(unittest.TestCase):
         ]
 
         def fake_single_tts_empty(text, voice_name, voice_rate, voice_file, voice_volume=1.0):
-            Path(voice_file).touch()  # 0-byte empty file
+            Path(voice_file).touch()  # archivo vacío de 0 bytes
             return fake_sub
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -2562,7 +2693,10 @@ class TestElevenLabsVoice(unittest.TestCase):
             self.assertIsNone(result)
 
     def test_tts_with_pauses_fails_on_corrupted_chunk_audio(self):
-        """回归测试：当语音片段音频损坏无法解码为 PCM 时，_tts_with_pauses 必须报错返回 None，而不是用静音代替旁白继续执行。"""
+        """Test de regresión: cuando el audio de un fragmento de voz está dañado y no se
+        puede decodificar a PCM, _tts_with_pauses debe dar error y devolver None, en
+        lugar de sustituir la narración por silencio y seguir.
+        """
         from edge_tts.srt_composer import Subtitle
 
         fake_sub = vs.ensure_legacy_submaker_fields(vs.SubMaker())
@@ -2612,7 +2746,9 @@ class TestElevenLabsVoice(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_tts_passes_original_text_unchanged_without_pauses(self):
-        """测试无停顿标签时，tts 将原始文本原样直通给 _single_tts，不执行正则替换或清洗。"""
+        """Prueba que sin etiquetas de pausa, tts pasa el texto original tal cual a
+        _single_tts, sin aplicar sustituciones de regex ni limpieza.
+        """
         original_text = "  Leading and trailing spaces, [regular bracket] and punctuation!  \nNew line here.  "
         with patch.object(vs, "_single_tts", return_value="dummy_submaker") as mock_single:
             result = vs.tts(

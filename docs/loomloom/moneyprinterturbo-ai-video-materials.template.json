@@ -1,22 +1,22 @@
 {
   "meta": {
-    "name": "MoneyPrinterTurbo AI 视频素材",
-    "description": "为 MoneyPrinterTurbo 批量生成无字幕、无配音的短视频素材片段。",
+    "name": "Material de vídeo con IA para MoneyPrinterTurbo",
+    "description": "Genera por lotes clips de material para vídeos cortos, sin subtítulos ni locución, para MoneyPrinterTurbo.",
     "scenario": "short-video-material-generation",
-    "inputSummary": "场景描述、画面比例和场景编号",
+    "inputSummary": "Descripción de la escena, relación de aspecto y número de escena",
     "primaryOutputType": "video",
     "tags": [
       "MoneyPrinterTurbo",
-      "短视频",
-      "AI 视频素材"
+      "vídeo corto",
+      "material de vídeo con IA"
     ]
   },
   "steps": [
     {
       "stepId": "stp_video01",
-      "displayName": "生成视频素材",
+      "displayName": "Generar material de vídeo",
       "executionUnit": "video-generate",
-      "instruction": "生成可用于短视频剪辑的独立视频素材片段。不要生成字幕、文字、标题、水印、Logo 或口播音频。保持主体运动和镜头运动自然，避免突然切镜。",
+      "instruction": "Genera clips de material de vídeo independientes que se puedan usar al montar vídeos cortos. No generes subtítulos, texto, títulos, marcas de agua, logotipos ni audio hablado. Mantén natural el movimiento del sujeto y de la cámara, y evita los cortes bruscos.",
       "defaultModelRef": {
         "modelKey": "google/veo3.1-fast-preview"
       },
@@ -28,26 +28,26 @@
   ],
   "inputSchema": {
     "instructions": [
-      "每一行生成一段独立 MP4 视频素材。",
-      "场景编号用于让同一主题的多个素材保持镜头差异。"
+      "Cada fila genera un clip de material de vídeo MP4 independiente.",
+      "El número de escena sirve para que varios clips del mismo tema mantengan planos distintos."
     ],
     "fields": [
       {
         "key": "scenePrompt",
-        "label": "场景描述",
-        "description": "需要生成的视频画面、主体、动作和镜头要求",
+        "label": "Descripción de la escena",
+        "description": "Imagen, sujeto, acción y requisitos de cámara del vídeo que se va a generar",
         "valueType": "string",
         "required": true,
         "order": 1,
         "presentation": {
           "widget": "textarea",
-          "placeholder": "例如：现代办公室中的工作人员使用 AI 助手，自然光，缓慢推进镜头"
+          "placeholder": "Por ejemplo: personas en una oficina moderna usando un asistente de IA, luz natural, travelling lento hacia delante"
         }
       },
       {
         "key": "aspectRatio",
-        "label": "画面比例",
-        "description": "MoneyPrinterTurbo 最终成片使用的画面比例",
+        "label": "Relación de aspecto",
+        "description": "Relación de aspecto que usa el vídeo final de MoneyPrinterTurbo",
         "valueType": "enum",
         "enumValues": [
           "9:16",
@@ -58,8 +58,8 @@
       },
       {
         "key": "sceneIndex",
-        "label": "场景编号",
-        "description": "同一批次中从 1 开始的场景序号",
+        "label": "Número de escena",
+        "description": "Número de orden de la escena dentro del lote, empezando por 1",
         "valueType": "string",
         "required": true,
         "order": 3
@@ -68,7 +68,7 @@
     "sampleRows": [
       {
         "values": {
-          "scenePrompt": "现代办公室中的工作人员使用 AI 助手，自然光，缓慢推进镜头，无文字无水印",
+          "scenePrompt": "Personas en una oficina moderna usando un asistente de IA, luz natural, travelling lento hacia delante, sin texto ni marcas de agua",
           "aspectRatio": "9:16",
           "sceneIndex": "1"
         }
@@ -96,7 +96,7 @@
         },
         {
           "kind": "literal",
-          "literal": "场景编号："
+          "literal": "Número de escena: "
         },
         {
           "kind": "field_ref",

@@ -130,7 +130,7 @@ class TestMemoryState(unittest.TestCase):
         self.assertEqual(state.get_task("task-1")["videos"], ["first.mp4"])
 
     def test_get_all_tasks_copies_only_the_requested_page(self):
-        """A small page should not clone every historical task payload."""
+        """Una página pequeña no debe clonar la carga útil de todas las tareas históricas."""
 
         class CopyTracked:
             def __init__(self):
@@ -144,8 +144,8 @@ class TestMemoryState(unittest.TestCase):
         off_page = CopyTracked()
         state.update_task("task-1", videos=["first.mp4"])
         state.update_task("task-2", payload=off_page)
-        # Input values are snapshotted on update; track the stored payload
-        # so this test measures only copies made by pagination.
+        # Los valores de entrada se copian al actualizar; se rastrea la carga útil
+        # guardada para que este test mida solo las copias que hace la paginación.
         off_page = state._tasks["task-2"]["payload"]
 
         first_page, total = state.get_all_tasks(page=1, page_size=1)
@@ -186,7 +186,9 @@ class TestMemoryState(unittest.TestCase):
         self.assertEqual(len(tasks), total)
 
     def test_patch_task_preserves_generated_outputs(self):
-        """异步发布更新不能覆盖已经完成的视频任务字段。"""
+        """Las actualizaciones de publicación asíncronas no deben sobrescribir los campos
+        de una tarea de vídeo ya completada.
+        """
         state = MemoryState()
         state.update_task(
             "task-1",
@@ -252,10 +254,12 @@ class TestRedisState(unittest.TestCase):
 
     def test_get_all_tasks_paginates_across_scan_batches(self):
         """
-        Redis SCAN 分批返回 key 时，分页必须按任务键的稳定顺序切片。
+        Cuando Redis SCAN devuelve las claves por lotes, la paginación debe cortar según
+        un orden estable de las claves de tarea.
 
-        这个用例复现 PR #890 描述的 18 条任务、page_size=10 场景：
-        第一批 10 条，第二批 8 条；两页合起来应完整覆盖全部任务。
+        Este caso reproduce el escenario del PR #890: 18 tareas con page_size=10; el
+        primer lote trae 10 y el segundo 8, y entre las dos páginas deben cubrirse todas
+        las tareas.
         """
         state = self._build_state([10, 8])
 
@@ -279,7 +283,9 @@ class TestRedisState(unittest.TestCase):
         self.assertEqual(set(state._redis.scan_types), {"HASH"})
 
     def test_get_all_tasks_deduplicates_and_stabilizes_scan_order(self):
-        """两次独立扫描顺序不同、单次扫描重复返回键时仍不重不漏。"""
+        """Aunque dos escaneos independientes tengan distinto orden o un mismo escaneo
+        repita claves, no debe haber duplicados ni omisiones.
+        """
         state = self._build_state([3])
         state._redis.batches = [
             [b"task:1", b"task:0"],
@@ -303,7 +309,9 @@ class TestRedisState(unittest.TestCase):
         self.assertEqual(state.list_task_ids(scan_count=1), ["task:0", "task:1", "task:2"])
 
     def test_shared_redis_db_does_not_expose_unrelated_hashes(self):
-        """Only hashes whose embedded task_id matches the key belong to this app."""
+        """Solo los hashes cuyo task_id incrustado coincide con la clave pertenecen a esta
+        aplicación.
+        """
         state = self._build_state([3])
         state._redis.data[b"task:1"] = {b"secret": b"another service's token"}
         state._redis.data[b"task:2"] = {
@@ -323,7 +331,9 @@ class TestRedisState(unittest.TestCase):
         "MPT_TEST_REDIS_HOST not set",
     )
     def test_real_redis_get_all_tasks_ignores_queue_keys(self):
-        """真实 Redis 中的 List 队列不能被任务列表误当作 Hash 读取。"""
+        """Las colas List del Redis real no deben leerse por error como Hash en la lista de
+        tareas.
+        """
         state = RedisState(
             host=os.environ["MPT_TEST_REDIS_HOST"],
             port=int(os.getenv("MPT_TEST_REDIS_PORT", "6379")),
@@ -355,7 +365,9 @@ class TestRedisState(unittest.TestCase):
         "MPT_TEST_REDIS_HOST not set",
     )
     def test_real_redis_pagination_keeps_a_stable_task_order(self):
-        """真实 Redis 的多批 SCAN 不应让跨页任务重复或丢失。"""
+        """Un SCAN de varios lotes en el Redis real no debe duplicar ni perder tareas entre
+        páginas.
+        """
         state = RedisState(
             host=os.environ["MPT_TEST_REDIS_HOST"],
             port=int(os.getenv("MPT_TEST_REDIS_PORT", "6379")),
@@ -403,7 +415,9 @@ class TestRedisState(unittest.TestCase):
         "MPT_TEST_REDIS_HOST not set",
     )
     def test_real_redis_patch_and_delete_are_atomic(self):
-        """真实 Redis 中并发删除和局部更新不能重新创建残缺任务。"""
+        """En el Redis real, los borrados concurrentes y las actualizaciones parciales no
+        deben recrear tareas incompletas.
+        """
         state = RedisState(
             host=os.environ["MPT_TEST_REDIS_HOST"],
             port=int(os.getenv("MPT_TEST_REDIS_PORT", "6379")),
@@ -430,8 +444,9 @@ class TestRedisState(unittest.TestCase):
                 barrier.wait()
                 state.delete_task(task_id)
 
-            # Future.result() 会把工作线程异常重新抛到测试线程，避免 Redis
-            # 命令实际失败但仅打印线程异常、最终仍被误判为测试通过。
+            # Future.result() vuelve a lanzar en el hilo del test las excepciones del
+            # hilo de trabajo, para que un comando de Redis que falla de verdad no se
+            # limite a imprimir la excepción del hilo y acabe dando el test por bueno.
             with ThreadPoolExecutor(max_workers=2) as executor:
                 futures = [
                     executor.submit(patch_task),

@@ -26,7 +26,7 @@ class TestUploadPostTimeoutId(unittest.TestCase):
                 UUID(request_id)
                 self.assertEqual(result["request_id"], request_id)
                 self.assertFalse(result["success"])
-                self.assertIn("unconfirmed", result["error"])
+                self.assertIn("no está confirmado", result["error"])
                 self.assertIn(request_id, result["error"])
                 self.assertTrue(post.call_args.kwargs["files"]["video"].closed)
 
@@ -42,7 +42,7 @@ class TestUploadPostTimeoutId(unittest.TestCase):
             ) as post:
                 result = UploadPostService().upload_video(str(video), "title", platforms=["tiktok"])
             self.assertFalse(result["success"])
-            self.assertNotIn("unconfirmed", result["error"])
+            self.assertNotIn("no está confirmado", result["error"])
             self.assertEqual(post.call_count, 1)
 
     def test_gateway_timeout_retains_id_without_republishing(self):
@@ -57,6 +57,6 @@ class TestUploadPostTimeoutId(unittest.TestCase):
             ) as post:
                 result = UploadPostService().upload_video(str(video), "title", platforms=["tiktok"])
             self.assertFalse(result["success"])
-            self.assertIn("unconfirmed", result["error"])
+            self.assertIn("no está confirmado", result["error"])
             self.assertEqual(result["request_id"], dict(post.call_args.kwargs["data"])["request_id"])
             self.assertEqual(post.call_count, 1)

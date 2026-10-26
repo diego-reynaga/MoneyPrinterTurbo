@@ -23,7 +23,9 @@ class TestTaskArtifacts(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_patch_preserves_existing_script_fields(self):
-        """补充素材来源时不能覆盖历史任务恢复依赖的文案、关键词和参数。"""
+        """Al añadir el origen del material no se deben sobrescribir el guion, las palabras
+        clave ni los parámetros de los que depende la restauración de tareas históricas.
+        """
         original = {
             "script": "existing script",
             "search_terms": ["nature"],
@@ -51,7 +53,10 @@ class TestTaskArtifacts(unittest.TestCase):
         self.assertEqual(list(self.task_dir.glob(".script.json.*.tmp")), [])
 
     def test_write_script_data_serializes_video_params(self):
-        """原子写入替换旧实现后，仍需完整兼容任务主流程传入的 Pydantic 参数。"""
+        """Tras sustituir la implementación antigua por la escritura atómica, debe seguir
+        siendo totalmente compatible con los parámetros Pydantic que pasa el flujo
+        principal de tareas.
+        """
         params = VideoParams(
             video_subject="test subject",
             video_terms=["city", "night"],
@@ -72,7 +77,9 @@ class TestTaskArtifacts(unittest.TestCase):
         self.assertEqual(payload["params"]["video_source"], "pexels")
 
     def test_patch_missing_script_is_non_blocking(self):
-        """独立调用素材下载时没有任务清单，应静默跳过而不是创建残缺 JSON。"""
+        """Al llamar a la descarga de material de forma independiente no hay manifiesto de
+        tarea; debe omitirse en silencio en lugar de crear un JSON incompleto.
+        """
         updated = task_artifacts.patch_script_data(
             "standalone",
             material_sources=[],
@@ -82,7 +89,9 @@ class TestTaskArtifacts(unittest.TestCase):
         self.assertFalse((self.task_dir / "script.json").exists())
 
     def test_patch_invalid_script_returns_false_without_overwrite(self):
-        """历史 JSON 损坏时必须保留原文件、记录错误，并允许视频主流程继续。"""
+        """Si el JSON histórico está dañado, hay que conservar el archivo original,
+        registrar el error y permitir que continúe el flujo principal del vídeo.
+        """
         target = self.task_dir / "script.json"
         target.write_text("{invalid-json", encoding="utf-8")
 

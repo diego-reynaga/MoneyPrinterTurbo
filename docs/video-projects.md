@@ -1,33 +1,33 @@
-# Editable local video projects
+# Proyectos de vídeo locales editables
 
-Change one scene without rendering the whole episode again. This opt-in CLI
-snapshots prepared local footage and narration, records immutable revisions, and
-reuses artifacts only when both their dependencies and SHA-256 integrity match.
-It makes no API calls and does not publish videos. Existing generation jobs and
-WebUI behavior are unchanged.
+Cambia una escena sin volver a renderizar el episodio entero. Esta CLI opcional
+hace una instantánea del material local y la narración preparados, registra revisiones inmutables y
+reutiliza los artefactos solo cuando coinciden tanto sus dependencias como su integridad SHA-256.
+No hace llamadas a ninguna API ni publica vídeos. Los trabajos de generación existentes y el
+comportamiento de la WebUI no cambian.
 
-This is a revision/artifact foundation for the existing scene/director proposals,
-not another director or paid-provider workflow. First generate/download the
-footage and narration using the existing task pipeline or your preferred tools.
-Use their local output paths below. Keep a scene's ID when replacing its media;
-change the order in the manifest to reorder the video.
+Es una base de revisiones/artefactos para las propuestas existentes de escenas/director,
+no otro director ni un flujo con proveedores de pago. Primero genera o descarga el
+material y la narración con el flujo de tareas existente o con tus herramientas preferidas.
+Usa abajo las rutas locales de sus resultados. Mantén el ID de una escena al sustituir su material;
+cambia el orden en el manifiesto para reordenar el vídeo.
 
-## Requirements
+## Requisitos
 
-Python 3.11 or newer and FFmpeg/FFprobe on PATH, including the `libx264` encoder.
-Prepared inputs must be standalone encoded media: MOV/MP4, Matroska/WebM, AVI,
-MPEG-TS/video, Ogg, FLV, WAV, MP3, FLAC or AAC. HLS/DASH/concat playlists and
-external-reference media are rejected; copying only a playlist would not snapshot
-its referenced segments. Concat is permitted only for internally generated
-assembly lists. Network protocols are disabled for all render inputs.
-There are no new Python dependencies. Projects are local single-host stores;
-network filesystems with unreliable locking are unsupported. Reserve enough disk
-for source snapshots, retained revisions and exports. There is no automatic
-artifact pruning or deletion of older successful exports.
+Python 3.11 o superior y FFmpeg/FFprobe en el PATH, incluido el codificador `libx264`.
+Las entradas preparadas deben ser medios codificados autocontenidos: MOV/MP4, Matroska/WebM, AVI,
+MPEG-TS/vídeo, Ogg, FLV, WAV, MP3, FLAC o AAC. Se rechazan las listas de reproducción HLS/DASH/concat y
+los medios con referencias externas; copiar solo una lista de reproducción no haría una instantánea
+de los segmentos a los que apunta. Concat solo se permite para las listas de montaje generadas
+internamente. Los protocolos de red están desactivados para todas las entradas del renderizado.
+No hay dependencias nuevas de Python. Los proyectos son almacenes locales de un solo host;
+no se admiten sistemas de archivos de red con bloqueos poco fiables. Reserva disco suficiente
+para las instantáneas de origen, las revisiones conservadas y las exportaciones. No hay poda automática
+de artefactos ni borrado de exportaciones correctas antiguas.
 
-## Create, inspect and render
+## Crear, inspeccionar y renderizar
 
-Save `episode.json` beside your prepared assets:
+Guarda `episode.json` junto a tus recursos preparados:
 
 ```json
 {
@@ -44,7 +44,7 @@ Save `episode.json` beside your prepared assets:
       "id": "opening",
       "footage": "opening.mp4",
       "audio": "opening.wav",
-      "narration": "Introduce the product."
+      "narration": "Presenta el producto."
     },
     {
       "id": "product-detail",
@@ -63,98 +63,98 @@ python -m app.services.video_project --project storage/projects/product-episode 
 python -m app.services.video_project --project storage/projects/product-episode status
 ```
 
-Relative asset paths resolve against the manifest's directory. Sources are copied
-into the project; later editing the original file does not silently change a
-revision. The revision ID printed by `revise` identifies an immutable input
-snapshot. `status` reports completed stages, reused artifacts, failures and the
-export path. `project.json` points to the current revision and the last successful
-export, which is preserved until a newer current revision succeeds.
+Las rutas relativas de los recursos se resuelven respecto al directorio del manifiesto. Los originales se copian
+dentro del proyecto; editar después el archivo original no cambia en silencio una
+revisión. El ID de revisión que imprime `revise` identifica una instantánea de entrada
+inmutable. `status` informa de las etapas completadas, los artefactos reutilizados, los fallos y la
+ruta de exportación. `project.json` apunta a la revisión actual y a la última exportación
+correcta, que se conserva hasta que una revisión actual más nueva tenga éxito.
 
-Audio determines the duration of narrated scenes. Silent scenes use `duration`
-(default five seconds). Short footage loops; long footage is trimmed. Source
-video audio is intentionally replaced with the prepared narration or silence.
-All scene outputs use the same dimensions, frame rate and stereo 48kHz audio.
-The final BGM mix loops music to the timeline duration and does not normalize
-narration away. Zero BGM volume produces an unmixed export.
+El audio determina la duración de las escenas narradas. Las escenas sin audio usan `duration`
+(cinco segundos por defecto). El material corto se repite en bucle; el largo se recorta. El audio del
+vídeo de origen se sustituye intencionadamente por la narración preparada o por silencio.
+Todas las salidas de escena usan las mismas dimensiones, tasa de fotogramas y audio estéreo a 48 kHz.
+La mezcla final de BGM repite la música en bucle hasta la duración de la línea de tiempo y no normaliza
+la narración hasta hacerla desaparecer. Un volumen de BGM cero produce una exportación sin mezclar.
 
-`narration` is provenance text, not a TTS request. When changing narration, provide
-its newly prepared audio too; the CLI cannot verify that the recording speaks the
-text. Word-aligned subtitles, transitions, overlays and provider generation are
-not implemented by this first local renderer. The timing stage records duration,
-not generated word alignments.
+`narration` es un texto de procedencia, no una solicitud de TTS. Al cambiar la narración, aporta
+también su nuevo audio preparado; la CLI no puede verificar que la grabación diga el
+texto. Los subtítulos alineados por palabra, las transiciones, las superposiciones y la generación con proveedores
+no están implementados en este primer renderizador local. La etapa de tiempos registra la duración,
+no alineaciones de palabras generadas.
 
-## Replace, compare and reuse
+## Sustituir, comparar y reutilizar
 
-Edit only the affected scene/BGM fields, then run `revise` again with the same
-`project_id` and stable scene IDs. Use the old and new printed IDs to compare:
+Edita solo los campos de la escena/BGM afectados y vuelve a ejecutar `revise` con el mismo
+`project_id` y los mismos ID de escena estables. Usa los ID antiguo y nuevo que se imprimen para comparar:
 
 ```sh
-python -m app.services.video_project --project storage/projects/product-episode compare OLD_REVISION NEW_REVISION
+python -m app.services.video_project --project storage/projects/product-episode compare REVISION_ANTIGUA REVISION_NUEVA
 python -m app.services.video_project --project storage/projects/product-episode plan
 python -m app.services.video_project --project storage/projects/product-episode render
 ```
 
-| Change | Rebuilt stages |
+| Cambio | Etapas reconstruidas |
 |---|---|
-| One scene's footage | That scene's render, assembly and final export |
-| One scene's narration/audio | That scene's audio normalization, timing and render; assembly and export |
-| BGM file or volume | Final mix/export only |
-| Scene order | Assembly and export only |
-| Dimensions/frame rate | Scene renders, assembly and export |
-| Narration volume | Audio, timing, scenes, assembly and export |
-| FFmpeg tool version/renderer contract | A new revision rebuilds under the changed transformation fingerprint |
+| El material de una escena | El renderizado de esa escena, el montaje y la exportación final |
+| La narración/audio de una escena | La normalización de audio, los tiempos y el renderizado de esa escena; el montaje y la exportación |
+| Archivo o volumen de la BGM | Solo la mezcla/exportación final |
+| Orden de las escenas | Solo el montaje y la exportación |
+| Dimensiones/tasa de fotogramas | Los renderizados de escena, el montaje y la exportación |
+| Volumen de la narración | Audio, tiempos, escenas, montaje y exportación |
+| Versión de FFmpeg/contrato del renderizador | Una revisión nueva se reconstruye con la huella de transformación cambiada |
 
-The plan explains changed dependencies, missing completed artifacts and integrity
-failures. Damaged artifacts are rebuilt from verified snapshots. Damaged source
-snapshots fail closed: create a new revision from the original prepared media.
-Caches stay inside one project; another project cannot implicitly reuse them.
-There are no savings percentages or paid-generation idempotency guarantees.
+El plan explica las dependencias cambiadas, los artefactos completados que faltan y los fallos
+de integridad. Los artefactos dañados se reconstruyen a partir de instantáneas verificadas. Las instantáneas de origen
+dañadas fallan de forma segura: crea una revisión nueva a partir del material preparado original.
+Las cachés se quedan dentro de un proyecto; otro proyecto no puede reutilizarlas implícitamente.
+No hay porcentajes de ahorro ni garantías de idempotencia de generación de pago.
 
-## Cancellation, failures and concurrent revisions
+## Cancelación, fallos y revisiones concurrentes
 
 ```sh
 python -m app.services.video_project --project storage/projects/product-episode cancel
 python -m app.services.video_project --project storage/projects/product-episode render --retry
 ```
 
-A cancellation request stops the active media subprocess and prevents promotion.
-An explicit `--retry` is required after a failed, cancelled or interrupted render.
-Completed verified stages remain reusable. A process crash may leave status
-`running`; retry rechecks artifacts instead of assuming it completed. Temporary
-uncommitted `.work` directories from an abrupt process death may be deleted when
-no render is active. They are never a source of trusted reusable artifacts.
+Una solicitud de cancelación detiene el subproceso multimedia activo e impide la promoción.
+Tras un renderizado fallido, cancelado o interrumpido hace falta un `--retry` explícito.
+Las etapas completadas y verificadas siguen siendo reutilizables. Un fallo del proceso puede dejar el estado
+`running`; el reintento vuelve a comprobar los artefactos en lugar de suponer que terminó. Los directorios
+`.work` temporales sin confirmar que deja una muerte brusca del proceso pueden borrarse cuando
+no hay ningún renderizado activo. Nunca son una fuente de artefactos reutilizables de confianza.
 
-Only one renderer writes a revision at a time. Different revisions may render
-concurrently and share immutable completed artifacts. If a newer revision is
-created while an older one renders, the old revision may finish for comparison,
-but cannot replace the current project's last successful export. OS locks release
-after process death. Each external media command has a bounded deadline (600
-seconds by default, adjustable with `render --stage-timeout`).
+Solo un renderizador escribe una revisión a la vez. Revisiones distintas pueden renderizarse
+a la vez y compartir artefactos completados inmutables. Si se crea una revisión más nueva
+mientras se renderiza una antigua, la antigua puede terminar para poder compararla,
+pero no puede sustituir la última exportación correcta del proyecto actual. Los bloqueos del sistema operativo se liberan
+al morir el proceso. Cada comando multimedia externo tiene un plazo acotado (600
+segundos por defecto, ajustable con `render --stage-timeout`).
 
-Manifests and artifact records use atomic file replacement. Artifact bytes are
-published before the commit record; incomplete writes are never trusted. A
-fingerprint includes the renderer contract, FFmpeg/FFprobe versions, relevant
-settings and content hashes. Unknown manifest/settings fields are rejected,
-including provider credentials. Store only public narration content here; no
-software can infer whether arbitrary user-written text contains a secret.
+Los manifiestos y los registros de artefactos usan la sustitución atómica de archivos. Los bytes de los artefactos se
+publican antes que el registro de confirmación; nunca se confía en escrituras incompletas. Una
+huella incluye el contrato del renderizador, las versiones de FFmpeg/FFprobe, los ajustes
+relevantes y los hashes del contenido. Se rechazan los campos desconocidos del manifiesto/ajustes,
+incluidas las credenciales de proveedores. Guarda aquí solo contenido de narración público; ningún
+software puede deducir si un texto arbitrario escrito por el usuario contiene un secreto.
 
-## Reusable episode/brand render settings
+## Ajustes de renderizado reutilizables por episodio/marca
 
 ```sh
 python -m app.services.video_project --project storage/projects/product-episode save-preset brand-render.json
 python -m app.services.video_project --project storage/projects/next-episode revise next-episode.json --preset brand-render.json
 ```
 
-Presets reuse dimensions, frame rate and narration/BGM volume. They contain no
-assets, project IDs, credentials, provider selections or claims of consistent
-AI-generated characters. A supplied preset replaces the manifest's settings.
-Scene assets and narration remain explicit per episode.
+Los preajustes reutilizan las dimensiones, la tasa de fotogramas y el volumen de la narración/BGM. No contienen
+recursos, ID de proyecto, credenciales, elecciones de proveedores ni afirmaciones de personajes
+generados con IA coherentes. Un preajuste proporcionado sustituye los ajustes del manifiesto.
+Los recursos de las escenas y la narración siguen siendo explícitos en cada episodio.
 
-## Integration boundary
+## Límite de integración
 
-`VideoProject.create_revision`, `plan`, `render`, `status` and `compare` provide the
-same prepared-media contract as the CLI. A future accepted director can pass its
-completed narration/footage paths, retain scene IDs, and consume export/revision
-receipts without changing provider ownership. Existing creative-outcome records
-can reference a completed revision ID without introducing automated publishing
-or treating observational performance as causal evidence.
+`VideoProject.create_revision`, `plan`, `render`, `status` y `compare` ofrecen el
+mismo contrato de medios preparados que la CLI. Un futuro director aceptado puede pasar sus
+rutas de narración/material completadas, conservar los ID de escena y consumir los recibos de exportación/revisión
+sin cambiar la propiedad de los proveedores. Los registros existentes de resultados creativos
+pueden hacer referencia a un ID de revisión completada sin introducir publicación automatizada
+ni tratar el rendimiento observado como prueba causal.

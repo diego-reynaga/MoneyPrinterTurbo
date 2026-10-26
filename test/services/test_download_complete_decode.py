@@ -25,8 +25,8 @@ def test_partial_faststart_video_does_not_poison_download_cache(tmp_path):
             requests.append(self.path)
             data = payloads[min(len(requests) - 1, 1)]
             self.send_response(200)
-            # This is a completed transport response containing a truncated
-            # media object, not a Content-Length/socket truncation.
+            # Es una respuesta de transporte completa que contiene un objeto multimedia
+            # truncado, no un truncamiento de Content-Length o del socket.
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)

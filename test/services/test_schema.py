@@ -59,21 +59,21 @@ class TestVideoParams(unittest.TestCase):
         self.assertEqual(params.video_count, 1)
 
     def test_api_video_count_is_bounded_without_limiting_cli_params(self):
-        """One HTTP task must not schedule an unbounded render batch."""
+        """Una tarea HTTP no debe programar un lote de renderizado ilimitado."""
         self.assertEqual(
             TaskVideoRequest(video_subject="Coffee", video_count=5).video_count, 5
         )
         with self.assertRaises(ValidationError):
             TaskVideoRequest(video_subject="Coffee", video_count=6)
 
-        # The shared model also powers the CLI, which documents any positive
-        # count, so its existing behavior must remain available there.
+        # El modelo compartido también alimenta la CLI, que documenta cualquier cantidad
+        # positiva, así que su comportamiento actual debe seguir disponible allí.
         self.assertEqual(
             VideoParams(video_subject="Coffee", video_count=6).video_count, 6
         )
 
     def test_api_render_threads_are_bounded_without_limiting_cli_params(self):
-        """An HTTP caller cannot pass arbitrary FFmpeg thread counts."""
+        """Quien llama por HTTP no puede pasar cantidades arbitrarias de hilos de FFmpeg."""
         self.assertEqual(
             TaskVideoRequest(video_subject="Coffee", n_threads=16).n_threads, 16
         )
@@ -87,7 +87,7 @@ class TestVideoParams(unittest.TestCase):
         )
 
     def test_api_clip_duration_is_bounded_without_limiting_cli_params(self):
-        """The API keeps one clip within the WebUI provider duration range."""
+        """La API mantiene cada clip dentro del rango de duración de proveedor de la WebUI."""
         self.assertEqual(
             TaskVideoRequest(video_subject="Coffee", video_clip_duration=15).video_clip_duration,
             15,
@@ -101,7 +101,9 @@ class TestVideoParams(unittest.TestCase):
         )
 
     def test_subtitle_modes_accept_only_supported_api_values(self):
-        """新增字幕参数必须拒绝拼写错误，避免请求成功后静默降级。"""
+        """Los nuevos parámetros de subtítulos deben rechazar errores de escritura, para
+        que una solicitud correcta no degrade en silencio.
+        """
         params = VideoParams(
             video_subject="Coffee",
             subtitle_display_mode="word_by_word",
@@ -144,7 +146,9 @@ class TestVideoParams(unittest.TestCase):
                 self.assertIs(request.subtitle_enabled, False)
 
     def test_invalid_saved_subtitle_mode_falls_back_during_upgrade(self):
-        """旧配置包含无效值时应回退默认值，而不是阻止服务启动。"""
+        """Si la configuración antigua contiene valores no válidos, debe volver a los
+        valores por defecto en lugar de impedir que arranque el servicio.
+        """
         with patch.object(
             schema.config,
             "ui",

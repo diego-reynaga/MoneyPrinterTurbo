@@ -1,8 +1,9 @@
-"""Tests for Fish Audio TTS integration.
+"""Tests de la integración del TTS de Fish Audio.
 
-Covers dispatch/model selection, config and environment API keys, request
-payloads (prosody, reference_id), 401/402/429 handling, invalid audio
-responses, voice helpers, and task restoration via _infer_tts_server_from_voice.
+Cubren el despacho y la selección de modelo, las claves API de configuración y de
+entorno, las cargas útiles de las solicitudes (prosody, reference_id), el tratamiento de
+401/402/429, las respuestas de audio no válidas, las funciones auxiliares de voces y la
+restauración de tareas mediante _infer_tts_server_from_voice.
 """
 
 import math
@@ -33,7 +34,7 @@ class _FakeResponse:
 
 
 class TestFishAudioVoiceHelpers(unittest.TestCase):
-    """is_fish_audio_voice / get_fish_audio_voices basics."""
+    """Aspectos básicos de is_fish_audio_voice / get_fish_audio_voices."""
 
     def test_is_fish_audio_voice_recognizes_prefix(self):
         self.assertTrue(vs.is_fish_audio_voice("fish_audio:default:Default Voice"))
@@ -43,7 +44,9 @@ class TestFishAudioVoiceHelpers(unittest.TestCase):
         self.assertFalse(vs.is_fish_audio_voice(None))
 
     def test_get_fish_audio_voices_default(self):
-        """With no voices configured, returns preset female, male, and default entries."""
+        """Sin voces configuradas, devuelve las entradas predefinidas femenina, masculina y
+        por defecto.
+        """
         with patch.object(vs.config, "fish_audio", {"voices": []}):
             voices = vs.get_fish_audio_voices()
         self.assertEqual(
@@ -56,7 +59,7 @@ class TestFishAudioVoiceHelpers(unittest.TestCase):
         )
 
     def test_get_fish_audio_voices_with_configured_entries(self):
-        """User-configured voices are appended after the defaults."""
+        """Las voces configuradas por el usuario se añaden después de las predeterminadas."""
         with patch.object(
             vs.config,
             "fish_audio",
@@ -75,7 +78,7 @@ class TestFishAudioVoiceHelpers(unittest.TestCase):
         )
 
     def test_get_fish_audio_voices_comma_separated_string(self):
-        """TOML-friendly comma-separated string is accepted."""
+        """Se acepta una cadena separada por comas, cómoda en TOML."""
         with patch.object(
             vs.config, "fish_audio", {"voices": "abc123:Voice A, def456:Voice B,"}
         ):
@@ -84,7 +87,7 @@ class TestFishAudioVoiceHelpers(unittest.TestCase):
         self.assertIn("fish_audio:def456:Voice B", voices)
 
     def test_get_fish_audio_voices_already_prefixed(self):
-        """Entries already prefixed with fish_audio: are kept as-is."""
+        """Las entradas que ya llevan el prefijo fish_audio: se mantienen tal cual."""
         with patch.object(
             vs.config,
             "fish_audio",
@@ -95,7 +98,7 @@ class TestFishAudioVoiceHelpers(unittest.TestCase):
 
 
 class TestFishAudioAPIKey(unittest.TestCase):
-    """get_fish_audio_api_key reads from config and env."""
+    """get_fish_audio_api_key lee de la configuración y del entorno."""
 
     def test_api_key_from_config(self):
         with patch.object(
@@ -116,7 +119,7 @@ class TestFishAudioAPIKey(unittest.TestCase):
 
 
 class TestFishAudioDispatch(unittest.TestCase):
-    """tts() correctly dispatches to fish_audio_tts."""
+    """tts() despacha correctamente a fish_audio_tts."""
 
     def test_dispatch_default_voice(self):
         sentinel = object()
@@ -138,13 +141,13 @@ class TestFishAudioDispatch(unittest.TestCase):
 
 
 class TestFishAudioTTSRequest(unittest.TestCase):
-    """fish_audio_tts sends correct request payloads."""
+    """fish_audio_tts envía cargas útiles de solicitud correctas."""
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def _call_with_capture(self, voice_rate=1.0, voice_volume=1.0,
                            reference_id=None, model="s2.1-pro-free",
                            response=None):
-        """Helper: call fish_audio_tts and capture the outgoing request."""
+        """Auxiliar: llama a fish_audio_tts y captura la solicitud saliente."""
         captured = {}
 
         def _fake_post(url, json=None, headers=None, timeout=None, allow_redirects=True):
@@ -169,29 +172,29 @@ class TestFishAudioTTSRequest(unittest.TestCase):
         return result, captured
 
     def test_model_from_config(self):
-        """Model is read from config, not from voice name."""
+        """El modelo se lee de la configuración, no del nombre de la voz."""
         _, captured = self._call_with_capture(model="s2.1-pro")
         self.assertEqual(captured["headers"]["model"], "s2.1-pro")
 
     def test_default_model_fallback(self):
-        """Unknown model falls back to s2.1-pro-free."""
+        """Un modelo desconocido vuelve a s2.1-pro-free."""
         _, captured = self._call_with_capture(model="nonexistent-model")
         self.assertEqual(captured["headers"]["model"], "s2.1-pro-free")
 
     def test_prosody_speed_sent(self):
-        """voice_rate is mapped to prosody.speed."""
+        """voice_rate se asigna a prosody.speed."""
         _, captured = self._call_with_capture(voice_rate=1.5)
         self.assertAlmostEqual(captured["json"]["prosody"]["speed"], 1.5)
 
     def test_prosody_speed_clamped(self):
-        """voice_rate is clamped to 0.5–2.0."""
+        """voice_rate se limita a 0,5–2,0."""
         _, cap_low = self._call_with_capture(voice_rate=0.1)
         self.assertAlmostEqual(cap_low["json"]["prosody"]["speed"], 0.5)
         _, cap_high = self._call_with_capture(voice_rate=5.0)
         self.assertAlmostEqual(cap_high["json"]["prosody"]["speed"], 2.0)
 
     def test_prosody_volume_conversion(self):
-        """voice_volume linear multiplier is converted to dB."""
+        """El multiplicador lineal voice_volume se convierte a dB."""
         # 1.0 → 0 dB
         _, cap = self._call_with_capture(voice_volume=1.0)
         self.assertAlmostEqual(cap["json"]["prosody"]["volume"], 0.0, places=1)
@@ -221,7 +224,7 @@ class TestFishAudioTTSRequest(unittest.TestCase):
 
 
 class TestFishAudioErrorHandling(unittest.TestCase):
-    """Error responses are handled gracefully."""
+    """Las respuestas de error se tratan sin romper nada."""
 
     @patch("app.services.voice._validate_remote_tts_audio", new=lambda _path: None)
     def _call_with_status(self, status_code, text="error"):
@@ -242,14 +245,14 @@ class TestFishAudioErrorHandling(unittest.TestCase):
         self.assertIsNone(self._call_with_status(402))
 
     def test_429_returns_none_after_retries(self):
-        """429 triggers retry; after 3 attempts returns None."""
+        """Un 429 provoca reintento; tras 3 intentos devuelve None."""
         self.assertIsNone(self._call_with_status(429))
 
     def test_500_returns_none_after_retries(self):
         self.assertIsNone(self._call_with_status(500))
 
     def test_empty_audio_returns_none(self):
-        """Response with too-small content is rejected."""
+        """Se rechaza una respuesta con contenido demasiado pequeño."""
         resp = _FakeResponse(status_code=200, content=b"tiny")
         with tempfile.TemporaryDirectory() as tmp_dir, \
              patch.object(vs.config, "fish_audio", {"api_key": "test-key", "model": "s2.1-pro-free"}), \
@@ -312,12 +315,12 @@ class TestFishAudioErrorHandling(unittest.TestCase):
 
 
 class TestFishAudioTaskRestore(unittest.TestCase):
-    """Verify that fish_audio voices are detectable for task restoration.
+    """Verifica que las voces de fish_audio se pueden detectar para restaurar tareas.
 
-    _infer_tts_server_from_voice (in webui/Main.py) delegates to
-    voice.is_fish_audio_voice(), so we test that the detection function
-    correctly identifies fish_audio voice strings — which is the root
-    cause of the task restore bug the maintainer reported.
+    _infer_tts_server_from_voice (en webui/Main.py) delega en
+    voice.is_fish_audio_voice(), así que se comprueba que la función de detección
+    identifica correctamente las cadenas de voz de fish_audio, que era la causa raíz del
+    error de restauración de tareas que informó el mantenedor.
     """
 
     def test_is_fish_audio_voice_matches_default(self):
@@ -330,7 +333,7 @@ class TestFishAudioTaskRestore(unittest.TestCase):
         self.assertFalse(vs.is_fish_audio_voice("elevenlabs:abc:Rachel"))
         self.assertFalse(vs.is_fish_audio_voice("chatterbox:default-Female"))
         self.assertFalse(vs.is_fish_audio_voice("minimax:narrator"))
-        # Azure voices don't have a prefix
+        # Las voces de Azure no tienen prefijo
         self.assertFalse(vs.is_fish_audio_voice("en-US-JennyNeural-Female"))
 
 

@@ -21,7 +21,7 @@ def test_unknown_material_source_fails_before_llm_or_narration(source):
     ):
         result = tm.start("invalid-source", params)
     assert result["failed_stage"] == "preflight"
-    assert "video source" in result["error"].lower()
+    assert "fuente de vídeo" in result["error"].lower()
     script.assert_not_called()
     terms.assert_not_called()
     audio.assert_not_called()

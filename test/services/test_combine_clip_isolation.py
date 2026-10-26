@@ -26,8 +26,9 @@ def test_concurrent_combinations_own_intermediate_clips(tmp_path, monkeypatch):
     monkeypatch.setattr(VideoAspect, "to_resolution", lambda self: (64, 64))
     monkeypatch.setattr(video, "_get_configured_video_codec", lambda: "libx264")
     monkeypatch.setattr(video, "_get_effective_video_codec", lambda *args: "libx264")
-    # Serialize the two real encodes, then hold both until they have completed.
-    # This deterministically exposes a shared filename before either concat.
+    # Serializa las dos codificaciones reales y luego las retiene hasta que ambas
+    # terminen. Así se expone de forma determinista un nombre de archivo compartido
+    # antes de cualquier concat.
     encode_lock = threading.Lock()
     both_encoded = threading.Barrier(2)
     real_write = video._write_videofile_with_codec_fallback

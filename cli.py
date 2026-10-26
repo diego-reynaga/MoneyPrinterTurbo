@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import sys
+import textwrap
 from typing import TYPE_CHECKING, Any, Sequence
 from uuid import UUID, uuid4
 
@@ -17,26 +18,33 @@ if TYPE_CHECKING:
     from app.models.schema import MaterialInfo, VideoParams
 
 
-DEFAULT_VOICE_NAME = "zh-CN-XiaoxiaoNeural-Female"
-# 对应 webui/Main.py 的 VOICE_MODE_NONE 和 VOICE_MODE_UPLOAD。两端目前没有
-# 共享这些常量，因此在这里保留字面值并注明来源。
+DEFAULT_VOICE_NAME = "es-ES-ElviraNeural-Female"
+# Corresponden a VOICE_MODE_NONE y VOICE_MODE_UPLOAD de webui/Main.py. Ambos lados no
+# comparten aún estas constantes, así que aquí se mantienen los valores literales
+# indicando su origen.
 UI_VOICE_MODE_NONE = "none"
-# 字幕位置的内置默认值。VideoParams 也有同名默认值，但它是 Pydantic 字段
-# 默认，只在模块导入时读取一次 config.ui：此时 config.toml 里的非法值会被
-# 直接冻结进模型，既不会校验也无法在测试中替换。CLI 因此自己保存一份，
-# 保证“非法保存值回退到默认值”对命令行始终成立。
+# Valor por defecto integrado de la posición de los subtítulos. VideoParams también
+# tiene un valor por defecto del mismo nombre, pero es el valor por defecto de un campo
+# Pydantic, que solo lee config.ui una vez al importar el módulo: un valor no válido de
+# config.toml quedaría congelado directamente en el modelo, sin validarse ni poder
+# sustituirse en los tests. Por eso la CLI guarda su propia copia, para garantizar que
+# "un valor guardado no válido vuelve al valor por defecto" se cumpla siempre en la
+# línea de comandos.
 DEFAULT_SUBTITLE_POSITION = "bottom"
 DEFAULT_CUSTOM_POSITION = 70.0
 UI_VOICE_MODE_UPLOAD = "upload"
-# 这两种保存的配音方式都表示不要自动配音。
+# Ambos modos de locución guardados significan no generar locución automática.
 UI_VOICE_MODES_WITHOUT_TTS = frozenset({UI_VOICE_MODE_NONE, UI_VOICE_MODE_UPLOAD})
 _PIPELINE_STAGES = ("script", "terms", "audio", "subtitle", "materials", "video")
 _CUSTOM_AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
 _BATCH_FILE_MAX_BYTES = 1024 * 1024
 _BATCH_TASK_MAX_COUNT = 100
-# 单任务 argparse 和批量清单必须共享同一来源集合。此前两处手工维护导致
-# openai_image 只在单任务入口可用；集中定义后，新增 Provider 不会再次遗漏
-# 批量校验。这里仅包含 CLI 已公开支持的来源，不强行暴露 WebUI 专属流程。
+# El argparse de tarea única y la lista de lotes deben compartir el mismo conjunto de
+# fuentes. Antes se mantenían a mano en dos sitios, y openai_image solo estaba
+# disponible en la entrada de tarea única; con una definición centralizada, los
+# proveedores nuevos ya no se olvidarán en la validación de lotes. Aquí solo se incluyen
+# las fuentes que la CLI ya admite públicamente, sin exponer a la fuerza flujos
+# exclusivos de la WebUI.
 _CLI_VIDEO_SOURCES = (
     "pexels",
     "pixabay",
@@ -56,7 +64,18 @@ class _CliHelpFormatter(
     argparse.ArgumentDefaultsHelpFormatter,
     argparse.RawDescriptionHelpFormatter,
 ):
-    """在保留多行示例排版的同时，自动展示有意义的默认值。"""
+    """Muestra automáticamente los valores por defecto significativos, conservando el
+    formato de los ejemplos de varias líneas.
+    """
+
+    def add_usage(self, usage, actions, groups, prefix=None):
+        return super().add_usage(usage, actions, groups, prefix or "uso: ")
+
+    def _split_lines(self, text, width):
+        # No se parte por los guiones, para que identificadores como
+        # es-ES-ElviraNeural-Female queden enteros en la ayuda.
+        text = self._whitespace_matcher.sub(" ", text).strip()
+        return textwrap.wrap(text, width, break_on_hyphens=False)
 
     def _get_help_string(self, action):
         help_text = action.help or ""
@@ -64,16 +83,16 @@ class _CliHelpFormatter(
             "%(default)" not in help_text
             and action.default not in (None, "", argparse.SUPPRESS)
             and action.option_strings
-            and "default:" not in help_text.lower()
+            and "por defecto:" not in help_text.lower()
         ):
-            help_text += " (default: %(default)s)"
+            help_text += " (por defecto: %(default)s)"
         return help_text
 
 
 def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed < 1:
-        raise argparse.ArgumentTypeError(f"value must be >= 1, got {parsed}")
+        raise argparse.ArgumentTypeError(f"el valor debe ser >= 1, se recibió {parsed}")
     return parsed
 
 
@@ -81,7 +100,7 @@ def _paragraph_count(value: str) -> int:
     parsed = int(value)
     if parsed < 1 or parsed > 10:
         raise argparse.ArgumentTypeError(
-            f"paragraph-number must be between 1 and 10, got {parsed}"
+            f"paragraph-number debe estar entre 1 y 10, se recibió {parsed}"
         )
     return parsed
 
@@ -89,20 +108,22 @@ def _paragraph_count(value: str) -> int:
 def _non_negative_float(value: str) -> float:
     parsed = float(value)
     if not math.isfinite(parsed) or parsed < 0:
-        raise argparse.ArgumentTypeError(f"value must be a finite number >= 0, got {value!r}")
+        raise argparse.ArgumentTypeError(f"el valor debe ser un número finito >= 0, se recibió {value!r}")
     return parsed
 
 
 def _positive_float(value: str) -> float:
     parsed = float(value)
     if not math.isfinite(parsed) or parsed <= 0:
-        raise argparse.ArgumentTypeError(f"value must be a finite number > 0, got {value!r}")
+        raise argparse.ArgumentTypeError(f"el valor debe ser un número finito > 0, se recibió {value!r}")
     return parsed
 
 
-# 片段播放速度的取值范围。app/utils/utils.py 的 normalize_clip_speed() 用同一
-# 范围做限幅，webui/Main.py 的滑块也使用 0.5~2.0。集中定义后，单任务参数、
-# 批量清单校验和 [ui] 保存值不会再次出现取值不一致。
+# Rango de valores de la velocidad de reproducción del clip. normalize_clip_speed() de
+# app/utils/utils.py limita con el mismo rango, y el control deslizante de webui/Main.py
+# también usa 0,5~2,0. Con una definición centralizada, los parámetros de tarea única,
+# la validación de la lista de lotes y los valores guardados en [ui] no volverán a tener
+# rangos distintos.
 _CLIP_SPEED_MIN = 0.5
 _CLIP_SPEED_MAX = 2.0
 
@@ -111,8 +132,8 @@ def _clip_speed(value: str) -> float:
     parsed = float(value)
     if not math.isfinite(parsed) or not _CLIP_SPEED_MIN <= parsed <= _CLIP_SPEED_MAX:
         raise argparse.ArgumentTypeError(
-            "video-clip-speed must be a finite number between "
-            f"{_CLIP_SPEED_MIN} and {_CLIP_SPEED_MAX}, got {value!r}"
+            "video-clip-speed debe ser un número finito entre "
+            f"{_CLIP_SPEED_MIN} y {_CLIP_SPEED_MAX}, se recibió {value!r}"
         )
     return parsed
 
@@ -121,7 +142,7 @@ def _percent_position(value: str) -> float:
     parsed = float(value)
     if not math.isfinite(parsed) or parsed < 0 or parsed > 100:
         raise argparse.ArgumentTypeError(
-            f"custom-position must be a finite number between 0 and 100, got {value!r}"
+            f"custom-position debe ser un número finito entre 0 y 100, se recibió {value!r}"
         )
     return parsed
 
@@ -129,48 +150,56 @@ def _percent_position(value: str) -> float:
 def _hex_color(value: str) -> str:
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
         raise argparse.ArgumentTypeError(
-            f"color must use #RRGGBB format, got {value!r}"
+            f"el color debe usar el formato #RRGGBB, se recibió {value!r}"
         )
     return value
 
 
 def _subtitle_position(value: str) -> str:
-    """校验保存的字幕位置，取值范围与命令行参数保持一致。"""
+    """Valida la posición de subtítulos guardada, con el mismo rango de valores que el
+    parámetro de línea de comandos.
+    """
     if value not in _SUBTITLE_POSITION_VALUES:
         raise argparse.ArgumentTypeError(
-            "subtitle-position must be one of: "
-            f"{', '.join(_SUBTITLE_POSITION_VALUES)}, got {value!r}"
+            "subtitle-position debe ser uno de: "
+            f"{', '.join(_SUBTITLE_POSITION_VALUES)}, se recibió {value!r}"
         )
     return value
 
 
 def _subtitle_display_mode(value: str) -> str:
-    """校验保存的字幕展示模式，取值范围与命令行参数保持一致。"""
+    """Valida el modo de visualización de subtítulos guardado, con el mismo rango de
+    valores que el parámetro de línea de comandos.
+    """
     if value not in _SUBTITLE_DISPLAY_MODE_VALUES:
         raise argparse.ArgumentTypeError(
-            "subtitle-display-mode must be one of: "
-            f"{', '.join(_SUBTITLE_DISPLAY_MODE_VALUES)}, got {value!r}"
+            "subtitle-display-mode debe ser uno de: "
+            f"{', '.join(_SUBTITLE_DISPLAY_MODE_VALUES)}, se recibió {value!r}"
         )
     return value
 
 
 def _subtitle_animation(value: str) -> str:
-    """校验保存的字幕动画，取值范围与命令行参数保持一致。"""
+    """Valida la animación de subtítulos guardada, con el mismo rango de valores que el
+    parámetro de línea de comandos.
+    """
     if value not in _SUBTITLE_ANIMATION_VALUES:
         raise argparse.ArgumentTypeError(
-            "subtitle-animation must be one of: "
-            f"{', '.join(_SUBTITLE_ANIMATION_VALUES)}, got {value!r}"
+            "subtitle-animation debe ser uno de: "
+            f"{', '.join(_SUBTITLE_ANIMATION_VALUES)}, se recibió {value!r}"
         )
     return value
 
 
 def _task_id(value: str) -> str:
-    """CLI 自定义任务标识只接受 UUID，避免该值被解释为文件系统路径。"""
+    """El identificador de tarea personalizado de la CLI solo acepta UUID, para que el
+    valor no se interprete como una ruta del sistema de archivos.
+    """
     try:
         return str(UUID(value.strip()))
     except (AttributeError, ValueError) as exc:
         raise argparse.ArgumentTypeError(
-            f"task-id must be a valid UUID, got {value!r}"
+            f"task-id debe ser un UUID válido, se recibió {value!r}"
         ) from exc
 
 
@@ -185,9 +214,10 @@ _TRANSITION_MODE_VALUES = {
     "zoom-out": "ZoomOut",
 }
 
-# 单任务 argparse 和批量清单必须共享同一份字幕位置取值，避免再次出现
-# 「WebUI 能保存、CLI 却拒绝」的落差。取值需与 app/services/video.py 的
-# 渲染分支及 webui/Main.py 的下拉框保持一致。
+# El argparse de tarea única y la lista de lotes deben compartir los mismos valores de
+# posición de subtítulos, para que no vuelva a pasar que «la WebUI lo puede guardar y la
+# CLI lo rechaza». Los valores deben coincidir con las ramas de renderizado de
+# app/services/video.py y con el desplegable de webui/Main.py.
 _SUBTITLE_POSITION_VALUES = (
     "top",
     "center",
@@ -196,9 +226,12 @@ _SUBTITLE_POSITION_VALUES = (
     "custom",
 )
 
-# 字幕展示模式与入场动画由 WebUI 保存进 [ui]。两者随「逐词字幕 + 弹跳动画」
-# 加入时只改了 WebUI 与模型字段默认值，命令行一直缺少开关。取值需与
-# app/models/schema.py 的 _SUBTITLE_DISPLAY_MODES / _SUBTITLE_ANIMATIONS 一致。
+# El modo de visualización de subtítulos y la animación de entrada los guarda la WebUI
+# en [ui]. Llegaron con los «subtítulos palabra a palabra + animación de rebote», y
+# entonces solo se cambiaron la WebUI y los valores por defecto de los campos del
+# modelo, así que a la línea de comandos siempre le faltó el interruptor. Los valores
+# deben coincidir con _SUBTITLE_DISPLAY_MODES / _SUBTITLE_ANIMATIONS de
+# app/models/schema.py.
 _SUBTITLE_DISPLAY_MODE_VALUES = ("sentence", "word_by_word")
 _SUBTITLE_ANIMATION_VALUES = ("none", "pop_spring")
 
@@ -208,7 +241,7 @@ def _transition_mode(value: str) -> str | None:
     if normalized not in _TRANSITION_MODE_VALUES:
         allowed = ", ".join(_TRANSITION_MODE_VALUES)
         raise argparse.ArgumentTypeError(
-            f"video-transition-mode must be one of: {allowed}"
+            f"video-transition-mode debe ser uno de: {allowed}"
         )
     return _TRANSITION_MODE_VALUES[normalized]
 
@@ -217,7 +250,7 @@ def _video_fit_mode(value: str) -> str:
     normalized = value.strip().lower()
     if normalized not in {"cover", "contain"}:
         raise argparse.ArgumentTypeError(
-            "video-fit-mode must be one of: cover, contain"
+            "video-fit-mode debe ser uno de: cover, contain"
         )
     return normalized
 
@@ -225,13 +258,15 @@ def _video_fit_mode(value: str) -> str:
 def _image_motion(value: str) -> str:
     normalized = value.strip().lower()
     if normalized not in {"static", "zoom"}:
-        raise argparse.ArgumentTypeError("image-motion must be one of: static, zoom")
+        raise argparse.ArgumentTypeError("image-motion debe ser uno de: static, zoom")
     return normalized
 
 
-# 只有这些取值会请求外部音乐生成服务，因此只有它们消费配乐提示词。取值需与
-# app/services/task.py 的 _VIDEO_MUSIC_PROVIDERS 保持一致；集中定义后，新增
-# 配乐供应商不会再次遗漏 --bgm-type 校验、批量校验和提示词参数。
+# Solo estos valores piden un servicio externo de generación de música, así que solo
+# ellos consumen el prompt de música. Los valores deben coincidir con
+# _VIDEO_MUSIC_PROVIDERS de app/services/task.py; con una definición centralizada, los
+# nuevos proveedores de música no se olvidarán en la validación de --bgm-type, en la
+# validación de lotes ni en el parámetro de prompt.
 _CLI_MUSIC_BGM_TYPES = ("sonilo", "elevenlabs")
 _BGM_TYPE_CHOICES_TEXT = "none, random, custom, " + ", ".join(_CLI_MUSIC_BGM_TYPES)
 _BGM_TYPE_METAVAR = "{none,random,custom," + ",".join(_CLI_MUSIC_BGM_TYPES) + "}"
@@ -244,7 +279,7 @@ def _bgm_type(value: str) -> str:
     if normalized in {"", "random", "custom", *_CLI_MUSIC_BGM_TYPES}:
         return normalized
     raise argparse.ArgumentTypeError(
-        f"bgm-type must be one of: {_BGM_TYPE_CHOICES_TEXT}"
+        f"bgm-type debe ser uno de: {_BGM_TYPE_CHOICES_TEXT}"
     )
 
 
@@ -253,182 +288,190 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="mpt cli" if __name__ == "app.cli" else None,
         description=(
-            "Generate MoneyPrinterTurbo videos without the WebUI.\n\n"
-            "Provider settings and credentials are read from config.toml.\n"
-            "Default full-video generation requires a configured LLM and Pexels API key.\n"
-            "The default Edge TTS voice requires no API key."
+            "Genera vídeos de MoneyPrinterTurbo sin la WebUI.\n\n"
+            "Los ajustes y credenciales de los proveedores se leen de config.toml.\n"
+            "La generación completa por defecto requiere un LLM configurado y una API Key de Pexels.\n"
+            "La voz Edge TTS por defecto no requiere API Key."
         ),
         epilog="""
-Examples:
-  Generate a complete video with the default Edge TTS voice:
-    uv run python cli.py --video-subject "How AI is changing everyday life"
+Ejemplos:
+  Generar un vídeo completo con la voz Edge TTS por defecto:
+    uv run python cli.py --video-subject "Cómo la IA está cambiando la vida cotidiana"
 
-  Generate from local files. Relative paths use the current working directory;
-  absolute paths are also accepted:
-    uv run python cli.py --video-subject "How AI is changing everyday life" \\
+  Generar a partir de archivos locales. Las rutas relativas usan el directorio de
+  trabajo actual; también se aceptan rutas absolutas:
+    uv run python cli.py --video-subject "Cómo la IA está cambiando la vida cotidiana" \\
       --video-source local --video-materials "./1.mp4,./2.mp4"
 
-  Generate with a prepared script and no voiceover:
-    uv run python cli.py --video-script "Your complete script" \\
+  Generar con un guion preparado y sin locución:
+    uv run python cli.py --video-script "Tu guion completo" \\
       --voice-name no-voice --stop-at video
 
-  Stop after script generation:
-    uv run python cli.py --video-subject "How AI is changing everyday life" --stop-at script
+  Detenerse tras generar el guion:
+    uv run python cli.py --video-subject "Cómo la IA está cambiando la vida cotidiana" --stop-at script
 
-  Run a JSON array or JSONL manifest. CLI options provide defaults and each object
-  overrides VideoParams fields for one task:
+  Ejecutar una lista JSON o un manifiesto JSONL. Las opciones de la CLI aportan los
+  valores por defecto y cada objeto sobrescribe campos de VideoParams para una tarea:
     uv run python cli.py --batch-file ./tasks.jsonl --stop-at script
 
-Pipeline stages:
-  script     Generate or return the script.
-  terms      Generate material search terms; unavailable with local materials.
-  audio      Generate TTS, silent audio, or use --custom-audio-file.
-  subtitle   Generate subtitles when enabled.
-  materials  Download online materials or preprocess local files.
-  video      Generate the final video and run configured cross-posting.
-  The command stops immediately after the selected stage and prints that stage's result.
+Etapas del flujo:
+  script     Genera o devuelve el guion.
+  terms      Genera los términos de búsqueda de material; no disponible con material local.
+  audio      Genera TTS, audio en silencio o usa --custom-audio-file.
+  subtitle   Genera los subtítulos si están activados.
+  materials  Descarga material en línea o preprocesa los archivos locales.
+  video      Genera el vídeo final y ejecuta la publicación cruzada configurada.
+  El comando se detiene justo después de la etapa elegida e imprime su resultado.
 
-Output and exit status:
-  Task files are written to storage/tasks/<task-id>/. A successful command prints one
-  JSON object to stdout and exits with 0. Batch mode prints one JSON summary after all
-  tasks finish. Task failures exit with 1; argument or manifest errors exit with 2
-  before any batch task starts. Runtime logs are written to stderr.
+Salida y código de salida:
+  Los archivos de la tarea se escriben en storage/tasks/<task-id>/. Un comando correcto
+  imprime un objeto JSON en stdout y sale con 0. El modo por lotes imprime un resumen
+  JSON cuando terminan todas las tareas. Los fallos de tarea salen con 1; los errores de
+  argumentos o del manifiesto salen con 2 antes de que empiece cualquier tarea del lote.
+  Los logs de ejecución se escriben en stderr.
 
-Batch manifests:
-  --batch-file accepts a UTF-8 JSON array or JSONL file with one object per non-empty
-  line (up to 100 tasks and 1 MiB). Objects may override VideoParams fields; unknown
-  fields are rejected. Every merged task needs video_subject or video_script.
-  The manifest path is relative to the current working directory. Relative
-  custom_audio_file and local video_materials[].url values declared in a manifest are
-  relative to the manifest directory. Relative paths supplied by CLI options remain
-  relative to the current working directory. bgm_file and font_name keep their managed
-  storage/resource lookup rules. --stop-at is a batch-wide CLI option. The summary has
-  total, succeeded, failed, and tasks keys; every task entry has index, task_id,
-  status, result, failed_stage, and error.
+Manifiestos de lotes:
+  --batch-file acepta una lista JSON en UTF-8 o un archivo JSONL con un objeto por cada
+  línea no vacía (hasta 100 tareas y 1 MiB). Los objetos pueden sobrescribir campos de
+  VideoParams; los campos desconocidos se rechazan. Cada tarea combinada necesita
+  video_subject o video_script. La ruta del manifiesto es relativa al directorio de
+  trabajo actual. Los valores relativos de custom_audio_file y de video_materials[].url
+  locales declarados en un manifiesto son relativos al directorio del manifiesto. Las
+  rutas relativas indicadas con opciones de la CLI siguen siendo relativas al directorio
+  de trabajo actual. bgm_file y font_name mantienen sus reglas de búsqueda gestionadas
+  en storage/resource. --stop-at es una opción de la CLI que afecta a todo el lote. El
+  resumen tiene las claves total, succeeded, failed y tasks; cada entrada de tarea tiene
+  index, task_id, status, result, failed_stage y error.
 """.replace("uv run python cli.py", command),
         formatter_class=_CliHelpFormatter,
+        add_help=False,
+    )
+    # argparse no traduce sus propios textos; se sustituyen los visibles en la ayuda.
+    parser._optionals.title = "opciones"
+    parser.add_argument(
+        "-h", "--help", action="help", help="muestra esta ayuda y sale"
     )
 
-    content_group = parser.add_argument_group("script and content")
+    content_group = parser.add_argument_group("guion y contenido")
     content_group.add_argument(
         "--video-subject",
         default="",
-        help="video topic; required unless --video-script is provided",
+        help="tema del vídeo; obligatorio salvo que se indique --video-script",
     )
     content_group.add_argument(
         "--video-script",
         default="",
-        help="complete script; skips LLM script generation when provided",
+        help="guion completo; si se indica, se omite la generación del guion con el LLM",
     )
     content_group.add_argument(
         "--video-terms",
         default=None,
-        help="comma-separated material search terms; generated automatically when omitted",
+        help="términos de búsqueda de material separados por comas; se generan automáticamente si se omiten",
     )
     content_group.add_argument(
         "--video-language",
         default=None,
         help=(
-            "script language code, such as zh-CN or en-US (default: auto-detect)"
+            "código de idioma del guion, como es-ES o en-US (por defecto: detección automática)"
         ),
     )
     content_group.add_argument(
         "--paragraph-number",
         type=_paragraph_count,
         default=None,
-        help="number of generated script paragraphs, from 1 to 10 (default: 1)",
+        help="número de párrafos del guion generado, de 1 a 10 (por defecto: 1)",
     )
     content_group.add_argument(
         "--video-script-prompt",
         default=None,
-        help="additional requirements for LLM script generation",
+        help="requisitos adicionales para la generación del guion con el LLM",
     )
     content_group.add_argument(
         "--custom-system-prompt",
         default=None,
-        help="replace the default LLM system prompt for script generation",
+        help="sustituye el prompt de sistema por defecto del LLM para generar el guion",
     )
 
-    material_group = parser.add_argument_group("materials and pipeline")
+    material_group = parser.add_argument_group("material y flujo")
     material_group.add_argument(
         "--video-source",
         default="pexels",
         choices=_CLI_VIDEO_SOURCES,
-        help="video material provider; online providers require matching API keys in config.toml",
+        help="proveedor de material de vídeo; los proveedores en línea requieren su API Key en config.toml",
     )
     material_group.add_argument(
         "--video-materials",
         default="",
         metavar="PATH[,PATH...]",
         help=(
-            "comma-separated local image/video paths for --video-source local; relative "
-            "paths use the current working directory, then storage/local_videos as a "
-            "compatibility fallback; absolute paths are accepted"
+            "rutas locales de imágenes/vídeos separadas por comas para --video-source local; "
+            "las rutas relativas usan el directorio de trabajo actual y, por compatibilidad, "
+            "después storage/local_videos; se aceptan rutas absolutas"
         ),
     )
     material_group.add_argument(
         "--stop-at",
         default="video",
         choices=_PIPELINE_STAGES,
-        help="stop after this pipeline stage; see the stage order below",
+        help="se detiene tras esta etapa del flujo; consulta el orden de etapas más abajo",
     )
     material_group.add_argument(
         "--confirm-wavespeed-charge",
         action="store_true",
         help=(
-            "confirm that WaveSpeed video generation creates paid tasks; required "
-            "with --video-source wavespeed for materials or video output"
+            "confirma que la generación de vídeo con WaveSpeed crea tareas de pago; "
+            "obligatorio con --video-source wavespeed para la salida materials o video"
         ),
     )
     material_group.add_argument(
         "--confirm-seedance-charge",
         action="store_true",
         help=(
-            "confirm that Volcano Engine Seedance creates paid Ark tasks; required "
-            "with --video-source volcengine_seedance for materials or video output"
+            "confirma que Volcano Engine Seedance crea tareas de pago en Ark; "
+            "obligatorio con --video-source volcengine_seedance para la salida materials o video"
         ),
     )
     material_group.add_argument(
         "--confirm-infistar-charge", action="store_true",
-        help="confirm paid Infistar video generation for materials or video output",
+        help="confirma la generación de vídeo de pago con Infistar para la salida materials o video",
     )
     material_group.add_argument(
         "--confirm-ofox-charge",
         action="store_true",
         help=(
-            "confirm that OFox video generation creates paid tasks; required "
-            "with --video-source ofox for materials or video output"
+            "confirma que la generación de vídeo con OFox crea tareas de pago; "
+            "obligatorio con --video-source ofox para la salida materials o video"
         ),
     )
     material_group.add_argument(
         "--confirm-metaso-minimax-charge",
         action="store_true",
         help=(
-            "confirm that Metaso MiniMax H3 creates paid video tasks; required "
-            "with --video-source metaso_minimax for materials or video output"
+            "confirma que Metaso MiniMax H3 crea tareas de vídeo de pago; "
+            "obligatorio con --video-source metaso_minimax para la salida materials o video"
         ),
     )
     material_group.add_argument(
         "--confirm-muapi-charge",
         action="store_true",
         help=(
-            "confirm that MuAPI video generation creates paid tasks; required "
-            "with --video-source muapi for materials or video output"
+            "confirma que la generación de vídeo con MuAPI crea tareas de pago; "
+            "obligatorio con --video-source muapi para la salida materials o video"
         ),
     )
 
-    video_group = parser.add_argument_group("video output")
+    video_group = parser.add_argument_group("salida de vídeo")
     video_group.add_argument(
         "--video-count",
         type=_positive_int,
         default=1,
-        help="number of output videos, at least 1",
+        help="número de vídeos de salida, al menos 1",
     )
     video_group.add_argument(
         "--video-aspect",
         choices=["9:16", "16:9", "1:1"],
         default="9:16",
-        help="output aspect ratio: portrait, landscape, or square",
+        help="relación de aspecto de salida: vertical, horizontal o cuadrada",
     )
     video_group.add_argument(
         "--video-fit-mode",
@@ -436,36 +479,37 @@ Batch manifests:
         choices=["cover", "contain"],
         default=None,
         help=(
-            "fit mismatched source clips by filling and center-cropping (cover) "
-            "or preserving the full frame with black bars (contain); default: cover"
+            "ajusta los clips de origen que no encajan rellenando y recortando al centro "
+            "(cover) o conservando el encuadre completo con barras negras (contain); "
+            "por defecto: cover"
         ),
     )
     video_group.add_argument(
         "--video-concat-mode",
         choices=["random", "sequential"],
         default=None,
-        help="source clip concatenation order (default: random)",
+        help="orden de concatenación de los clips de origen (por defecto: random)",
     )
     video_group.add_argument(
         "--image-motion",
         type=_image_motion,
         choices=["static", "zoom"],
         default=None,
-        help="motion for local or AI-generated images (default: zoom)",
+        help="movimiento de las imágenes locales o generadas con IA (por defecto: zoom)",
     )
     video_group.add_argument(
         "--video-transition-mode",
         type=_transition_mode,
         default=None,
         metavar="{none,shuffle,fade-in,fade-out,slide-in,slide-out,zoom-in,zoom-out}",
-        help="transition applied between source clips (default: none)",
+        help="transición aplicada entre los clips de origen (por defecto: none)",
     )
     video_group.add_argument(
         "--video-clip-duration",
         type=_positive_int,
         default=None,
         help=(
-            "maximum duration of each source clip in seconds, at least 1 (default: 5)"
+            "duración máxima de cada clip de origen en segundos, al menos 1 (por defecto: 5)"
         ),
     )
     video_group.add_argument(
@@ -473,8 +517,8 @@ Batch manifests:
         type=_clip_speed,
         default=None,
         help=(
-            "playback speed multiplier applied to every source clip, between "
-            "0.5 and 2.0 (default: 1.0)"
+            "multiplicador de velocidad de reproducción de cada clip de origen, entre "
+            "0.5 y 2.0 (por defecto: 1.0)"
         ),
     )
     video_group.add_argument(
@@ -482,29 +526,29 @@ Batch manifests:
         default=None,
         action=argparse.BooleanOptionalAction,
         help=(
-            "preserve script keyword order while selecting and concatenating materials "
-            "(default: disabled)"
+            "mantiene el orden de las palabras clave del guion al elegir y concatenar el "
+            "material (por defecto: desactivado)"
         ),
     )
     video_group.add_argument(
         "--n-threads",
         type=_positive_int,
         default=None,
-        help="FFmpeg worker thread count, at least 1 (default: 2)",
+        help="número de hilos de trabajo de FFmpeg, al menos 1 (por defecto: 2)",
     )
 
-    audio_group = parser.add_argument_group("voiceover and background music")
+    audio_group = parser.add_argument_group("locución y música de fondo")
     audio_group.add_argument(
         "--voice-name",
         default=None,
         help=(
-            f"TTS voice identifier. Defaults to [ui].voice_name from "
-            f"config.toml, otherwise {DEFAULT_VOICE_NAME}. A saved "
-            "[ui].voice_mode of 'none' or 'upload' resolves to no-voice "
-            "instead, unless this option is given. "
-            "Use 'no-voice' for silent output. Provider-specific identifiers "
-            "use prefixes such as gemini:, mimo:, elevenlabs:, chatterbox:, "
-            "kokoro:, and voxcpm:"
+            f"identificador de la voz TTS. Por defecto, [ui].voice_name de "
+            f"config.toml o, si no, {DEFAULT_VOICE_NAME}. Un [ui].voice_mode "
+            "guardado como 'none' o 'upload' equivale a no-voice, salvo que "
+            "se indique esta opción. "
+            "Usa 'no-voice' para una salida sin voz. Los identificadores propios "
+            "de cada proveedor usan prefijos como gemini:, mimo:, elevenlabs:, "
+            "chatterbox:, kokoro: y voxcpm:"
         ),
     )
     audio_group.add_argument(
@@ -512,8 +556,8 @@ Batch manifests:
         type=_non_negative_float,
         default=None,
         help=(
-            "final voiceover volume multiplier, a finite number >= 0 (default: "
-            "[ui].voice_volume from config.toml; 1.0 when unset)"
+            "multiplicador del volumen final de la locución, un número finito >= 0 "
+            "(por defecto: [ui].voice_volume de config.toml; 1.0 si no está definido)"
         ),
     )
     audio_group.add_argument(
@@ -521,8 +565,8 @@ Batch manifests:
         type=_positive_float,
         default=None,
         help=(
-            "speech rate multiplier, a finite number > 0 (default: "
-            "[ui].voice_rate from config.toml; 1.0 when unset)"
+            "multiplicador de la velocidad del habla, un número finito > 0 "
+            "(por defecto: [ui].voice_rate de config.toml; 1.0 si no está definido)"
         ),
     )
     audio_group.add_argument(
@@ -530,9 +574,9 @@ Batch manifests:
         default=None,
         metavar="PATH",
         help=(
-            "existing MP3/WAV/M4A/AAC/FLAC/OGG voiceover; relative paths use the "
-            "current working directory. This skips TTS; set subtitle_provider=whisper "
-            "to transcribe it"
+            "locución MP3/WAV/M4A/AAC/FLAC/OGG existente; las rutas relativas usan el "
+            "directorio de trabajo actual. Omite el TTS; define subtitle_provider=whisper "
+            "para transcribirla"
         ),
     )
     audio_group.add_argument(
@@ -541,23 +585,23 @@ Batch manifests:
         default=None,
         metavar=_BGM_TYPE_METAVAR,
         help=(
-            "background music mode; Sonilo reads its API key from config.toml or "
-            "SONILO_API_KEY, ElevenLabs from config.toml or ELEVENLABS_API_KEY; "
-            "--bgm-file implies custom when omitted (default: random)"
+            "modo de música de fondo; Sonilo lee su API Key de config.toml o de "
+            "SONILO_API_KEY, y ElevenLabs de config.toml o de ELEVENLABS_API_KEY; "
+            "si se omite, --bgm-file implica custom (por defecto: random)"
         ),
     )
     audio_group.add_argument(
         "--sonilo-bgm-prompt",
         default=None,
-        help="optional music style prompt for Sonilo, up to 2000 characters",
+        help="prompt opcional de estilo musical para Sonilo, hasta 2000 caracteres",
     )
     audio_group.add_argument(
         "--video-music-prompt",
         default=None,
         help=(
-            "optional music style prompt for the selected AI background music "
-            "provider (sonilo or elevenlabs); the provider's own length limit "
-            "is enforced before generation"
+            "prompt opcional de estilo musical para el proveedor de música de fondo "
+            "con IA elegido (sonilo o elevenlabs); el límite de longitud propio del "
+            "proveedor se aplica antes de generar"
         ),
     )
     audio_group.add_argument(
@@ -565,8 +609,8 @@ Batch manifests:
         default=None,
         metavar="PATH",
         help=(
-            "custom supported audio file inside storage/bgm or resource/songs; "
-            "accepts a filename or an allowed managed path"
+            "archivo de audio personalizado compatible dentro de storage/bgm o "
+            "resource/songs; acepta un nombre de archivo o una ruta gestionada permitida"
         ),
     )
     audio_group.add_argument(
@@ -574,28 +618,29 @@ Batch manifests:
         type=_non_negative_float,
         default=None,
         help=(
-            "background music volume multiplier, a finite number >= 0 (default: 0.2)"
+            "multiplicador del volumen de la música de fondo, un número finito >= 0 "
+            "(por defecto: 0.2)"
         ),
     )
 
-    subtitle_group = parser.add_argument_group("subtitles")
+    subtitle_group = parser.add_argument_group("subtítulos")
     subtitle_group.add_argument(
         "--subtitle-enabled",
         default=None,
         action=argparse.BooleanOptionalAction,
         help=(
-            "enable subtitles; use --no-subtitle-enabled to disable "
-            "(default: [ui].subtitle_enabled from config.toml; enabled when "
-            "unset)"
+            "activa los subtítulos; usa --no-subtitle-enabled para desactivarlos "
+            "(por defecto: [ui].subtitle_enabled de config.toml; activados si no "
+            "está definido)"
         ),
     )
     subtitle_group.add_argument(
         "--font-name",
         default=None,
         help=(
-            "subtitle font filename inside resource/fonts "
-            "(default: [ui].font_name from config.toml; "
-            "STHeitiMedium.ttc when unset)"
+            "nombre del archivo de fuente de subtítulos dentro de resource/fonts "
+            "(por defecto: [ui].font_name de config.toml; "
+            "STHeitiMedium.ttc si no está definido)"
         ),
     )
     subtitle_group.add_argument(
@@ -603,8 +648,8 @@ Batch manifests:
         choices=_SUBTITLE_POSITION_VALUES,
         default=None,
         help=(
-            "subtitle vertical position (default: [ui].subtitle_position from "
-            "config.toml; bottom when unset)"
+            "posición vertical de los subtítulos (por defecto: [ui].subtitle_position "
+            "de config.toml; bottom si no está definido)"
         ),
     )
     subtitle_group.add_argument(
@@ -612,8 +657,8 @@ Batch manifests:
         choices=_SUBTITLE_DISPLAY_MODE_VALUES,
         default=None,
         help=(
-            "subtitle timing: sentence by sentence, or one word at a time "
-            "(default: [ui].subtitle_display_mode from config.toml; sentence)"
+            "ritmo de los subtítulos: frase a frase o palabra a palabra "
+            "(por defecto: [ui].subtitle_display_mode de config.toml; sentence)"
         ),
     )
     subtitle_group.add_argument(
@@ -621,8 +666,8 @@ Batch manifests:
         choices=_SUBTITLE_ANIMATION_VALUES,
         default=None,
         help=(
-            "subtitle entrance animation (default: [ui].subtitle_animation from "
-            "config.toml; none when unset)"
+            "animación de entrada de los subtítulos (por defecto: "
+            "[ui].subtitle_animation de config.toml; none si no está definido)"
         ),
     )
     subtitle_group.add_argument(
@@ -630,9 +675,9 @@ Batch manifests:
         type=_percent_position,
         default=None,
         help=(
-            "custom position as percent from top, 0-100; requires "
-            "--subtitle-position custom (default: [ui].custom_position from "
-            "config.toml; 70 when unset)"
+            "posición personalizada en porcentaje desde arriba, 0-100; requiere "
+            "--subtitle-position custom (por defecto: [ui].custom_position de "
+            "config.toml; 70 si no está definido)"
         ),
     )
     subtitle_group.add_argument(
@@ -640,9 +685,9 @@ Batch manifests:
         type=_hex_color,
         default=None,
         help=(
-            "subtitle text color in #RRGGBB format; quote the value in shells "
-            "that treat # as a comment (default: [ui].text_fore_color from "
-            "config.toml; #FFFFFF when unset)"
+            "color del texto de los subtítulos en formato #RRGGBB; entrecomilla el "
+            "valor en shells que tratan # como comentario (por defecto: "
+            "[ui].text_fore_color de config.toml; #FFFFFF si no está definido)"
         ),
     )
     subtitle_group.add_argument(
@@ -650,8 +695,8 @@ Batch manifests:
         type=_positive_int,
         default=None,
         help=(
-            "subtitle font size (default: [ui].font_size from config.toml; "
-            "60 when unset)"
+            "tamaño de fuente de los subtítulos (por defecto: [ui].font_size de "
+            "config.toml; 60 si no está definido)"
         ),
     )
     subtitle_group.add_argument(
@@ -659,8 +704,8 @@ Batch manifests:
         type=_hex_color,
         default=None,
         help=(
-            "subtitle outline color in #RRGGBB format (default: "
-            "[ui].stroke_color from config.toml; #000000 when unset)"
+            "color del contorno de los subtítulos en formato #RRGGBB (por defecto: "
+            "[ui].stroke_color de config.toml; #000000 si no está definido)"
         ),
     )
     subtitle_group.add_argument(
@@ -668,8 +713,8 @@ Batch manifests:
         type=_non_negative_float,
         default=None,
         help=(
-            "subtitle outline width, a finite number >= 0 (default: "
-            "[ui].stroke_width from config.toml; 1.5 when unset)"
+            "grosor del contorno de los subtítulos, un número finito >= 0 (por "
+            "defecto: [ui].stroke_width de config.toml; 1.5 si no está definido)"
         ),
     )
     subtitle_group.add_argument(
@@ -677,9 +722,9 @@ Batch manifests:
         default=None,
         action=argparse.BooleanOptionalAction,
         help=(
-            "enable subtitle background; use --no-subtitle-background-enabled to "
-            "disable (default: [ui].subtitle_background_enabled from "
-            "config.toml; disabled when unset)"
+            "activa el fondo de los subtítulos; usa --no-subtitle-background-enabled "
+            "para desactivarlo (por defecto: [ui].subtitle_background_enabled de "
+            "config.toml; desactivado si no está definido)"
         ),
     )
     subtitle_group.add_argument(
@@ -687,8 +732,8 @@ Batch manifests:
         type=_hex_color,
         default=None,
         help=(
-            "subtitle background color in #RRGGBB format (default: "
-            "[ui].subtitle_background_color from config.toml)"
+            "color de fondo de los subtítulos en formato #RRGGBB (por defecto: "
+            "[ui].subtitle_background_color de config.toml)"
         ),
     )
     subtitle_group.add_argument(
@@ -696,27 +741,27 @@ Batch manifests:
         default=None,
         action=argparse.BooleanOptionalAction,
         help=(
-            "use a rounded subtitle background (default: "
-            "[ui].rounded_subtitle_background from config.toml; "
-            "disabled when unset)"
+            "usa un fondo de subtítulos redondeado (por defecto: "
+            "[ui].rounded_subtitle_background de config.toml; "
+            "desactivado si no está definido)"
         ),
     )
 
-    execution_group = parser.add_argument_group("execution")
+    execution_group = parser.add_argument_group("ejecución")
     execution_mode = execution_group.add_mutually_exclusive_group()
     execution_mode.add_argument(
         "--task-id",
         type=_task_id,
         default=None,
-        help="custom UUID used for storage/tasks/<task-id>; generated automatically when omitted",
+        help="UUID personalizado para storage/tasks/<task-id>; se genera automáticamente si se omite",
     )
     execution_mode.add_argument(
         "--batch-file",
         default=None,
         metavar="PATH",
         help=(
-            "UTF-8 JSON array or JSONL task manifest; conflicts with --task-id and "
-            "generates a UUID for every task"
+            "manifiesto de tareas como lista JSON en UTF-8 o JSONL; incompatible con "
+            "--task-id y genera un UUID para cada tarea"
         ),
     )
     args = parser.parse_args(argv)
@@ -726,12 +771,12 @@ Batch manifests:
         and not args.video_subject.strip()
         and not args.video_script.strip()
     ):
-        parser.error("one of --video-subject or --video-script is required")
+        parser.error("se requiere --video-subject o --video-script")
 
     if not args.batch_file and args.video_source == "local" and args.stop_at == "terms":
         parser.error(
-            "--stop-at terms has no effect with --video-source local "
-            "(search terms are not generated for local sources)"
+            "--stop-at terms no tiene efecto con --video-source local "
+            "(no se generan términos de búsqueda para fuentes locales)"
         )
 
     stage_requires_materials = args.stop_at in {"materials", "video"}
@@ -743,11 +788,11 @@ Batch manifests:
         and not has_video_materials
     ):
         parser.error(
-            "--video-materials is required with --video-source local when "
-            "--stop-at is materials or video"
+            "--video-materials es obligatorio con --video-source local cuando "
+            "--stop-at es materials o video"
         )
     if not args.batch_file and args.video_source != "local" and has_video_materials:
-        parser.error("--video-materials can only be used with --video-source local")
+        parser.error("--video-materials solo puede usarse con --video-source local")
     if (
         not args.batch_file
         and args.video_source == "wavespeed"
@@ -755,7 +800,7 @@ Batch manifests:
         and not args.confirm_wavespeed_charge
     ):
         parser.error(
-            "--confirm-wavespeed-charge is required with "
+            "--confirm-wavespeed-charge es obligatorio con "
             "--video-source wavespeed"
         )
     if (
@@ -765,7 +810,7 @@ Batch manifests:
         and not args.confirm_seedance_charge
     ):
         parser.error(
-            "--confirm-seedance-charge is required with "
+            "--confirm-seedance-charge es obligatorio con "
             "--video-source volcengine_seedance"
         )
     if (
@@ -775,7 +820,7 @@ Batch manifests:
         and not args.confirm_ofox_charge
     ):
         parser.error(
-            "--confirm-ofox-charge is required with --video-source ofox"
+            "--confirm-ofox-charge es obligatorio con --video-source ofox"
         )
     if (
         not args.batch_file
@@ -784,7 +829,7 @@ Batch manifests:
         and not args.confirm_metaso_minimax_charge
     ):
         parser.error(
-            "--confirm-metaso-minimax-charge is required with "
+            "--confirm-metaso-minimax-charge es obligatorio con "
             "--video-source metaso_minimax"
         )
     if (
@@ -794,37 +839,39 @@ Batch manifests:
         and not args.confirm_muapi_charge
     ):
         parser.error(
-            "--confirm-muapi-charge is required with --video-source muapi"
+            "--confirm-muapi-charge es obligatorio con --video-source muapi"
         )
 
     if (not args.batch_file and args.video_source == "infistar"
             and stage_requires_materials and not args.confirm_infistar_charge):
-        parser.error("--confirm-infistar-charge is required with --video-source infistar")
+        parser.error("--confirm-infistar-charge es obligatorio con --video-source infistar")
 
     if args.bgm_file:
         if args.bgm_type in (None, "custom"):
             args.bgm_type = "custom"
         elif not args.batch_file:
-            parser.error("--bgm-file can only be combined with --bgm-type custom")
+            parser.error("--bgm-file solo puede combinarse con --bgm-type custom")
 
     if args.sonilo_bgm_prompt:
         if args.bgm_type in (None, "sonilo"):
             args.bgm_type = "sonilo"
         elif not args.batch_file:
             parser.error(
-                "--sonilo-bgm-prompt can only be combined with --bgm-type sonilo"
+                "--sonilo-bgm-prompt solo puede combinarse con --bgm-type sonilo"
             )
 
-    # 提示词字段本身与供应商无关，所以不像 Sonilo 专用参数那样推断 bgm_type：
-    # 推断出来的供应商可能不是用户想要的那个。必须显式选择 AI 配乐供应商，
-    # 否则该提示词会被静默丢弃。批量清单仍可按任务单独设置该字段。
+    # El campo del prompt en sí no depende del proveedor, así que no se deduce bgm_type
+    # como con el parámetro propio de Sonilo: el proveedor deducido podría no ser el que
+    # quiere el usuario. Hay que elegir explícitamente un proveedor de música con IA; si
+    # no, el prompt se descartaría en silencio. La lista de lotes puede seguir fijando
+    # este campo por tarea.
     if (
         not args.batch_file
         and args.video_music_prompt
         and args.bgm_type not in _CLI_MUSIC_BGM_TYPES
     ):
         parser.error(
-            "--video-music-prompt requires --bgm-type sonilo or elevenlabs"
+            "--video-music-prompt requiere --bgm-type sonilo o elevenlabs"
         )
 
     if (
@@ -832,22 +879,23 @@ Batch manifests:
         and args.custom_position is not None
         and args.subtitle_position != "custom"
     ):
-        parser.error("--custom-position requires --subtitle-position custom")
-    # 只有显式的 --no-subtitle-enabled 才算冲突。默认值现在是 None，
-    # 保存的关闭状态在 build_video_params 中处理，不应在这里报参数错误。
+        parser.error("--custom-position requiere --subtitle-position custom")
+    # Solo un --no-subtitle-enabled explícito cuenta como conflicto. El valor por
+    # defecto ahora es None, y el estado desactivado guardado se trata en
+    # build_video_params, así que aquí no debe dar error de parámetros.
     if (
         not args.batch_file
         and args.stop_at == "subtitle"
         and args.subtitle_enabled is False
     ):
-        parser.error("--stop-at subtitle cannot be combined with --no-subtitle-enabled")
+        parser.error("--stop-at subtitle no puede combinarse con --no-subtitle-enabled")
     if not args.batch_file and args.subtitle_background_enabled is False and (
         args.subtitle_background_color is not None
         or args.rounded_subtitle_background is True
     ):
         parser.error(
-            "subtitle background color or rounding cannot be enabled together with "
-            "--no-subtitle-background-enabled"
+            "el color o el redondeo del fondo de los subtítulos no pueden activarse junto "
+            "con --no-subtitle-background-enabled"
         )
 
     return args
@@ -855,23 +903,28 @@ Batch manifests:
 
 def _ui_config_value(ui_config, key: str, expected_type, checker=None):
     """
-    读取 ``[ui]`` 中保存的 WebUI 设置，取不到可用值时返回 ``None``。
+    Lee los ajustes de la WebUI guardados en ``[ui]``; si no hay un valor utilizable,
+    devuelve ``None``.
 
-    该配置段也可能被手工编辑，因此这里直接丢弃不可用的条目，让调用方回退到
-    内置默认值，而不是把脏数据继续传下去，触发 traceback 或 ``VideoParams``
-    的校验错误。
+    Esta sección también puede editarse a mano, así que aquí se descartan directamente
+    las entradas inutilizables y se deja que quien llama vuelva a los valores por
+    defecto integrados, en lugar de seguir pasando datos sucios que provoquen una traza
+    o un error de validación de ``VideoParams``.
 
-    ``checker`` 复用命令行使用的同一批类型函数（如 ``_hex_color``），因此保存
-    值和命令行参数遵循完全相同的取值规则，例如音量不能为负、颜色必须是
-    ``#RRGGBB``。
+    ``checker`` reutiliza las mismas funciones de tipo que usa la línea de comandos
+    (como ``_hex_color``), así que los valores guardados y los parámetros de línea de
+    comandos siguen exactamente las mismas reglas: por ejemplo, el volumen no puede ser
+    negativo y el color debe ser ``#RRGGBB``.
     """
     value = ui_config.get(key)
     if value is None:
         return None
-    # ``isinstance(True, int)`` 为真，所以在期望数字时必须显式排除 bool。
+    # ``isinstance(True, int)`` es verdadero, así que cuando se espera un número hay que
+    # excluir bool explícitamente.
     if isinstance(value, bool) != (expected_type is bool):
         return None
-    # TOML 中的 ``1`` 是整数，但对音量、语速这类字段同样是合法取值。
+    # En TOML ``1`` es un entero, pero para campos como el volumen o la velocidad
+    # también es un valor válido.
     if expected_type is float and isinstance(value, int):
         value = float(value)
     if not isinstance(value, expected_type):
@@ -888,11 +941,13 @@ def _ui_config_value(ui_config, key: str, expected_type, checker=None):
 
 def _resolve_subtitle_enabled(args: argparse.Namespace, ui_config) -> bool:
     """
-    按优先级解析字幕开关：命令行 > WebUI 保存值 > 默认开启。
+    Resuelve el interruptor de subtítulos por prioridad: línea de comandos > valor
+    guardado de la WebUI > activado por defecto.
 
-    ``--stop-at subtitle`` 明确要求生成字幕，因此保存的关闭状态不能让该阶段
-    变成空操作；显式的 --no-subtitle-enabled 与该阶段的组合在参数校验中已被
-    拒绝，所以这里只需处理保存值。
+    ``--stop-at subtitle`` pide explícitamente generar subtítulos, así que el estado
+    desactivado guardado no puede convertir esa etapa en una operación vacía; la
+    combinación de un --no-subtitle-enabled explícito con esa etapa ya se rechaza en la
+    validación de parámetros, así que aquí solo hay que tratar el valor guardado.
     """
     if args.subtitle_enabled is not None:
         return args.subtitle_enabled
@@ -904,27 +959,33 @@ def _resolve_subtitle_enabled(args: argparse.Namespace, ui_config) -> bool:
 
 def _resolve_voice_name(args: argparse.Namespace, ui_config) -> str:
     """
-    按优先级解析音色：命令行 > WebUI 保存的配音方式和音色 > 内置默认值。
+    Resuelve la voz por prioridad: línea de comandos > modo de locución y voz guardados
+    en la WebUI > valor por defecto integrado.
 
-    WebUI 把“无配音”保存为独立的 voice_mode，同时保留用户上一次真正选择的
-    音色，以便切回自动配音后恢复。所以这里不能只读 voice_name，否则保存的
-    无配音状态会被忽略，并可能重新触发付费供应商请求。
+    La WebUI guarda "sin locución" como un voice_mode independiente, y conserva la
+    última voz que el usuario eligió de verdad para restaurarla al volver a la locución
+    automática. Por eso aquí no basta con leer voice_name; si no, se ignoraría el estado
+    sin locución guardado y podrían volver a lanzarse solicitudes a proveedores de pago.
     """
     from app.services.voice import NO_VOICE_NAME
 
     if args.voice_name:
         return args.voice_name
-    # 无配音和上传自备音频都表示用户不想要自动配音。上传模式的文件路径不会
-    # 写入 [ui]，CLI 无法复现该上传；此时沿用保存的音色会静默触发付费 TTS
-    # 请求，因此两种模式都映射为 no-voice，需要配音时显式传 --voice-name。
+    # Tanto "sin locución" como "subir audio propio" significan que el usuario no quiere
+    # locución automática. La ruta del archivo del modo de subida no se escribe en [ui],
+    # y la CLI no puede reproducir esa subida; usar en ese caso la voz guardada lanzaría
+    # en silencio una solicitud de TTS de pago, así que ambos modos se asignan a
+    # no-voice, y si se quiere locución hay que pasar --voice-name explícitamente.
     if _ui_config_value(ui_config, "voice_mode", str) in UI_VOICE_MODES_WITHOUT_TTS:
         return NO_VOICE_NAME
     return _ui_config_value(ui_config, "voice_name", str) or DEFAULT_VOICE_NAME
 
 
 def build_video_params(args: argparse.Namespace) -> VideoParams:
-    # 参数帮助和校验不需要加载应用配置。仅在真正构建任务参数时导入模型，
-    # 避免执行 ``cli.py -h`` 时产生配置初始化日志。
+    # La ayuda y la validación de parámetros no necesitan cargar la configuración de la
+    # aplicación. Los modelos solo se importan al construir de verdad los parámetros de
+    # la tarea, para que ``cli.py -h`` no genere logs de inicialización de
+    # configuración.
     from app.config import config
     from app.models.schema import MaterialInfo, VideoParams
 
@@ -940,7 +1001,8 @@ def build_video_params(args: argparse.Namespace) -> VideoParams:
     materials_arg = args.video_materials or ""
     if materials_arg.strip():
         video_materials = [
-            # Actual duration will be detected during video processing; use 0 as placeholder.
+            # La duración real se detectará durante el procesamiento del vídeo; se usa 0
+            # como marcador.
             MaterialInfo(provider="local", url=item.strip(), duration=0)
             for item in materials_arg.split(",")
             if item.strip()
@@ -995,11 +1057,14 @@ def build_video_params(args: argparse.Namespace) -> VideoParams:
         if value is not None:
             params_kwargs[name] = value
 
-    # 没有显式传入命令行参数时，使用 WebUI 保存的值。只补充上面尚未由命令行
-    # 设置的字段；若保存值缺失，则继续沿用 VideoParams 的默认值。
-    # VideoParams 里多数可保存字段（subtitle_position、custom_position 等）在
-    # 模型导入时就读取 config.ui，video_clip_speed 却是硬编码的 1.0，因此必须
-    # 在这里显式补上，否则 WebUI 保存的速度在命令行会被静默丢弃。
+    # Si no se ha pasado explícitamente un parámetro de línea de comandos, se usa el
+    # valor guardado por la WebUI. Solo se completan los campos de arriba que aún no ha
+    # fijado la línea de comandos; si falta el valor guardado, se sigue usando el valor
+    # por defecto de VideoParams. La mayoría de los campos guardables de VideoParams
+    # (subtitle_position, custom_position, etc.) leen config.ui al importar el modelo,
+    # pero video_clip_speed está fijado a 1.0, así que hay que completarlo aquí
+    # explícitamente; si no, la velocidad guardada por la WebUI se descartaría en
+    # silencio en la línea de comandos.
     ui_defaults = (
         ("video_clip_speed", float, _clip_speed),
         ("video_fit_mode", str, _video_fit_mode),
@@ -1022,7 +1087,8 @@ def build_video_params(args: argparse.Namespace) -> VideoParams:
         if value is not None:
             params_kwargs[name] = value
 
-    # 字幕位置必须由 CLI 给出确定值，不能交给上面说明的导入期字段默认值。
+    # La posición de los subtítulos debe tener un valor determinado dado por la CLI, sin
+    # dejarlo al valor por defecto del campo en tiempo de importación descrito arriba.
     if "subtitle_position" not in params_kwargs:
         params_kwargs["subtitle_position"] = (
             _ui_config_value(ui_config, "subtitle_position", str, _subtitle_position)
@@ -1044,8 +1110,9 @@ def build_video_params(args: argparse.Namespace) -> VideoParams:
     elif args.subtitle_background_color is not None:
         params_kwargs["text_background_color"] = args.subtitle_background_color
     elif args.subtitle_background_enabled is True:
-        # 用户只开启了背景而没有覆盖颜色，因此优先沿用 WebUI 保存的颜色，
-        # 只有在没有可用保存值时才回退到默认背景。
+        # El usuario solo ha activado el fondo sin sobrescribir el color, así que se usa
+        # primero el color guardado por la WebUI, y solo si no hay un valor guardado
+        # utilizable se vuelve al fondo por defecto.
         params_kwargs["text_background_color"] = (
             _ui_config_value(
                 ui_config, "subtitle_background_color", str, _hex_color
@@ -1053,8 +1120,10 @@ def build_video_params(args: argparse.Namespace) -> VideoParams:
             or True
         )
     else:
-        # “关闭背景”加上颜色作为命令行组合是参数错误；但作为保存的设置，
-        # 同样的组合不应中断运行，只表示禁用背景。
+        # "Desactivar el fondo" junto con un color es un error de parámetros como
+        # combinación de línea de comandos; pero como ajuste guardado, la misma
+        # combinación no debe interrumpir la ejecución y solo significa que el fondo
+        # está desactivado.
         ui_enabled = _ui_config_value(
             ui_config, "subtitle_background_enabled", bool
         )
@@ -1076,7 +1145,7 @@ def build_video_params(args: argparse.Namespace) -> VideoParams:
 def _load_batch_manifest(raw_path: str) -> tuple[str, list[dict[str, Any]]]:
     expanded_path = os.path.expanduser(raw_path.strip())
     if not expanded_path:
-        raise ValueError("--batch-file path cannot be empty")
+        raise ValueError("la ruta de --batch-file no puede estar vacía")
 
     candidate = (
         expanded_path
@@ -1085,29 +1154,29 @@ def _load_batch_manifest(raw_path: str) -> tuple[str, list[dict[str, Any]]]:
     )
     manifest_path = os.path.realpath(candidate)
     if not os.path.isfile(manifest_path):
-        raise ValueError(f"batch manifest does not exist or is not a file: {raw_path}")
+        raise ValueError(f"el manifiesto de lotes no existe o no es un archivo: {raw_path}")
 
     with open(manifest_path, "rb") as manifest_file:
         payload = manifest_file.read(_BATCH_FILE_MAX_BYTES + 1)
     if len(payload) > _BATCH_FILE_MAX_BYTES:
-        raise ValueError("batch manifest exceeds the 1 MiB limit")
+        raise ValueError("el manifiesto de lotes supera el límite de 1 MiB")
 
     try:
         text = payload.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise ValueError("batch manifest must be UTF-8 encoded") from exc
+        raise ValueError("el manifiesto de lotes debe estar codificado en UTF-8") from exc
     if not text.strip():
-        raise ValueError("batch manifest must contain at least one task")
+        raise ValueError("el manifiesto de lotes debe contener al menos una tarea")
 
     if text.lstrip().startswith("["):
         try:
             parsed = json.loads(text)
         except json.JSONDecodeError as exc:
             raise ValueError(
-                f"invalid JSON array in batch manifest: {exc.msg}"
+                f"lista JSON no válida en el manifiesto de lotes: {exc.msg}"
             ) from exc
         if not isinstance(parsed, list):
-            raise ValueError("batch manifest JSON must be an array")
+            raise ValueError("el JSON del manifiesto de lotes debe ser una lista")
         entries = parsed
     else:
         entries = []
@@ -1118,20 +1187,20 @@ def _load_batch_manifest(raw_path: str) -> tuple[str, list[dict[str, Any]]]:
                 entries.append(json.loads(line))
             except json.JSONDecodeError as exc:
                 raise ValueError(
-                    f"invalid JSONL in batch manifest at line {line_number}: {exc.msg}"
+                    f"JSONL no válido en el manifiesto de lotes, línea {line_number}: {exc.msg}"
                 ) from exc
 
     if not entries:
-        raise ValueError("batch manifest must contain at least one task")
+        raise ValueError("el manifiesto de lotes debe contener al menos una tarea")
     if len(entries) > _BATCH_TASK_MAX_COUNT:
         raise ValueError(
-            f"batch manifest contains {len(entries)} tasks; "
-            f"the limit is {_BATCH_TASK_MAX_COUNT}"
+            f"el manifiesto de lotes contiene {len(entries)} tareas; "
+            f"el límite es {_BATCH_TASK_MAX_COUNT}"
         )
 
     for index, entry in enumerate(entries, start=1):
         if not isinstance(entry, dict):
-            raise ValueError(f"batch task {index} must be a JSON object")
+            raise ValueError(f"la tarea {index} del lote debe ser un objeto JSON")
     return manifest_path, entries
 
 
@@ -1144,7 +1213,7 @@ def _validate_batch_entry_fields(
     unknown_fields = sorted(set(entry) - allowed_fields)
     if unknown_fields:
         raise ValueError(
-            f"batch task {index} contains unknown VideoParams fields: "
+            f"la tarea {index} del lote contiene campos de VideoParams desconocidos: "
             f"{', '.join(unknown_fields)}"
         )
 
@@ -1158,8 +1227,8 @@ def _validate_batch_entry_fields(
         unknown_material_fields = sorted(set(material) - allowed_material_fields)
         if unknown_material_fields:
             raise ValueError(
-                f"batch task {index} material {material_index} contains unknown "
-                f"MaterialInfo fields: {', '.join(unknown_material_fields)}"
+                f"el material {material_index} de la tarea {index} del lote contiene "
+                f"campos de MaterialInfo desconocidos: {', '.join(unknown_material_fields)}"
             )
 
 
@@ -1207,24 +1276,25 @@ def _validate_batch_task_params(
     infistar_charge_confirmed: bool = False,
 ) -> None:
     if not params.video_subject.strip() and not params.video_script.strip():
-        raise ValueError("one of video_subject or video_script is required")
+        raise ValueError("se requiere video_subject o video_script")
 
     if params.video_source not in _CLI_VIDEO_SOURCES:
         raise ValueError(
-            "video_source must be one of: " + ", ".join(_CLI_VIDEO_SOURCES)
+            "video_source debe ser uno de: " + ", ".join(_CLI_VIDEO_SOURCES)
         )
     for field_name, value in (
         ("video_aspect", params.video_aspect),
         ("video_concat_mode", params.video_concat_mode),
     ):
-        # These schema fields remain Optional for compatibility with historical
-        # API payloads, but the video pipeline always dereferences their enum
-        # values. A manifest's explicit null must fail before any batch task starts.
+        # Estos campos del esquema siguen siendo Optional por compatibilidad con cargas
+        # útiles históricas de la API, pero el flujo de vídeo siempre desreferencia sus
+        # valores enum. Un null explícito en un manifiesto debe fallar antes de que
+        # empiece cualquier tarea del lote.
         if value is None:
-            raise ValueError(f"{field_name} cannot be null")
+            raise ValueError(f"{field_name} no puede ser null")
     if params.video_source == "local" and stop_at == "terms":
         raise ValueError(
-            "stop_at=terms has no effect with video_source=local"
+            "stop_at=terms no tiene efecto con video_source=local"
         )
     if (
         params.video_source == "local"
@@ -1232,18 +1302,18 @@ def _validate_batch_task_params(
         and not params.video_materials
     ):
         raise ValueError(
-            "video_materials is required with video_source=local when "
-            "stop_at is materials or video"
+            "video_materials es obligatorio con video_source=local cuando "
+            "stop_at es materials o video"
         )
     if params.video_source != "local" and params.video_materials:
-        raise ValueError("video_materials can only be used with video_source=local")
+        raise ValueError("video_materials solo puede usarse con video_source=local")
     if (
         params.video_source == "wavespeed"
         and stop_at in {"materials", "video"}
         and not wavespeed_charge_confirmed
     ):
         raise ValueError(
-            "--confirm-wavespeed-charge is required for WaveSpeed video generation"
+            "--confirm-wavespeed-charge es obligatorio para generar vídeo con WaveSpeed"
         )
     if (
         params.video_source == "volcengine_seedance"
@@ -1251,55 +1321,55 @@ def _validate_batch_task_params(
         and not seedance_charge_confirmed
     ):
         raise ValueError(
-            "--confirm-seedance-charge is required for Volcano Engine Seedance"
+            "--confirm-seedance-charge es obligatorio para Volcano Engine Seedance"
         )
     if (
         params.video_source == "ofox"
         and stop_at in {"materials", "video"}
         and not ofox_charge_confirmed
     ):
-        raise ValueError("--confirm-ofox-charge is required for OFox video generation")
+        raise ValueError("--confirm-ofox-charge es obligatorio para generar vídeo con OFox")
     if (
         params.video_source == "metaso_minimax"
         and stop_at in {"materials", "video"}
         and not metaso_minimax_charge_confirmed
     ):
         raise ValueError(
-            "--confirm-metaso-minimax-charge is required for Metaso MiniMax H3"
+            "--confirm-metaso-minimax-charge es obligatorio para Metaso MiniMax H3"
         )
     if (
         params.video_source == "muapi"
         and stop_at in {"materials", "video"}
         and not muapi_charge_confirmed
     ):
-        raise ValueError("--confirm-muapi-charge is required for MuAPI video generation")
+        raise ValueError("--confirm-muapi-charge es obligatorio para generar vídeo con MuAPI")
 
     if (params.video_source == "infistar" and stop_at in {"materials", "video"}
             and not infistar_charge_confirmed):
-        raise ValueError("--confirm-infistar-charge is required for Infistar video generation")
+        raise ValueError("--confirm-infistar-charge es obligatorio para generar vídeo con Infistar")
 
     if stop_at == "subtitle" and not params.subtitle_enabled:
-        raise ValueError("stop_at=subtitle cannot be combined with disabled subtitles")
+        raise ValueError("stop_at=subtitle no puede combinarse con los subtítulos desactivados")
     if params.subtitle_position not in _SUBTITLE_POSITION_VALUES:
         raise ValueError(
-            "subtitle_position must be one of: "
+            "subtitle_position debe ser uno de: "
             + ", ".join(_SUBTITLE_POSITION_VALUES)
         )
     if custom_position_is_explicit and params.subtitle_position != "custom":
-        raise ValueError("custom_position requires subtitle_position=custom")
+        raise ValueError("custom_position requiere subtitle_position=custom")
     if not math.isfinite(params.custom_position) or not 0 <= params.custom_position <= 100:
-        raise ValueError("custom_position must be a finite number between 0 and 100")
+        raise ValueError("custom_position debe ser un número finito entre 0 y 100")
     if params.video_clip_speed is not None and (
         not math.isfinite(params.video_clip_speed)
         or not _CLIP_SPEED_MIN <= params.video_clip_speed <= _CLIP_SPEED_MAX
     ):
         raise ValueError(
-            "video_clip_speed must be a finite number between "
-            f"{_CLIP_SPEED_MIN} and {_CLIP_SPEED_MAX}"
+            "video_clip_speed debe ser un número finito entre "
+            f"{_CLIP_SPEED_MIN} y {_CLIP_SPEED_MAX}"
         )
     if params.text_background_color is False and params.rounded_subtitle_background:
         raise ValueError(
-            "rounded_subtitle_background requires an enabled subtitle background"
+            "rounded_subtitle_background requiere un fondo de subtítulos activado"
         )
 
     color_values = {
@@ -1313,7 +1383,7 @@ def _validate_batch_task_params(
     }
     for name, value in color_values.items():
         if value is not None and not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
-            raise ValueError(f"{name} must use #RRGGBB format")
+            raise ValueError(f"{name} debe usar el formato #RRGGBB")
 
     numeric_constraints = (
         ("voice_volume", params.voice_volume, 0, False),
@@ -1328,24 +1398,24 @@ def _validate_batch_task_params(
             value <= minimum if exclusive else value < minimum
         ):
             comparison = ">" if exclusive else ">="
-            raise ValueError(f"{name} must be a finite number {comparison} {minimum}")
+            raise ValueError(f"{name} debe ser un número finito {comparison} {minimum}")
 
     for name, value in (
         ("n_threads", params.n_threads),
         ("font_size", params.font_size),
     ):
         if value is not None and value < 1:
-            raise ValueError(f"{name} must be >= 1")
+            raise ValueError(f"{name} debe ser >= 1")
 
     if params.bgm_type not in {"", "random", "custom", *_CLI_MUSIC_BGM_TYPES}:
-        raise ValueError(f"bgm_type must be one of: {_BGM_TYPE_CHOICES_TEXT}")
+        raise ValueError(f"bgm_type debe ser uno de: {_BGM_TYPE_CHOICES_TEXT}")
     if params.bgm_file and params.bgm_type != "custom":
-        raise ValueError("bgm_file requires bgm_type=custom")
+        raise ValueError("bgm_file requiere bgm_type=custom")
     if params.sonilo_bgm_prompt and params.bgm_type != "sonilo":
-        raise ValueError("sonilo_bgm_prompt requires bgm_type=sonilo")
+        raise ValueError("sonilo_bgm_prompt requiere bgm_type=sonilo")
     if params.video_music_prompt and params.bgm_type not in _CLI_MUSIC_BGM_TYPES:
         raise ValueError(
-            "video_music_prompt requires bgm_type=sonilo or elevenlabs"
+            "video_music_prompt requiere bgm_type=sonilo o elevenlabs"
         )
 
 
@@ -1394,7 +1464,7 @@ def _build_batch_tasks(args: argparse.Namespace) -> list[VideoParams]:
                 infistar_charge_confirmed=args.confirm_infistar_charge,
             )
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"invalid batch task {index}: {exc}") from exc
+            raise ValueError(f"tarea {index} del lote no válida: {exc}") from exc
         tasks.append(params)
 
     validation_plans = []
@@ -1402,7 +1472,7 @@ def _build_batch_tasks(args: argparse.Namespace) -> list[VideoParams]:
         try:
             validation_plans.append(_validate_cli_files(params, stop_at=args.stop_at))
         except (OSError, ValueError) as exc:
-            raise ValueError(f"invalid batch task {index}: {exc}") from exc
+            raise ValueError(f"tarea {index} del lote no válida: {exc}") from exc
 
     prepared_paths: dict[str, str] = {}
     created_paths: list[str] = []
@@ -1418,7 +1488,7 @@ def _build_batch_tasks(args: argparse.Namespace) -> list[VideoParams]:
                     created_paths=created_paths,
                 )
             except OSError as exc:
-                raise ValueError(f"invalid batch task {index}: {exc}") from exc
+                raise ValueError(f"tarea {index} del lote no válida: {exc}") from exc
     except Exception:
         _remove_cli_material_copies(created_paths)
         raise
@@ -1432,16 +1502,18 @@ def _resolve_cli_file(
     fallback_dir: str | None = None,
 ) -> str:
     """
-    将 CLI 文件参数按当前工作目录解析为绝对路径，
-    并在任务开始前确认存在。
+    Resuelve los parámetros de archivo de la CLI a rutas absolutas según el directorio
+    de trabajo actual, y confirma que existen antes de empezar la tarea.
 
-    本地素材旧版本始终相对 ``storage/local_videos`` 解析。为兼容已有脚本，
-    当前目录找不到相对路径时允许回退该目录；绝对路径始终按用户输入
-    直接解析。
+    Las versiones antiguas resolvían siempre el material local relativo a
+    ``storage/local_videos``. Por compatibilidad con los scripts existentes, si no se
+    encuentra una ruta relativa en el directorio actual se permite volver a ese
+    directorio; las rutas absolutas se resuelven siempre tal como las escribe el
+    usuario.
     """
     expanded_path = os.path.expanduser(raw_path.strip())
     if not expanded_path:
-        raise ValueError(f"{description} path cannot be empty")
+        raise ValueError(f"la ruta de {description} no puede estar vacía")
 
     candidate = (
         expanded_path
@@ -1453,7 +1525,7 @@ def _resolve_cli_file(
         resolved_path = os.path.realpath(os.path.join(fallback_dir, expanded_path))
 
     if not os.path.isfile(resolved_path):
-        raise ValueError(f"{description} file does not exist: {raw_path}")
+        raise ValueError(f"el archivo de {description} no existe: {raw_path}")
     return resolved_path
 
 
@@ -1463,7 +1535,8 @@ def _path_is_within_directory(file_path: str, directory: str) -> bool:
             [os.path.realpath(directory), os.path.realpath(file_path)]
         ) == os.path.realpath(directory)
     except ValueError:
-        # Windows 不同盘符无法计算 commonpath，此时文件显然不在目标目录内。
+        # En Windows no se puede calcular commonpath entre unidades distintas, y en ese
+        # caso el archivo claramente no está en el directorio de destino.
         return False
 
 
@@ -1473,7 +1546,9 @@ def _resolve_managed_resource_file(
     resource_dir: str,
     description: str,
 ) -> str:
-    """解析项目资源文件，并确保绝对路径仍位于对应资源目录内。"""
+    """Resuelve un archivo de recursos del proyecto, asegurando que la ruta absoluta sigue
+    dentro del directorio de recursos correspondiente.
+    """
     from app.utils import utils
 
     expanded_path = os.path.expanduser(raw_path.strip())
@@ -1492,7 +1567,7 @@ def _resolve_managed_resource_file(
         ):
             return resolved_path
     raise ValueError(
-        f"{description} file must exist inside {resource_dir}: {raw_path}"
+        f"el archivo de {description} debe existir dentro de {resource_dir}: {raw_path}"
     )
 
 
@@ -1500,20 +1575,23 @@ def _validate_cli_files(
     params: VideoParams, stop_at: str
 ) -> tuple[str, list[tuple[MaterialInfo, str, str]]]:
     """
-    无副作用地解析并校验 CLI 文件，避免批量预检留下素材副本。
+    Resuelve y valida los archivos de la CLI sin efectos secundarios, para que la
+    comprobación previa de lotes no deje copias del material.
 
-    自定义音频、BGM 和字体会被规范化为服务层可使用的路径或名称；本地素材
-    仅解析来源和扩展名，实际复制由 ``_prepare_cli_materials`` 在所有批量条目
-    校验通过后统一完成。
+    El audio personalizado, la BGM y las fuentes se normalizan a rutas o nombres que
+    puede usar la capa de servicio; del material local solo se resuelven el origen y la
+    extensión, y la copia real la hace ``_prepare_cli_materials`` de una vez cuando
+    todas las entradas del lote han pasado la validación.
     """
     from app.models import const
     from app.services import bgm as bgm_service
     from app.utils import utils
 
-    # FFmpeg 探测已经移到 app/services/task.py 的共享任务流水线（task.start）
-    # 里统一做硬性检查：探测失败会让任务以 preflight 阶段失败结束，run_cli()
-    # 会据此返回非零退出码。这里不再重复一次不阻断流程的检查，避免与流水线
-    # 里的判断结果不一致。
+    # La comprobación de FFmpeg se ha movido al flujo de tareas compartido de
+    # app/services/task.py (task.start), donde se hace como comprobación obligatoria
+    # común: si falla, la tarea termina con fallo en la etapa preflight, y run_cli()
+    # devuelve según eso un código de salida distinto de cero. Aquí ya no se repite una
+    # comprobación que no bloquea el flujo, para que no difiera del resultado del flujo.
 
     local_material_extensions = {
         *(f".{extension}" for extension in const.FILE_TYPE_VIDEOS),
@@ -1525,40 +1603,45 @@ def _validate_cli_files(
     if params.custom_audio_file and stop_at not in {"script", "terms"}:
         params.custom_audio_file = _resolve_cli_file(
             params.custom_audio_file,
-            description="custom audio",
+            description="audio personalizado",
         )
         audio_extension = os.path.splitext(params.custom_audio_file)[1].lower()
         if audio_extension not in _CUSTOM_AUDIO_EXTENSIONS:
             allowed = ", ".join(sorted(_CUSTOM_AUDIO_EXTENSIONS))
             raise ValueError(
-                f"unsupported custom audio type {audio_extension or '<none>'}; "
-                f"allowed extensions: {allowed}"
+                f"tipo de audio personalizado no admitido {audio_extension or '<none>'}; "
+                f"extensiones permitidas: {allowed}"
             )
 
     if params.bgm_type == "custom" and stop_at == "video":
         if not bgm_service.should_use_bgm(params.bgm_type, params.bgm_volume):
-            # 0 音量时下游会统一跳过所有 BGM。这里同时清空文件参数，避免
-            # CLI 为一个不会被读取的文件执行路径解析、存在性检查或格式
-            # 校验。
+            # Con volumen 0, más adelante se omite toda BGM. Aquí también se vacía el
+            # parámetro de archivo, para que la CLI no resuelva la ruta, compruebe la
+            # existencia ni valide el formato de un archivo que nunca se leerá.
             params.bgm_file = ""
         elif not params.bgm_file:
-            # 缺少文件是否构成错误取决于通用 BGM 开关，不能在 argparse 阶段
-            # 无条件拦截，否则 ``custom + 0%`` 会和 WebUI、服务层行为不一致。
-            raise ValueError("--bgm-file is required when --bgm-type is custom")
+            # Que falte el archivo sea o no un error depende del interruptor general de
+            # BGM, así que no se puede interceptar sin condiciones en la fase de
+            # argparse; si no, ``custom + 0%`` no se comportaría igual que la WebUI y la
+            # capa de servicio.
+            raise ValueError("--bgm-file es obligatorio cuando --bgm-type es custom")
         else:
             try:
-                # CLI、WebUI 和任务服务必须共用同一个 BGM 文件边界。这里直接
-                # 复用服务层解析，既支持用户上传目录和内置歌曲目录，也
-                # 自动继承新增音频格式及路径安全规则，避免多个入口分别
-                # 维护白名单。
+                # La CLI, la WebUI y el servicio de tareas deben compartir los mismos
+                # límites de archivos de BGM. Aquí se reutiliza directamente la
+                # resolución de la capa de servicio, que admite tanto el directorio de
+                # subidas del usuario como el de canciones integradas y hereda
+                # automáticamente los nuevos formatos de audio y las reglas de seguridad
+                # de rutas, para que varias entradas no mantengan cada una su propia
+                # lista blanca.
                 params.bgm_file = bgm_service.resolve_bgm_file(params.bgm_file)
             except ValueError as exc:
                 supported_extensions = ", ".join(
                     bgm_service.SUPPORTED_BGM_EXTENSIONS
                 )
                 raise ValueError(
-                    "background music must be a supported audio file inside "
-                    f"storage/bgm or resource/songs ({supported_extensions}): "
+                    "la música de fondo debe ser un archivo de audio compatible dentro de "
+                    f"storage/bgm o resource/songs ({supported_extensions}): "
                     f"{params.bgm_file}"
                 ) from exc
 
@@ -1566,11 +1649,12 @@ def _validate_cli_files(
         font_path = _resolve_managed_resource_file(
             params.font_name,
             resource_dir=utils.font_dir(),
-            description="subtitle font",
+            description="fuente de subtítulos",
         )
         if not font_path.lower().endswith((".ttf", ".ttc")):
-            raise ValueError("subtitle font must use the .ttf or .ttc extension")
-        # 下游根据 resource/fonts 内的文件名拼接路径，因此仍保留纯文件名。
+            raise ValueError("la fuente de subtítulos debe tener la extensión .ttf o .ttc")
+        # Más adelante la ruta se construye a partir del nombre de archivo dentro de
+        # resource/fonts, así que se sigue conservando el nombre de archivo puro.
         params.font_name = os.path.basename(font_path)
 
     if params.video_source != "local" or stop_at not in {"materials", "video"}:
@@ -1581,15 +1665,15 @@ def _validate_cli_files(
     for material in params.video_materials or []:
         source_path = _resolve_cli_file(
             material.url,
-            description="local material",
+            description="material local",
             fallback_dir=local_videos_dir,
         )
         extension = os.path.splitext(source_path)[1].lower()
         if extension not in local_material_extensions:
             allowed = ", ".join(sorted(local_material_extensions))
             raise ValueError(
-                f"unsupported local material type {extension or '<none>'}: "
-                f"{material.url}; allowed extensions: {allowed}"
+                f"tipo de material local no admitido {extension or '<none>'}: "
+                f"{material.url}; extensiones permitidas: {allowed}"
             )
         resolved_materials.append((material, source_path, extension))
 
@@ -1597,14 +1681,16 @@ def _validate_cli_files(
 
 
 def _remove_cli_material_copies(created_paths: Sequence[str]) -> None:
-    """Best-effort cleanup for managed copies created by one CLI preparation."""
+    """Limpieza en lo posible de las copias gestionadas creadas por una preparación de la
+    CLI.
+    """
     for file_path in reversed(created_paths):
         try:
             if os.path.isfile(file_path):
                 os.remove(file_path)
         except OSError as exc:
             logger.warning(
-                f"failed to remove prepared CLI material: path={file_path}, "
+                f"no se pudo eliminar el material preparado de la CLI: path={file_path}, "
                 f"error={exc}"
             )
 
@@ -1616,7 +1702,9 @@ def _prepare_cli_materials(
     prepared_paths: dict[str, str] | None = None,
     created_paths: list[str] | None = None,
 ) -> None:
-    """Copy validated local materials once and update every matching reference."""
+    """Copia una vez el material local validado y actualiza todas las referencias que
+    coinciden.
+    """
     if not resolved_materials:
         return
 
@@ -1647,7 +1735,7 @@ def _prepare_cli_materials(
                     raise
                 created_paths.append(prepared_path)
                 logger.info(
-                    "copied CLI local material into managed storage: "
+                    "material local de la CLI copiado al almacenamiento gestionado: "
                     f"source={source_path}, target={prepared_path}"
                 )
             prepared_paths[source_path] = prepared_path
@@ -1656,7 +1744,7 @@ def _prepare_cli_materials(
 
 
 def prepare_cli_files(params: VideoParams, stop_at: str) -> None:
-    """Validate and prepare files for one trusted local CLI task."""
+    """Valida y prepara los archivos de una tarea local de la CLI de confianza."""
     local_videos_dir, resolved_materials = _validate_cli_files(params, stop_at)
     created_paths: list[str] = []
     try:
@@ -1684,7 +1772,7 @@ def _run_batch_tasks(args: argparse.Namespace, tasks: list[VideoParams]) -> int:
             task_id = str(uuid4())
         used_task_ids.add(task_id)
         logger.info(
-            f"start CLI batch task: index={index}, task_id={task_id}, "
+            f"inicio de la tarea por lotes de la CLI: index={index}, task_id={task_id}, "
             f"stop_at={args.stop_at}"
         )
 
@@ -1702,20 +1790,20 @@ def _run_batch_tasks(args: argparse.Namespace, tasks: list[VideoParams]) -> int:
             failed_stage = "runtime"
             error = str(exc)
             logger.exception(
-                "CLI batch task failed with an unexpected error: "
+                "la tarea por lotes de la CLI falló con un error inesperado: "
                 f"index={index}, task_id={task_id}, error={exc}"
             )
         else:
             if not isinstance(result, dict) or not result:
                 failed_stage = "unknown"
-                error = "empty or invalid task result"
+                error = "resultado de tarea vacío o no válido"
             elif result.get("state") == tm.const.TASK_STATE_FAILED:
                 failed_stage = result.get("failed_stage") or "unknown"
-                error = result.get("error") or "unknown task error"
+                error = result.get("error") or "error de tarea desconocido"
 
             if error is not None:
                 logger.error(
-                    f"CLI batch task failed: index={index}, task_id={task_id}, "
+                    f"la tarea por lotes de la CLI falló: index={index}, task_id={task_id}, "
                     f"stop_at={args.stop_at}, stage={failed_stage}, error={error}"
                 )
 
@@ -1749,17 +1837,19 @@ def _run_batch_tasks(args: argparse.Namespace, tasks: list[VideoParams]) -> int:
 
 def run_cli(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    import app.config  # noqa: F401 -- 初始化配置及进程日志设置。
+    import app.config  # noqa: F401 -- inicializa la configuración y los logs del proceso.
     from app.utils.logging_utils import configure_terminal_logger, get_logging_options
 
-    # 配置模块默认把终端日志发往 stdout。CLI 的 stdout 是机器可读 JSON，
-    # 必须在素材预处理等步骤开始前切到 stderr，帮助和参数错误仍保持延迟导入。
+    # El módulo de configuración envía por defecto los logs del terminal a stdout. El
+    # stdout de la CLI es JSON legible por máquina, así que hay que cambiar a stderr
+    # antes de empezar pasos como el preprocesado del material; la ayuda y los errores
+    # de parámetros siguen manteniendo la importación diferida.
     configure_terminal_logger(sys.stderr, level=get_logging_options()[0], colorize=False)
     if args.batch_file:
         try:
             tasks = _build_batch_tasks(args)
         except (ValueError, OSError) as exc:
-            logger.error(f"invalid CLI batch input: {exc}")
+            logger.error(f"entrada por lotes de la CLI no válida: {exc}")
             return 2
         return _run_batch_tasks(args, tasks)
 
@@ -1767,36 +1857,38 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         params = build_video_params(args)
         prepare_cli_files(params, stop_at=args.stop_at)
     except (ValueError, OSError) as exc:
-        logger.error(f"invalid CLI input: {exc}")
+        logger.error(f"entrada de la CLI no válida: {exc}")
         return 2
 
-    # 帮助参数会在 parse_args 中直接退出。把业务服务延迟到这里导入，
-    # 保证 -h/--help 输出干净，同时不改变实际任务的初始化流程。
+    # Los parámetros de ayuda salen directamente en parse_args. Importar los servicios
+    # de negocio aquí, de forma diferida, garantiza que la salida de -h/--help quede
+    # limpia, sin cambiar el flujo de inicialización de las tareas reales.
     from app.services import task as tm
     from app.utils import utils
 
     task_id = args.task_id or utils.get_uuid()
-    logger.info(f"start CLI task: task_id={task_id}, stop_at={args.stop_at}")
+    logger.info(f"inicio de la tarea de la CLI: task_id={task_id}, stop_at={args.stop_at}")
     try:
         result = tm.start(
             task_id=task_id,
             params=params,
             stop_at=args.stop_at,
-            # CLI inputs come from the local operator rather than an HTTP client.
-            # Preserve support for arbitrary local audio paths without weakening the
-            # task service's secure default for API and WebUI callers.
+            # Las entradas de la CLI vienen del operador local y no de un cliente HTTP.
+            # Se mantiene el soporte de rutas de audio locales arbitrarias sin debilitar
+            # el valor por defecto seguro del servicio de tareas para quienes llaman
+            # desde la API y la WebUI.
             allow_server_file_input=True,
         )
     except Exception as exc:
         logger.exception(
-            f"CLI task failed with an unexpected error: task_id={task_id}, error={exc}"
+            f"la tarea de la CLI falló con un error inesperado: task_id={task_id}, error={exc}"
         )
         return 1
     if not result or result.get("state") == tm.const.TASK_STATE_FAILED:
         failed_stage = result.get("failed_stage", "unknown") if result else "unknown"
-        error = result.get("error", "unknown task error") if result else "empty result"
+        error = result.get("error", "error de tarea desconocido") if result else "resultado vacío"
         logger.error(
-            f"CLI task failed: task_id={task_id}, stop_at={args.stop_at}, "
+            f"la tarea de la CLI falló: task_id={task_id}, stop_at={args.stop_at}, "
             f"stage={failed_stage}, error={error}"
         )
         if result and result.get("videos"):
@@ -1808,14 +1900,15 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
 
 
 def _force_utf8_console() -> None:
-    """Make stdout/stderr UTF-8 before anything is printed.
+    """Pone stdout/stderr en UTF-8 antes de imprimir nada.
 
-    Windows consoles default to a legacy code page (cp1252 in Western
-    Europe). Generating a French video produces U+202F, the narrow no-break
-    space French typography puts before ':' and '!', and Loguru's own progress
-    lines carry circled digits. Either one raises UnicodeEncodeError, which
-    kills the process *after* the video was written successfully -- so the run
-    reports failure and never prints where the file is.
+    Las consolas de Windows usan por defecto una página de códigos antigua (cp1252 en
+    Europa occidental). Generar un vídeo en francés produce U+202F, el espacio estrecho
+    de no separación que la tipografía francesa pone antes de ':' y '!', y las propias
+    líneas de progreso de Loguru llevan números en círculo. Cualquiera de los dos lanza
+    UnicodeEncodeError, que mata el proceso *después* de que el vídeo se haya escrito
+    correctamente, así que la ejecución informa de un fallo y nunca imprime dónde está
+    el archivo.
     """
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)

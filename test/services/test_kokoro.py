@@ -1,4 +1,6 @@
-"""Kokoro 协议兼容和共享音频传输回归，不依赖外部服务。"""
+"""Regresiones de compatibilidad del protocolo Kokoro y del transporte de audio compartido,
+sin depender de servicios externos.
+"""
 
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -99,7 +101,9 @@ def test_transport_closes_audio_and_preserves_contract(monkeypatch, tmp_path, pr
 @pytest.mark.parametrize("provider", ["kokoro", "chatterbox"])
 @pytest.mark.parametrize("failure", ["empty", "decode", "zero", "nan", "replace", "http", "timeout", "connect_timeout"])
 def test_failed_audio_never_overwrites_output(monkeypatch, tmp_path, provider, failure):
-    """失败保留原文件，解码资源与临时文件均释放，包括 Windows 替换失败。"""
+    """Si falla, se conserva el archivo original y se liberan los recursos de
+    decodificación y los temporales, incluido el fallo de sustitución en Windows.
+    """
     output = tmp_path / "existing.mp3"
     output.write_bytes(b"previous audio")
     post = Mock(return_value=SimpleNamespace(
@@ -122,8 +126,9 @@ def test_failed_audio_never_overwrites_output(monkeypatch, tmp_path, provider, f
     ) is None
     assert output.read_bytes() == b"previous audio"
     assert list(tmp_path.iterdir()) == [output]
-    # An unspecified request timeout may occur after synthesis was accepted;
-    # only a proven pre-connection timeout is safe to submit again.
+    # Un tiempo de espera de solicitud sin especificar puede ocurrir después de que se
+    # aceptara la síntesis; solo es seguro volver a enviar cuando se demuestra un tiempo
+    # de espera previo a la conexión.
     expected_attempts = 3 if failure in {"http", "connect_timeout"} else 1
     assert post.call_count == expected_attempts
     if failure in {"zero", "nan", "replace"}:

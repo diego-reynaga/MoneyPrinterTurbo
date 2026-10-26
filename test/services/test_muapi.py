@@ -384,7 +384,7 @@ def test_on_demand_counts_actual_downloaded_duration_before_next_paid_submission
 @pytest.mark.parametrize("audio_duration", [float("nan"), float("inf"), None, "bad"])
 def test_on_demand_rejects_invalid_audio_duration_before_submission(audio_duration):
     with patch.object(muapi, "generate_videos") as generate:
-        with pytest.raises(muapi.MuAPIError, match="audio duration"):
+        with pytest.raises(muapi.MuAPIError, match="duración del audio"):
             material.download_videos(
                 task_id="muapi-invalid-audio",
                 search_terms=["one", "two"],
@@ -429,7 +429,7 @@ def test_task_preflight_rejects_missing_key_before_script_generation():
         result = task_service.start("muapi-preflight", params, stop_at="materials")
 
     assert result["failed_stage"] == "preflight"
-    assert "MuAPI video generation requires a MuAPI API key" in result["error"]
+    assert "la generación de vídeo con MuAPI requiere una API Key de MuAPI" in result["error"]
     generate_script.assert_not_called()
 
 

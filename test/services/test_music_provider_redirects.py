@@ -1,4 +1,6 @@
-"""Credentialed music requests must not follow provider-controlled redirects."""
+"""Las solicitudes de música con credenciales no deben seguir redirecciones controladas por
+el proveedor.
+"""
 
 import tempfile
 from contextlib import contextmanager
@@ -108,4 +110,4 @@ def test_music_provider_rejects_redirect_without_replaying_credentials_or_video(
                             )
 
         assert redirected_requests == []
-        assert "redirect" in str(error.value)
+        assert "redirección" in str(error.value)

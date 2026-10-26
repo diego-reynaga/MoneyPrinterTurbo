@@ -46,7 +46,7 @@ class TestLoomLoomPagination(unittest.TestCase):
             self.last_requests = seen
 
     def test_rejects_repeated_page_token_before_requesting_it_again(self):
-        with self.assertRaisesRegex(LoomLoomAPIError, "repeated.*page token"):
+        with self.assertRaisesRegex(LoomLoomAPIError, "token de página.*repetido"):
             self.collect([
                 {"items": [], "nextPageToken": "a"},
                 {"items": [], "nextPageToken": "b"},

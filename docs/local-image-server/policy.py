@@ -1,4 +1,4 @@
-"""Content policy for scene prompts, loaded from policy.toml."""
+"""Política de contenido para los prompts de escena, cargada desde policy.toml."""
 
 import re
 import tomllib
@@ -58,7 +58,7 @@ class Policy:
 
 
 def load(path=None):
-    """Load a policy file. Returns None when path is "off"."""
+    """Carga un archivo de política. Devuelve None cuando la ruta es "off"."""
     if str(path).lower() == "off":
         return None
     return Policy(tomllib.loads(Path(path or DEFAULT_PATH).read_text(encoding="utf-8")))

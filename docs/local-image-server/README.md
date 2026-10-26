@@ -1,15 +1,15 @@
-# Local image server for `openai_image`
+# Servidor de imágenes local para `openai_image`
 
-Stock footage often has little to do with the script. The `openai_image` source fixes that by generating one image per script segment. This folder has a small server that does it on your own GPU, so there are no per-image costs.
+El material de stock a menudo tiene poco que ver con el guion. La fuente `openai_image` lo resuelve generando una imagen por cada fragmento del guion. Esta carpeta contiene un pequeño servidor que lo hace en tu propia GPU, así que no hay costes por imagen.
 
-It exposes the OpenAI `/v1/images/generations` API and runs [RealVisXL V5.0 Lightning](https://huggingface.co/SG161222/RealVisXL_V5.0_Lightning), a photoreal SDXL model that needs about 6 steps per image.
+Expone la API `/v1/images/generations` de OpenAI y ejecuta [RealVisXL V5.0 Lightning](https://huggingface.co/SG161222/RealVisXL_V5.0_Lightning), un modelo SDXL fotorrealista que necesita unos 6 pasos por imagen.
 
-Tested on an RTX 5070 Ti (16 GB):
+Probado en una RTX 5070 Ti (16 GB):
 
-- about 3.9 s per 832x1216 image over HTTP once warm (about 2 s of that is the model itself)
-- 5 to 7 minutes for a 50 s video with 8 scenes, including voice, Whisper subtitles and rendering; the online voiceover accounts for most of the variation
+- unos 3,9 s por imagen de 832x1216 por HTTP una vez en caliente (unos 2 s de eso son el propio modelo)
+- de 5 a 7 minutos para un vídeo de 50 s con 8 escenas, incluidos la voz, los subtítulos de Whisper y el renderizado; la locución en línea explica la mayor parte de la variación
 
-## Setup
+## Instalación
 
 ```bash
 cd docs/local-image-server
@@ -19,11 +19,11 @@ python -m venv .venv
 .venv/Scripts/python server.py
 ```
 
-`uvicorn server:app --port 7861` works the same way: the idle worker starts with the app either way.
+`uvicorn server:app --port 7861` funciona igual: el worker de inactividad arranca con la aplicación en ambos casos.
 
-The first request downloads the fp16 weights, about 6.6 GB. The server listens on `http://127.0.0.1:7861`. A `size` that isn't `WIDTHxHEIGHT` with positive numbers gets a 422 response.
+La primera solicitud descarga los pesos fp16, unos 6,6 GB. El servidor escucha en `http://127.0.0.1:7861`. Un `size` que no sea `ANCHOxALTO` con números positivos recibe una respuesta 422.
 
-Tests, from the repo root, with no GPU needed: `python -m pytest test/services/test_local_image_policy.py test/services/test_local_image_server.py`. The server tests run the real HTTP app with a stand-in pipeline and a fake Ollama.
+Tests, desde la raíz del repositorio y sin necesidad de GPU: `python -m pytest test/services/test_local_image_policy.py test/services/test_local_image_server.py`. Los tests del servidor ejecutan la aplicación HTTP real con un pipeline sustituto y un Ollama falso.
 
 ## config.toml
 
@@ -36,50 +36,50 @@ match_materials_to_script = true
 video_clip_duration = 6
 ```
 
-`match_materials_to_script` asks the LLM for up to 8 keywords in narration order, which gives one scene per part of the script. Each image becomes one clip, so 8 keywords x 6 s covers about 48 s of narration. With shorter clips, scenes repeat to fill the gap.
+`match_materials_to_script` pide al LLM hasta 8 palabras clave en el orden de la narración, lo que da una escena por cada parte del guion. Cada imagen se convierte en un clip, así que 8 palabras clave x 6 s cubren unos 48 s de narración. Con clips más cortos, las escenas se repiten para llenar el hueco.
 
-## Sharing the GPU with Ollama
+## Compartir la GPU con Ollama
 
-Measured on the RTX 5070 Ti: SDXL's weights take 6.7 GB, and painting one 832x1216 image peaks at 10.6 GB allocated. qwen3:14b in Ollama takes 9.0 GB. They don't fit on a 16 GB card together, so the server keeps one of them on the GPU at a time:
+Medido en la RTX 5070 Ti: los pesos de SDXL ocupan 6,7 GB, y pintar una imagen de 832x1216 alcanza un pico de 10,6 GB reservados. qwen3:14b en Ollama ocupa 9,0 GB. No caben juntos en una tarjeta de 16 GB, así que el servidor mantiene solo uno de ellos en la GPU a la vez:
 
-- Before every image, it asks Ollama which models are loaded, unloads them, and waits until Ollama reports them gone. This runs on every request, not just the first, because MPT may load the LLM again between images or between back-to-back videos.
-- After each request it releases PyTorch's cached buffers. Without that, the process keeps about 14 GB reserved between images.
-- After `IMAGE_IDLE_SECONDS` (90 by default) without a request, a background worker moves SDXL to the CPU, so Ollama gets the whole GPU for the next script.
+- Antes de cada imagen, pregunta a Ollama qué modelos están cargados, los descarga y espera hasta que Ollama informa de que ya no están. Esto se ejecuta en cada solicitud, no solo en la primera, porque MPT puede volver a cargar el LLM entre imágenes o entre vídeos consecutivos.
+- Tras cada solicitud libera los búferes en caché de PyTorch. Sin eso, el proceso mantiene unos 14 GB reservados entre imágenes.
+- Tras `IMAGE_IDLE_SECONDS` (90 por defecto) sin solicitudes, un worker en segundo plano mueve SDXL a la CPU, para que Ollama tenga toda la GPU para el siguiente guion.
 
-The server can't stop Ollama from loading while an image is painting. Running LLM and image work at the same moment isn't supported: the next image request reclaims the GPU, but in the meantime both models share it. On Windows the driver spills the overflow into system memory, which is slow but didn't crash in testing. We haven't tested this case on Linux.
+El servidor no puede impedir que Ollama se cargue mientras se pinta una imagen. No se admite ejecutar el trabajo del LLM y el de las imágenes en el mismo momento: la siguiente solicitud de imagen recupera la GPU, pero mientras tanto ambos modelos la comparten. En Windows el controlador desborda el exceso a la memoria del sistema, lo que es lento pero no falló en las pruebas. Este caso no lo hemos probado en Linux.
 
-## Options
+## Opciones
 
-| Variable | Default | |
+| Variable | Valor por defecto | |
 |---|---|---|
-| `IMAGE_MODEL` | `SG161222/RealVisXL_V5.0_Lightning` | any SDXL repo with fp16 weights |
+| `IMAGE_MODEL` | `SG161222/RealVisXL_V5.0_Lightning` | cualquier repositorio SDXL con pesos fp16 |
 | `IMAGE_STEPS` | `6` | |
 | `IMAGE_GUIDANCE` | `1.5` | |
-| `IMAGE_IDLE_SECONDS` | `90` | idle time before SDXL moves to the CPU |
-| `IMAGE_IDLE_CHECK_SECONDS` | `10` | how often the idle worker checks |
-| `IMAGE_PORT` | `7861` | used by `python server.py` |
+| `IMAGE_IDLE_SECONDS` | `90` | tiempo de inactividad antes de mover SDXL a la CPU |
+| `IMAGE_IDLE_CHECK_SECONDS` | `10` | cada cuánto comprueba el worker de inactividad |
+| `IMAGE_PORT` | `7861` | lo usa `python server.py` |
 | `OLLAMA_URL` | `http://localhost:11434` | |
-| `OLLAMA_UNLOAD_TIMEOUT` | `30` | how long to wait for Ollama to release the GPU |
-| `CONTENT_POLICY` | `policy.toml` | path to a policy file, or `off` |
+| `OLLAMA_UNLOAD_TIMEOUT` | `30` | cuánto se espera a que Ollama libere la GPU |
+| `CONTENT_POLICY` | `policy.toml` | ruta a un archivo de política, u `off` |
 
-## Content policy
+## Política de contenido
 
-Scene keywords come from an LLM, so a video about religion or history can ask the image model for things that shouldn't be generated. Before each prompt reaches the model, `policy.toml` checks it. The policy is on by default, and a rule only acts when its keywords appear.
+Las palabras clave de las escenas vienen de un LLM, así que un vídeo sobre religión o historia puede pedir al modelo de imágenes cosas que no deberían generarse. Antes de que cada prompt llegue al modelo, `policy.toml` lo comprueba. La política está activada por defecto, y una regla solo actúa cuando aparecen sus palabras clave.
 
-| Rule | What it does |
+| Regla | Qué hace |
 |---|---|
-| `god` | God is never shown as a figure. The scene becomes light breaking through clouds. |
-| `prophet_muhammad`, `islamic_prophets`, `companions_and_family_of_the_prophet` | No depiction, following Islamic practice. The scene becomes an empty landscape of the place mentioned (Mecca, Medina, Hira, Sinai, Jerusalem), or a desert at sunrise otherwise. |
-| `bahai_central_figures`, `sikh_gurus` | No depiction. The scene becomes a fitting place without people. |
-| `atrocities` | No fabricated "historical photos" of real atrocities. The scene becomes a candle memorial. |
-| `children_in_distress` | The scene becomes a symbolic image without people. |
-| `living_public_figures` | No photoreal faces of named office holders. The scene becomes a government building. |
-| `sacred_script` | Image models write fake Arabic, Hebrew, Sanskrit or Gurmukhi, so calligraphy becomes geometric patterns. |
-| `holy_books` | Holy books are shown closed, with no lettering. |
-| `revered_figures` | Jesus, Mary, the Buddha, Hindu deities and others are depicted in these traditions, so they're kept, framed reverently. |
+| `god` | Dios nunca se muestra como una figura. La escena pasa a ser luz atravesando las nubes. |
+| `prophet_muhammad`, `islamic_prophets`, `companions_and_family_of_the_prophet` | Sin representación, siguiendo la práctica islámica. La escena pasa a ser un paisaje vacío del lugar mencionado (La Meca, Medina, Hira, Sinaí, Jerusalén) o, si no, un desierto al amanecer. |
+| `bahai_central_figures`, `sikh_gurus` | Sin representación. La escena pasa a ser un lugar adecuado sin personas. |
+| `atrocities` | Sin "fotos históricas" inventadas de atrocidades reales. La escena pasa a ser un homenaje con velas. |
+| `children_in_distress` | La escena pasa a ser una imagen simbólica sin personas. |
+| `living_public_figures` | Sin caras fotorrealistas de cargos públicos con nombre. La escena pasa a ser un edificio gubernamental. |
+| `sacred_script` | Los modelos de imágenes escriben árabe, hebreo, sánscrito o gurmukhi falsos, así que la caligrafía pasa a ser patrones geométricos. |
+| `holy_books` | Los libros sagrados se muestran cerrados y sin letras. |
+| `revered_figures` | Jesús, María, Buda, las deidades hindúes y otros sí se representan en estas tradiciones, así que se mantienen, con un encuadre respetuoso. |
 
-`islamic_prophets_english_names` is off by default. For Islamic content, switch it on so Jesus, Moses, Abraham and Noah are also shown as places rather than people.
+`islamic_prophets_english_names` está desactivada por defecto. Para contenido islámico, actívala para que Jesús, Moisés, Abraham y Noé también se muestren como lugares en lugar de personas.
 
-Swapping in a whole scene is deliberate. A negative prompt alone doesn't keep people out reliably: in testing it still produced figures in 2 of 6 prophet scenes. Raising the guidance strength to compensate burned the Lightning model's images.
+Sustituir la escena entera es deliberado. Un prompt negativo por sí solo no mantiene a las personas fuera de forma fiable: en las pruebas siguió produciendo figuras en 2 de 6 escenas de profetas. Subir la intensidad de la guía para compensarlo quemaba las imágenes del modelo Lightning.
 
-Known limits: keyword rules miss phrasings they don't list and can misfire on common names (Muhammad Ali, a person called Isa). `test/services/test_local_image_policy.py` covers the expected cases. Edit `policy.toml` to fit your audience.
+Límites conocidos: las reglas por palabras clave no detectan las formulaciones que no incluyen y pueden dispararse por error con nombres comunes (Muhammad Ali, una persona llamada Isa). `test/services/test_local_image_policy.py` cubre los casos esperados. Edita `policy.toml` para adaptarla a tu público. Los patrones y las escenas de sustitución están en inglés porque las palabras clave de material que genera el LLM y los prompts que mejor entienden los modelos SDXL son en inglés.

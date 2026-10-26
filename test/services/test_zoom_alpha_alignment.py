@@ -15,8 +15,8 @@ def test_transparent_subject_mask_moves_with_zoomed_color(effect, time):
     composed = CompositeVideoClip([background, transformed])
     try:
         frame = composed.get_frame(time)
-        # A20% zoom moves the subject's left edge35->32: atx33 the
-        # transformed subject should now be visible over the black canvas.
+        # Un zoom del 20 % mueve el borde izquierdo del sujeto de 35 a 32: en x=33 el
+        # sujeto transformado ya debería verse sobre el lienzo negro.
         assert frame[50, 33, 0] > 150
         assert frame[50, 20, 0] == 0
         assert frame[50, 50, 0] == 255

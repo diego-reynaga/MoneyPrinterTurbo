@@ -72,7 +72,7 @@ def test_initialization_failure_leaves_no_partial_config_or_temporary_file(error
             patch.object(config, 'config_file', str(target)),
             patch.object(config.os, 'rename' if os.name == 'nt' else 'link', side_effect=error),
         ):
-            with pytest.raises(OSError, match='copy config.example.toml'):
+            with pytest.raises(OSError, match='copia config.example.toml'):
                 config.load_config()
         assert not target.exists()
         assert not list(Path(directory).glob('.config-init-*'))
@@ -123,9 +123,9 @@ def test_initializer_accepts_winner_published_after_docker_stub_check():
         remove_directory = os.rmdir
 
         def publish_winner_before_stub_removal(path, *args, **kwargs):
-            # Both initializers saw the empty Docker bind-mount stub. The first
-            # removes it and publishes its complete regular config before the
-            # second reaches rmdir, which now raises real NotADirectoryError.
+            # Ambos inicializadores vieron el stub vacío del bind mount de Docker. El
+            # primero lo elimina y publica su configuración normal completa antes de que
+            # el segundo llegue a rmdir, que ahora lanza un NotADirectoryError real.
             if str(path) == str(target):
                 remove_directory(path)
                 target.write_text(winner, encoding='utf-8')

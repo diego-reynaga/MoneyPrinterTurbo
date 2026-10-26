@@ -33,8 +33,8 @@ def _post(path, content):
     ],
 )
 def test_validation_message_describes_the_rejected_field(content, expected):
-    # Out-of-range values and malformed JSON used to be reported as
-    # "field required", pointing clients at a field that was present.
+    # Los valores fuera de rango y el JSON mal formado se informaban antes como "field
+    # required", señalando a los clientes un campo que sí estaba presente.
     response = _post("/api/v1/scripts", content)
 
     assert response.status_code == 400

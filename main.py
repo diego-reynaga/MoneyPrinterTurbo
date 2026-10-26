@@ -7,8 +7,9 @@ if __name__ == "__main__":
     logger.info(
         "start server, docs: http://127.0.0.1:" + str(config.listen_port) + "/docs"
     )
-    # FFmpeg 探测已经移到 app/services/task.py 的共享任务流水线里，这样
-    # API、CLI 和 WebUI 三条路径都能统一覆盖，这里不再单独检查。
+    # La comprobación de FFmpeg se ha movido al flujo de tareas compartido de
+    # app/services/task.py, para que las tres rutas (API, CLI y WebUI) queden cubiertas
+    # por igual; aquí ya no se comprueba aparte.
     uvicorn.run(
         app="app.asgi:app",
         host=config.listen_host,

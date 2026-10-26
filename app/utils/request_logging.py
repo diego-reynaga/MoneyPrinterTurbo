@@ -1,4 +1,6 @@
-"""可选的请求参数追踪；不读取响应正文，不改变重试或网络传输行为。"""
+"""Rastreo opcional de los parámetros de las solicitudes; no lee el cuerpo de la respuesta
+ni cambia los reintentos ni el transporte de red.
+"""
 
 import json
 import re
@@ -47,7 +49,9 @@ _MEDIA_KEYS = frozenset(
 
 
 def _safe_url(value: str) -> str:
-    """查询参数全部遮盖，避免漏掉供应商自定义的签名字段。"""
+    """Se ocultan todos los parámetros de consulta, para no dejar pasar campos de firma
+    personalizados de los proveedores.
+    """
     try:
         parts = urlsplit(value)
         netloc = parts.netloc.rsplit("@", 1)[-1]
@@ -61,16 +65,18 @@ def _safe_url(value: str) -> str:
 
 def _safe_string(value: str) -> str:
     if value.lstrip().lower().startswith("data:"):
-        return "[media omitted]"
+        return "[contenido multimedia omitido]"
     if len(value) >= 256 and re.fullmatch(r"[A-Za-z0-9+/=\r\n]+", value):
-        return "[base64 omitted]"
+        return "[base64 omitido]"
     value = _TOKEN.sub(_REDACTED, value)
     value = _URL.sub(lambda match: _safe_url(match.group()), value)
-    return value[:_MAX_STRING] + ("… [truncated]" if len(value) > _MAX_STRING else "")
+    return value[:_MAX_STRING] + ("… [truncado]" if len(value) > _MAX_STRING else "")
 
 
 def _safe_query_params(value):
-    """与 URL 内的 query 保持一致，遮盖所有值，兼容 requests 的参数格式。"""
+    """Igual que la query dentro de la URL, se ocultan todos los valores; compatible con el
+    formato de parámetros de requests.
+    """
     if isinstance(value, Mapping):
         return {_safe_string(str(key)): _REDACTED for key in islice(value, 30)}
     if isinstance(value, (list, tuple)):
@@ -79,11 +85,13 @@ def _safe_query_params(value):
             for pair in value[:30]
             if isinstance(pair, (list, tuple)) and len(pair) == 2
         ]
-    return "[query values omitted]"
+    return "[valores de la query omitidos]"
 
 
 def sanitize_payload(value):
-    """限制深度、节点数和文本长度；未知对象只记录类型，不调用其 repr。"""
+    """Limita la profundidad, el número de nodos y la longitud del texto; de los objetos
+    desconocidos solo se registra el tipo, sin llamar a su repr.
+    """
     remaining = 100
 
     def visit(item, depth=0):
@@ -109,7 +117,7 @@ def sanitize_payload(value):
                 elif normalized in {"params", "extraquery", "queryparams"}:
                     result[_safe_string(key)] = _safe_query_params(child)
                 elif normalized in _MEDIA_KEYS:
-                    result[_safe_string(key)] = "[media omitted]"
+                    result[_safe_string(key)] = "[contenido multimedia omitido]"
                 else:
                     result[_safe_string(key)] = visit(child, depth + 1)
             return result
@@ -129,7 +137,8 @@ def sanitize_payload(value):
 
 
 def _emit(event: dict) -> None:
-    # 诊断失败不能阻断付费提交、污染业务异常或触发额外重试。
+    # Un fallo de diagnóstico no puede bloquear envíos de pago, contaminar excepciones
+    # de negocio ni provocar reintentos extra.
     try:
         logger.bind(request_trace=True).info(
             "request_trace {}", json.dumps(event, ensure_ascii=False)
@@ -173,7 +182,8 @@ def _trace_call(kind, method, endpoint, payload, send, *args, **kwargs):
             }
         )
         raise
-    # 不访问 .content/.text/.json()，避免提前消耗 SSE、音频和大文件下载。
+    # No accede a .content/.text/.json(), para no consumir antes de tiempo SSE, audio ni
+    # descargas grandes.
     try:
         status = getattr(response, "status_code", None)
     except Exception:
@@ -190,15 +200,19 @@ def _trace_call(kind, method, endpoint, payload, send, *args, **kwargs):
 
 
 def trace_http_call(method, send, url, *args, **kwargs):
-    """包装项目显式发出的 requests 请求，原参数和返回对象保持不变。"""
+    """Envuelve las solicitudes de requests que hace explícitamente el proyecto; los
+    parámetros originales y el objeto devuelto no cambian.
+    """
     payload = {
         key: kwargs[key] for key in ("params", "json", "data", "files") if key in kwargs
     }
-    # 原始表单/二进制正文不能可靠按字段脱敏，只允许查看结构化参数。
+    # Los cuerpos de formulario o binarios en bruto no pueden censurarse de forma fiable
+    # por campos; solo se permite ver parámetros estructurados.
     if "data" in payload and not isinstance(payload["data"], Mapping):
         payload["data"] = "[raw body omitted]"
     if method.upper() == "REQUEST":
-        # Session.request 的第一个位置参数是 method，第二个才是 URL。
+        # El primer argumento posicional de Session.request es el método; el segundo es
+        # la URL.
         method, url, args = url, args[0], args[1:]
         return _trace_call(
             "http", method, url, payload, send, method, url, *args, **kwargs
@@ -207,5 +221,7 @@ def trace_http_call(method, send, url, *args, **kwargs):
 
 
 def trace_sdk_call(provider, endpoint, send, **kwargs):
-    """记录 SDK 调用参数；不声称覆盖 SDK 内部重试或其最终 wire JSON。"""
+    """Registra los parámetros de la llamada al SDK; no pretende cubrir los reintentos
+    internos del SDK ni su JSON final enviado.
+    """
     return _trace_call("sdk", provider, endpoint, kwargs, send, **kwargs)

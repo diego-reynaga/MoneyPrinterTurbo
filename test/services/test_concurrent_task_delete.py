@@ -34,8 +34,9 @@ def test_concurrent_task_deletions_do_not_return_server_error():
             return result
 
         def sequential_removal(path, *args, **kwargs):
-            # Both requests passed exists(); serialize the actual removals so
-            # the second deterministically sees the missing task directory.
+            # Ambas solicitudes pasaron exists(); se serializan los borrados reales para
+            # que la segunda vea de forma determinista que falta el directorio de la
+            # tarea.
             with remove_lock:
                 return remove(path, *args, **kwargs)
 

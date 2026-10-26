@@ -10,8 +10,9 @@ def _timeline(script, duration=10.0):
 
 
 def test_trailing_markdown_separator_does_not_end_last_caption_early(tmp_path):
-    # Providers without word boundaries split the audio by sentence length.
-    # A separator line is never spoken, so it must not take the last slice.
+    # Los proveedores sin límites de palabra dividen el audio por la longitud de las
+    # frases. Una línea separadora nunca se pronuncia, así que no debe quedarse con el
+    # último tramo.
     script = "Only one sentence is spoken here.\n***"
     sub_maker = _timeline(script)
 

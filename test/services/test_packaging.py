@@ -1,4 +1,6 @@
-"""验证安装入口、可写目录与资源初始化的关键边界。"""
+"""Verifica los límites clave del punto de entrada de instalación, los directorios
+escribibles y la inicialización de recursos.
+"""
 
 from concurrent.futures import ThreadPoolExecutor
 import json
@@ -122,7 +124,7 @@ def test_cli_stdout_contains_only_json(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["result"]["script"] == "本地测试"
-    assert "load config" in result.stderr
+    assert "se carga la configuración" in result.stderr
 
 
 @pytest.mark.parametrize("media_type", ["image/png", "audio/mpeg", "video/mp4"])

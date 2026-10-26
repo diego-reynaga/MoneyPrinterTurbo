@@ -1,18 +1,18 @@
-# Use NVIDIA CUDA runtime as parent image (includes CUDA 12.1 + cuDNN 8)
+# Usa el runtime CUDA de NVIDIA como imagen base (incluye CUDA 12.1 + cuDNN 8)
 FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 
-# Avoid interactive timezone prompt
+# Evita la pregunta interactiva de la zona horaria
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Set the working directory in the container
+# Define el directorio de trabajo dentro del contenedor
 WORKDIR /MoneyPrinterTurbo
 RUN chmod 777 /MoneyPrinterTurbo
 
 ENV PYTHONPATH="/MoneyPrinterTurbo"
 
-# 安装链中的任何前置步骤失败都必须终止构建。只有删除系统自带 blinker
-# 属于可忽略操作，因此把容错限制在该子命令的括号内，避免末尾的
-# `|| true` 把 apt、PPA、Python 或 pip 安装失败一并转换成成功状态。
+# Si falla cualquier paso previo de la cadena de instalación hay que terminar la construcción. Solo borrar el blinker que trae el sistema
+# es una operación que se puede ignorar, así que la tolerancia a fallos se limita a los paréntesis de ese subcomando, para que el
+# `|| true` final no convierta también en éxito los fallos de instalación de apt, PPA, Python o pip.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         software-properties-common \
         git \
@@ -31,10 +31,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
             echo "python3-blinker removal skipped; continuing") \
         && rm -rf /var/lib/apt/lists/*
 
-# Copy only the requirements.txt first to leverage Docker cache
+# Copia primero solo requirements.txt para aprovechar la caché de Docker
 COPY requirements.txt ./
 
-# Install Python dependencies
+# Instala las dependencias de Python
 RUN python3 -m pip install --no-cache-dir \
     -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com \
     --retries 3 --timeout 60 -r requirements.txt || \
@@ -44,12 +44,12 @@ RUN python3 -m pip install --no-cache-dir \
     python3 -m pip install --no-cache-dir \
     --retries 3 --timeout 60 -r requirements.txt
 
-# Now copy the rest of the codebase into the image
+# Ahora copia el resto del código a la imagen
 COPY . .
 
-# Expose the port the app runs on
+# Expone el puerto en el que se ejecuta la aplicación
 EXPOSE 8501
 
-# 容器内部必须监听 0.0.0.0，宿主机仍通过 docker 端口映射限制为 127.0.0.1。
-# browser.serverAddress 只决定浏览器展示的访问地址，不能替代 server.address。
+# Dentro del contenedor hay que escuchar en 0.0.0.0; el host sigue limitándolo a 127.0.0.1 con el mapeo de puertos de Docker.
+# browser.serverAddress solo decide la dirección de acceso que muestra el navegador y no sustituye a server.address.
 CMD ["streamlit", "run", "./webui/Main.py", "--server.address=0.0.0.0", "--server.port=8501", "--browser.serverAddress=127.0.0.1", "--server.enableCORS=True", "--browser.gatherUsageStats=False", "--client.toolbarMode=minimal", "--logger.hideWelcomeMessage=True", "--server.showEmailPrompt=False"]

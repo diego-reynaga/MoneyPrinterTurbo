@@ -134,7 +134,9 @@ class TestLoomLoomSettings(unittest.TestCase):
         self.assertNotIn("secret-token", repr(settings))
 
     def test_rejects_non_numeric_timeout_settings(self):
-        """字符串/数组/布尔不是秒数，须报带配置名的配置错误而非裸异常。"""
+        """Una cadena, un array o un booleano no son segundos; debe informarse un error de
+        configuración con el nombre de la opción y no una excepción en bruto.
+        """
         for name in (
             "loomloom_request_timeout_seconds",
             "loomloom_poll_interval_seconds",
@@ -162,12 +164,14 @@ class TestLoomLoomSettings(unittest.TestCase):
             )
 
     def test_rejects_non_finite_timeout_settings(self):
-        """NaN/Inf 能通过 ``value <= 0``，却会让运行截止时间判断永远不成立。"""
+        """NaN/Inf pasan ``value <= 0``, pero harían que la comprobación del plazo de
+        ejecución nunca se cumpliera.
+        """
         for value in ("nan", "inf"):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(
                     LoomLoomConfigurationError,
-                    "loomloom_run_timeout_seconds must be a finite number",
+                    "loomloom_run_timeout_seconds debe ser un número finito",
                 ):
                     LoomLoomSettings.from_mapping(
                         {
@@ -177,7 +181,9 @@ class TestLoomLoomSettings(unittest.TestCase):
                     )
 
     def test_backend_rejects_non_finite_run_timeout(self):
-        """非有限超时不得进入轮询循环，否则 ``wait_for_run`` 永不超时。"""
+        """Un tiempo de espera no finito no debe entrar en el bucle de sondeo; si no,
+        ``wait_for_run`` nunca agotaría el tiempo.
+        """
         settings = LoomLoomSettings(
             base_url=DEFAULT_BASE_URL,
             api_token="configured-key",
@@ -186,7 +192,7 @@ class TestLoomLoomSettings(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             LoomLoomConfigurationError,
-            "loomloom_run_timeout_seconds must be a finite number",
+            "loomloom_run_timeout_seconds debe ser un número finito",
         ):
             LoomLoomScriptBackend(settings)
 
@@ -237,7 +243,7 @@ class TestLoomLoomScriptBackend(unittest.TestCase):
         self.assertEqual(batch.input_rows[2]["candidateIndex"], "3")
         self.assertEqual(
             batch.input_rows[0]["requirements"],
-            "输出语言：zh-CN\n目标时长（秒）：45\n风格或附加要求：知识类",
+            "Idioma de salida: zh-CN\nDuración objetivo (segundos): 45\nEstilo o requisitos adicionales: 知识类",
         )
         self.assertEqual(batch.input_rows[0]["subject"], "人工智能改变生活")
 
@@ -593,12 +599,12 @@ class TestLoomLoomVideoBackend(unittest.TestCase):
         cases = (
             (
                 _video_capability_payload(include_target_profile=False),
-                "profile .* is unavailable",
+                "perfil de capacidades .* no está disponible",
             ),
-            (_video_capability_payload(models=[]), "no eligible models"),
+            (_video_capability_payload(models=[]), "no tiene modelos elegibles"),
             (
                 _video_capability_payload(default_model_id="removed-model"),
-                "default model is not eligible",
+                "modelo por defecto .* no es elegible",
             ),
         )
         for payload, error in cases:
@@ -608,7 +614,9 @@ class TestLoomLoomVideoBackend(unittest.TestCase):
                     self.backend.resolve_video_capability()
 
     def test_resolver_rejects_non_string_model_fields(self):
-        """服务返回 null/数值时应在目录阶段报错，不把伪 ID 传进付费请求。"""
+        """Si el servicio devuelve null o un número, debe fallar en la fase de catálogo y
+        no pasar un ID falso a una solicitud de pago.
+        """
         for field in ("modelId", "displayName"):
             for value in (None, 123, {}, []):
                 with self.subTest(field=field, value=value):
@@ -617,11 +625,13 @@ class TestLoomLoomVideoBackend(unittest.TestCase):
                     self.session.request.return_value = _Response(
                         200, _video_capability_payload(models=[model])
                     )
-                    with self.assertRaisesRegex(LoomLoomAPIError, "must be strings"):
+                    with self.assertRaisesRegex(LoomLoomAPIError, "deben ser cadenas"):
                         self.backend.resolve_video_capability()
 
     def test_prepares_one_video_row_per_scene(self):
-        """默认 SkillBot 必须按场景逐行报价，并携带固定的视频安全要求。"""
+        """El SkillBot por defecto debe presupuestar escena a escena e incluir los
+        requisitos fijos de seguridad de vídeo.
+        """
         batch = self.backend.prepare_video_batch(
             subject="AI 办公效率",
             scene_prompts=["office worker", "AI assistant"],
@@ -700,7 +710,9 @@ class TestLoomLoomVideoBackend(unittest.TestCase):
         )
 
     def test_downloads_video_artifact_without_forwarding_api_key(self):
-        """签名产物地址无需 Bearer Key，避免把账户凭证泄漏给对象存储。"""
+        """Las URL firmadas de artefactos no necesitan la clave Bearer, para no filtrar las
+        credenciales de la cuenta al almacenamiento de objetos.
+        """
         self.session.request.return_value = _Response(
             200,
             {
@@ -734,7 +746,9 @@ class TestLoomLoomVideoBackend(unittest.TestCase):
         self.assertTrue(response.closed)
 
     def test_closes_download_response_when_artifact_is_too_large(self):
-        """大小预检拒绝下载时也必须立即释放流式 HTTP 连接。"""
+        """Cuando la comprobación previa de tamaño rechaza la descarga, también debe
+        liberarse de inmediato la conexión HTTP en streaming.
+        """
         self.session.request.return_value = _Response(
             200,
             {
@@ -759,7 +773,7 @@ class TestLoomLoomVideoBackend(unittest.TestCase):
         self.session.get.return_value = response
 
         with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaisesRegex(LoomLoomAPIError, "download limit"):
+            with self.assertRaisesRegex(LoomLoomAPIError, "límite de descarga"):
                 self.backend.download_video_results("run-1", directory)
 
         self.assertTrue(response.closed)

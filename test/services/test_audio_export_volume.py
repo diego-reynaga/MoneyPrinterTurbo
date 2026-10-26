@@ -12,7 +12,7 @@ from app.services.state import MemoryState
 
 
 def _write_narration(voice_file, **kwargs):
-    # Replace the provider network boundary with a real one-second PCM signal.
+    # Sustituye el límite de red del proveedor por una señal PCM real de un segundo.
     samples = np.rint(3000 * np.sin(2 * np.pi * 440 * np.arange(24000) / 24000)).astype('<i2')
     with wave.open(voice_file, 'wb') as audio:
         audio.setnchannels(1)

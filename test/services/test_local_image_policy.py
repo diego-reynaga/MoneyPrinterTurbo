@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-# policy.py lives with the example server in docs/
+# policy.py vive junto al servidor de ejemplo en docs/
 _path = Path(__file__).resolve().parents[2] / "docs" / "local-image-server" / "policy.py"
 _spec = importlib.util.spec_from_file_location("local_image_policy", _path)
 policy = importlib.util.module_from_spec(_spec)

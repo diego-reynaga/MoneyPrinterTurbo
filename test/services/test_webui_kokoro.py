@@ -1,4 +1,6 @@
-"""运行实际 Streamlit 页面，验证 Kokoro 音色刷新、断线和配置切换。"""
+"""Ejecuta la página real de Streamlit y verifica el refresco de voces de Kokoro, las
+desconexiones y el cambio de configuración.
+"""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +22,7 @@ def ui(monkeypatch):
     monkeypatch.setattr(config, "save_config", Mock())
     monkeypatch.setattr(config, "try_save_config", Mock(return_value=True))
     page = AppTest.from_file(str(Path(__file__).parents[2] / "webui/Main.py"), default_timeout=30)
-    page.session_state["ui_language"] = "zh"
+    page.session_state["ui_language"] = "es"
     return page
 
 
@@ -30,23 +32,25 @@ def selected_voice(page):
 
 
 def test_online_offline_recovery_retains_selection(monkeypatch, ui):
-    """真实 rerun 穿过一次成功、一次断线、恢复，不能把保存音色改为默认值。"""
+    """Un rerun real pasa por un éxito, una desconexión y una recuperación; no debe cambiar
+    la voz guardada por la predeterminada.
+    """
     get = Mock(side_effect=[["kokoro:af_heart", "kokoro:zf_xiaobei"], [],
                            ["kokoro:af_heart", "kokoro:zf_xiaobei"]])
     monkeypatch.setattr(voice, "get_kokoro_voices", get)
     ui.run()
     assert selected_voice(ui).value == "kokoro:zf_xiaobei"
     ui.run()
-    assert get.call_count == 1  # 缓存期内不重复访问服务。
+    assert get.call_count == 1  # Durante el periodo de caché no se vuelve a consultar el servicio.
     ui.session_state["kokoro_voice_catalog"]["checked_at"] = -100
     ui.run()
     assert selected_voice(ui).value == "kokoro:zf_xiaobei"
     assert config.ui["voice_name"] == "kokoro:zf_xiaobei"
-    assert any("暂时无法获取 Kokoro" in str(w.value) for w in ui.warning)
+    assert any("No se pudieron cargar las voces de Kokoro" in str(w.value) for w in ui.warning)
     ui.session_state["kokoro_voice_catalog"]["checked_at"] = -100
     ui.run()
     assert selected_voice(ui).value == "kokoro:zf_xiaobei"
-    assert not any("暂时无法获取 Kokoro" in str(w.value) for w in ui.warning)
+    assert not any("No se pudieron cargar las voces de Kokoro" in str(w.value) for w in ui.warning)
     assert get.call_count == 3
     assert not ui.exception
 
@@ -73,7 +77,9 @@ def test_endpoint_or_credential_change_invalidates_cache(monkeypatch, ui, input_
 
 
 def test_manual_voices_and_clearing_them(monkeypatch, ui):
-    """手填音色立即使用；清空后自动发现，新版对象列表显示为简洁 ID。"""
+    """Una voz escrita a mano se usa de inmediato; al vaciarla se detecta automáticamente,
+    y la lista de objetos de la versión nueva se muestra como ID simples.
+    """
     config.kokoro["voices"] = ["zf_xiaobei", "af_heart"]
     get = Mock(return_value=SimpleNamespace(status_code=200, json=lambda: {
         "voices": [{"id": "zf_xiaobei"}, {"id": "af_heart"}],

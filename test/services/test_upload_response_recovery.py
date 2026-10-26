@@ -17,7 +17,7 @@ def test_unconfirmed_upload_response_retains_sent_recovery_id(tmp_path, payload)
     sent_id = dict(post.call_args.kwargs["data"])["request_id"]
     assert result["success"] is False
     assert result["request_id"] == sent_id
-    assert sent_id in result["error"] and "unconfirmed" in result["error"]
+    assert sent_id in result["error"] and "no está confirmado" in result["error"]
     post.assert_called_once()
 
 def test_provider_rejection_remains_a_confirmed_failure(tmp_path):

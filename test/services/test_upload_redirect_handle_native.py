@@ -40,4 +40,4 @@ def test_real_redirect_keeps_sent_upload_handle_without_replay(tmp_path):
     assert not result["success"]
     assert len(calls) == 1
     assert result["request_id"].encode() in calls[0]
-    assert "unconfirmed" in result["error"]
+    assert "no está confirmado" in result["error"]

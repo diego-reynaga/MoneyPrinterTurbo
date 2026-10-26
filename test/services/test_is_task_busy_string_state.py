@@ -2,18 +2,18 @@ import unittest
 import sys
 from pathlib import Path
 
-# add project root to python path
+# añade la raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.services import task as tm
 
 
 class TestIsTaskBusyDefensiveDefault(unittest.TestCase):
-    """is_task_busy() must keep tasks whose state is unparseable."""
+    """is_task_busy() debe conservar las tareas cuyo estado no se puede analizar."""
 
     def setUp(self):
-        # The registry is process-wide; clear it so cross-post futures
-        # left behind by earlier tests cannot affect the assertions.
+        # El registro es global al proceso; se vacía para que los futures de publicación
+        # cruzada que dejaron tests anteriores no afecten a las aserciones.
         with tm._cross_post_registry_lock:
             tm._cross_post_futures.clear()
 
@@ -22,22 +22,22 @@ class TestIsTaskBusyDefensiveDefault(unittest.TestCase):
             tm._cross_post_futures.clear()
 
     def test_string_state_is_treated_as_busy(self):
-        # Older Redis snapshots can surface the state as a string. The
-        # delete endpoint must not be allowed to cancel a task whose
-        # state cannot be parsed.
+        # Las instantáneas antiguas de Redis pueden devolver el estado como cadena. El
+        # endpoint de borrado no debe poder cancelar una tarea cuyo estado no se puede
+        # analizar.
         self.assertTrue(tm.is_task_busy({"state": "processing"}))
         self.assertTrue(tm.is_task_busy({"state": "4"}))
         self.assertTrue(tm.is_task_busy({"state": "PROCESSING"}))
 
     def test_none_state_is_treated_as_busy(self):
-        # A missing or None state still implies a task we cannot reason
-        # about, so the conservative default must apply.
+        # Un estado ausente o None sigue indicando una tarea sobre la que no podemos
+        # razonar, así que debe aplicarse el valor por defecto conservador.
         self.assertTrue(tm.is_task_busy({"state": None}))
         self.assertTrue(tm.is_task_busy({"state": "not-an-int"}))
 
     def test_string_state_with_idle_cross_post_still_busy(self):
-        # The previous code path returned False here, which let the
-        # delete API silently cancel in-flight tasks.
+        # La ruta de código anterior devolvía False aquí, lo que permitía que la API de
+        # borrado cancelara en silencio tareas en curso.
         self.assertTrue(
             tm.is_task_busy(
                 {
@@ -48,11 +48,11 @@ class TestIsTaskBusyDefensiveDefault(unittest.TestCase):
         )
 
     def test_integer_processing_state_remains_busy(self):
-        # Existing happy path stays unchanged.
+        # El caso normal existente no cambia.
         self.assertTrue(tm.is_task_busy({"state": tm.const.TASK_STATE_PROCESSING}))
 
     def test_integer_complete_with_idle_cross_post_remains_idle(self):
-        # Existing happy path stays unchanged.
+        # El caso normal existente no cambia.
         self.assertFalse(
             tm.is_task_busy(
                 {
@@ -63,7 +63,8 @@ class TestIsTaskBusyDefensiveDefault(unittest.TestCase):
         )
 
     def test_none_task_remains_idle(self):
-        # The existing None guard at the top of is_task_busy still wins.
+        # La comprobación de None existente al principio de is_task_busy sigue teniendo
+        # prioridad.
         self.assertFalse(tm.is_task_busy(None))
 
 

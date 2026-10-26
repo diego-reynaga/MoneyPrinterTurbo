@@ -40,9 +40,10 @@ from app.utils import file_security, utils
 from app.utils.subtitle_writer import staged_subtitle_file
 
 
-# 发布请求最长可等待数分钟，不能继续占用视频生成任务的并发名额。
-# 固定大小的线程池将发布吞吐限制在可控范围内，同时让视频产物生成后
-# 立即进入完成状态。
+# Una solicitud de publicación puede esperar varios minutos y no puede seguir ocupando
+# una plaza de concurrencia de las tareas de generación de vídeo. El pool de hilos de
+# tamaño fijo limita el rendimiento de publicación a un rango controlable, y a la vez
+# permite que el vídeo pase al estado completado en cuanto se genera.
 _cross_post_executor = ThreadPoolExecutor(
     max_workers=2,
     thread_name_prefix="mpt-cross-post",
@@ -66,17 +67,21 @@ _TASK_FAILURE_STATE_RETRY_DELAY_SECONDS = 0.1
 _LOOMLOOM_STATE_WRITE_ATTEMPTS = 3
 _LOOMLOOM_STATE_RETRY_DELAY_SECONDS = 0.1
 _INTERRUPTED_CROSS_POST_ERROR = (
-    "cross-posting was interrupted before the process completed"
+    "la publicación multiplataforma se interrumpió antes de que terminara el proceso"
 )
-# Map upload-post platform ids to the social platform names llm.py accepts.
+# Asigna los ids de plataforma de upload-post a los nombres de plataforma social que
+# acepta llm.py.
 _CROSS_POST_SOCIAL_PLATFORMS = {
     "tiktok": "tiktok",
     "instagram": "instagram_reels",
     "facebook": "facebook_reels",
 }
-# 视频配乐服务只需实现 ``is_enabled`` 和 ``generate_bgm``。供应商差异集中在
-# 文件扩展名、领域异常和 WebUI 警告代码；任务编排、0 音量短路及失败降级
-# 全部复用同一路径，避免后续新增供应商时维护多份相似流程。
+# Un servicio de música para el vídeo solo tiene que implementar ``is_enabled`` y
+# ``generate_bgm``. Las diferencias entre proveedores se concentran en la extensión del
+# archivo, las excepciones de dominio y los códigos de aviso de la WebUI; la
+# orquestación de tareas, el cortocircuito con volumen 0 y la degradación ante fallos
+# reutilizan siempre la misma ruta, para no mantener varios flujos parecidos al añadir
+# proveedores.
 _VIDEO_MUSIC_PROVIDERS = {
     "sonilo": {
         "service": sonilo,
@@ -104,10 +109,12 @@ _SUPPORTED_VIDEO_SOURCES = frozenset({
 
 def _get_video_music_prompt(params: VideoParams) -> str:
     """
-    读取当前视频配乐供应商实际使用的提示词。
+    Lee el prompt que usa realmente el proveedor de música actual.
 
-    新任务统一使用供应商无关字段；旧 Sonilo CLI 参数和历史任务仍可能只有
-    ``sonilo_bgm_prompt``，因此仅在 Sonilo 通用字段为空时读取旧字段。
+    Las tareas nuevas usan siempre el campo independiente del proveedor; los parámetros
+    antiguos de la CLI de Sonilo y las tareas históricas pueden tener solo
+    ``sonilo_bgm_prompt``, así que el campo antiguo solo se lee cuando el campo común
+    está vacío para Sonilo.
     """
     prompt = str(params.video_music_prompt or "").strip()
     if params.bgm_type == "sonilo" and not prompt:
@@ -116,7 +123,9 @@ def _get_video_music_prompt(params: VideoParams) -> str:
 
 
 def is_task_busy(task: dict | None) -> bool:
-    """判断任务是否仍在生成或发布，供所有删除入口复用。"""
+    """Decide si la tarea sigue generándose o publicándose, para reutilizarlo en todas las
+    entradas de borrado.
+    """
     if not task:
         return False
 
@@ -124,17 +133,18 @@ def is_task_busy(task: dict | None) -> bool:
     try:
         state = int(state)
     except (TypeError, ValueError):
-        # The function's own docstring promises to treat unparseable
-        # states as busy, so the delete API keeps a task that we
-        # cannot reason about. Returning False here would let
-        # delete_video() cancel a task that is still running or
-        # cross-posting whenever an older Redis snapshot or a
-        # legacy call site stored the state as a string.
+        # La propia docstring de la función promete tratar los estados que no se pueden
+        # analizar como ocupados, para que la API de borrado conserve una tarea sobre la
+        # que no podemos razonar. Devolver False aquí permitiría que delete_video()
+        # cancelara una tarea que sigue ejecutándose o publicándose cada vez que una
+        # instantánea antigua de Redis o un punto de llamada heredado guardara el estado
+        # como cadena.
         return True
 
-    # 视频生成和跨平台发布都可能继续读取任务目录。统一视为忙碌状态，
-    # 可以避免 API 与 WebUI 分别维护规则后出现一个允许删除、另一个禁止
-    # 删除的不一致行为。
+    # Tanto la generación de vídeo como la publicación multiplataforma pueden seguir
+    # leyendo el directorio de la tarea. Tratarlas siempre como ocupadas evita que, si
+    # la API y la WebUI mantuvieran cada una sus reglas, una permitiera borrar y la otra
+    # no.
     return (
         state == const.TASK_STATE_PROCESSING
         or task.get("cross_post_state") in _ACTIVE_CROSS_POST_STATES
@@ -142,13 +152,17 @@ def is_task_busy(task: dict | None) -> bool:
 
 
 def _register_cross_post_future(task_id: str, future: Future) -> None:
-    """登记当前进程持有的发布 Future，供启动恢复和测试判断真实运行状态。"""
+    """Registra el Future de publicación que tiene el proceso actual, para que la
+    recuperación al arrancar y los tests puedan saber el estado real de ejecución.
+    """
     with _cross_post_registry_lock:
         _cross_post_futures[task_id] = future
 
 
 def _unregister_cross_post_future(task_id: str, future: Future | None = None) -> None:
-    """仅移除匹配的 Future，避免旧回调误删同任务后续注册的新工作。"""
+    """Solo elimina el Future que coincide, para que un callback antiguo no borre por error
+    el trabajo nuevo registrado después para la misma tarea.
+    """
     with _cross_post_registry_lock:
         current = _cross_post_futures.get(task_id)
         if current is None or (future is not None and current is not future):
@@ -157,14 +171,16 @@ def _unregister_cross_post_future(task_id: str, future: Future | None = None) ->
 
 
 def _is_cross_post_active_in_process(task_id: str) -> bool:
-    """判断当前进程是否仍持有未结束的发布任务。"""
+    """Decide si el proceso actual sigue teniendo tareas de publicación sin terminar."""
     with _cross_post_registry_lock:
         future = _cross_post_futures.get(task_id)
         return future is not None and not future.done()
 
 
 def _is_windows_process_alive(process_id: int) -> bool:
-    """通过只读 Win32 API 判断进程状态，避免用 os.kill 误终止进程。"""
+    """Comprueba el estado del proceso con una API Win32 de solo lectura, para no terminar
+    por error el proceso con os.kill.
+    """
     import ctypes
 
     process_query_limited_information = 0x1000
@@ -172,8 +188,9 @@ def _is_windows_process_alive(process_id: int) -> bool:
     error_access_denied = 5
     error_invalid_parameter = 87
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    # ctypes 默认把未声明的返回值当作 32 位 int。Windows 64 位进程句柄可能
-    # 因此被截断，必须显式声明 Win32 函数签名后再调用。
+    # ctypes trata por defecto los valores de retorno no declarados como int de 32 bits.
+    # Por eso un handle de proceso de 64 bits en Windows podría truncarse, así que hay
+    # que declarar explícitamente la firma de la función Win32 antes de llamarla.
     kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
     kernel32.OpenProcess.restype = ctypes.c_void_p
     kernel32.GetExitCodeProcess.argtypes = [
@@ -193,11 +210,12 @@ def _is_windows_process_alive(process_id: int) -> bool:
         if error_code == error_invalid_parameter:
             return False
         if error_code == error_access_denied:
-            # 进程存在但当前用户无查询权限时，必须保守地视为存活，避免错误
-            # 回收其它账户正在执行的发布任务。
+            # Si el proceso existe pero el usuario actual no tiene permiso para
+            # consultarlo, debe considerarse vivo de forma conservadora, para no
+            # recuperar por error tareas de publicación que está ejecutando otra cuenta.
             return True
         logger.warning(
-            "failed to open cross-post owner process on Windows, "
+            "no se pudo abrir en Windows el proceso propietario de la publicación multiplataforma, "
             f"process_id: {process_id}, error_code: {error_code}"
         )
         return True
@@ -207,7 +225,7 @@ def _is_windows_process_alive(process_id: int) -> bool:
         if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
             error_code = ctypes.get_last_error()
             logger.warning(
-                "failed to read cross-post owner process state on Windows, "
+                "no se pudo leer en Windows el estado del proceso propietario de la publicación multiplataforma, "
                 f"process_id: {process_id}, error_code: {error_code}"
             )
             return True
@@ -217,7 +235,7 @@ def _is_windows_process_alive(process_id: int) -> bool:
 
 
 def _is_cross_post_owner_alive(owner: str | None) -> bool:
-    """判断持久化发布任务的本机进程是否仍存在。"""
+    """Decide si sigue existiendo el proceso local de una tarea de publicación persistida."""
     if not owner:
         return False
 
@@ -225,22 +243,27 @@ def _is_cross_post_owner_alive(owner: str | None) -> bool:
         hostname, process_id_text, _ = owner.split(":", 2)
         process_id = int(process_id_text)
     except (TypeError, ValueError):
-        logger.warning(f"invalid cross-post owner metadata: {owner}")
+        logger.warning(f"metadatos del propietario de la publicación multiplataforma no válidos: {owner}")
         return False
 
-    # 无法可靠探测其它主机上的进程。共享 Redis 的多主机部署中必须保守地
-    # 视为仍在运行，避免当前节点误删另一节点正在读取的视频文件。
+    # No se pueden detectar de forma fiable los procesos de otros hosts. En despliegues
+    # de varios hosts que comparten Redis, debe considerarse de forma conservadora que
+    # siguen en marcha, para que este nodo no borre por error archivos de vídeo que está
+    # leyendo otro nodo.
     if hostname != socket.gethostname():
         return True
 
-    # 当前进程内是否仍有真实发布工作，已经由 Future 注册表准确判断。运行到
-    # 这里说明注册表中没有对应 Future，即使 owner 与当前进程完全一致，也应
-    # 视为已中断；这可以覆盖终态写入持续失败、Future 已结束的场景。
+    # Si en el proceso actual sigue habiendo trabajo de publicación real ya lo determina
+    # con exactitud el registro de Futures. Llegar aquí significa que el registro no
+    # tiene el Future correspondiente, así que aunque el owner coincida totalmente con
+    # el proceso actual debe considerarse interrumpido; esto cubre el caso en que la
+    # escritura del estado final sigue fallando y el Future ya ha terminado.
     if process_id == os.getpid():
         return False
 
-    # Windows 的 os.kill(pid, 0) 与 POSIX 语义不同，可能直接终止目标进程。
-    # 使用只申请查询权限的 Win32 API，不向目标进程发送任何信号。
+    # os.kill(pid, 0) en Windows no tiene la misma semántica que en POSIX y puede
+    # terminar directamente el proceso de destino. Se usa una API Win32 que solo pide
+    # permiso de consulta, sin enviar ninguna señal al proceso de destino.
     if os.name == "nt":
         return _is_windows_process_alive(process_id)
 
@@ -252,7 +275,7 @@ def _is_cross_post_owner_alive(owner: str | None) -> bool:
         return True
     except OSError as exc:
         logger.warning(
-            f"failed to inspect cross-post owner process, owner: {owner}, error: {exc}"
+            f"no se pudo inspeccionar el proceso propietario de la publicación multiplataforma, owner: {owner}, error: {exc}"
         )
         return True
     return True
@@ -264,15 +287,19 @@ def _mark_task_failed(
     error: str,
     details: dict | None = None,
 ) -> dict:
-    """记录结构化失败信息，并保留任务失败前已经到达的进度。"""
+    """Registra la información de fallo estructurada, conservando el progreso que había
+    alcanzado la tarea antes de fallar.
+    """
     existing_task = None
     try:
         existing_task = sm.state.get_task(task_id)
     except Exception as exc:
-        logger.warning(f"failed to read task state before failure update: {exc}")
+        logger.warning(f"no se pudo leer el estado de la tarea antes de registrar el fallo: {exc}")
 
-    # 具体服务函数通常比编排层拥有更准确的错误原因。后续的空结果检查
-    # 不能再用通用文案覆盖它，否则 API 调用方仍然只能看到模糊信息。
+    # La función de servicio concreta suele tener un motivo de error más preciso que la
+    # capa de orquestación. Las comprobaciones posteriores de resultado vacío no pueden
+    # sobrescribirlo con un texto genérico, o quien llama a la API solo vería
+    # información vaga.
     if (
         existing_task
         and existing_task.get("state") == const.TASK_STATE_FAILED
@@ -280,9 +307,9 @@ def _mark_task_failed(
     ):
         return existing_task
 
-    message = str(error or "unknown task error").strip()
+    message = str(error or "error de tarea desconocido").strip()
     progress = int((existing_task or {}).get("progress", 0) or 0)
-    logger.error(f"task failed, task_id: {task_id}, stage: {stage}, error: {message}")
+    logger.error(f"la tarea falló, task_id: {task_id}, stage: {stage}, error: {message}")
     failure = {
         "task_id": task_id,
         "state": const.TASK_STATE_FAILED,
@@ -290,10 +317,12 @@ def _mark_task_failed(
         "failed_stage": stage,
         "error": message,
     }
-    # 某些外部任务已经创建了可用于恢复或排障的远端 ID。失败状态需要保留
-    # 这些非敏感字段，但不能允许调用方覆盖统一的状态、进度和错误结构。
-    # Keep completed batch outputs in both the persisted state and the direct
-    # return value used by the CLI. These fields are reset before a new attempt.
+    # Algunas tareas externas ya han creado un ID remoto que sirve para recuperar o
+    # diagnosticar. El estado de fallo debe conservar esos campos no sensibles, pero sin
+    # permitir que quien llama sobrescriba la estructura común de estado, progreso y
+    # error. Conserva los resultados de lotes completados tanto en el estado persistido
+    # como en el valor de retorno directo que usa la CLI. Estos campos se reinician
+    # antes de un nuevo intento.
     failure_details = {
         key: existing_task[key]
         for key in ("videos", "combined_videos", "warnings", "failed_video_index")
@@ -309,31 +338,36 @@ def _mark_task_failed(
             if attempt == 0:
                 sm.state.update_task(task_id, **fields)
             else:
-                # A lost acknowledgement may mean the first write succeeded.
-                # Patch only an existing record so retries cannot revive a task
-                # that the user has since deleted.
+                # Un acuse perdido puede significar que la primera escritura tuvo éxito.
+                # Solo se parchea un registro existente para que los reintentos no
+                # puedan revivir una tarea que el usuario ha borrado después.
                 sm.state.patch_task(task_id, **fields)
             break
         except Exception as exc:
             if attempt + 1 == _TASK_FAILURE_STATE_WRITE_ATTEMPTS:
                 logger.exception(
-                    f"failed to persist task failure, task_id: {task_id}, error: {exc}"
+                    f"no se pudo guardar el fallo de la tarea, task_id: {task_id}, error: {exc}"
                 )
             else:
                 time.sleep(_TASK_FAILURE_STATE_RETRY_DELAY_SECONDS)
-    # A state outage must not discard the only completed-file snapshot held by
-    # the caller. Return it even when all bounded persistence attempts fail.
+    # Una caída del estado no debe descartar la única instantánea de archivos
+    # completados que tiene quien llama. Se devuelve incluso cuando fallan todos los
+    # intentos de persistencia acotados.
     return failure
 
 
 def _stage_progress_reporter(task_id: str, stage_start: float, stage_end: float):
     """
-    返回一个回调，把阶段内 0~1 的完成比例换算成任务进度并写入状态。
+    Devuelve un callback que convierte la proporción de avance 0~1 de una etapa en
+    progreso de la tarea y lo escribe en el estado.
 
-    流水线原先只在阶段边界更新进度，下载素材和处理片段这类耗时阶段期间
-    进度条完全不动，用户无法区分仍在运行与已经卡死。进度只是展示信息：
-    比例无法解析时忽略，状态后端写入失败时只记录日志，不能因此中断下载或
-    合成。
+    Antes el flujo solo actualizaba el progreso en los límites de las etapas, así que
+    durante fases largas como la descarga de material o el procesamiento de clips la
+    barra no se movía en absoluto, y el usuario no podía distinguir entre que siguiera
+    en marcha o que se hubiera colgado. El progreso es solo información para mostrar: si
+    la proporción no se puede analizar se ignora, y si falla la escritura en el backend
+    de estado solo se registra en el log, sin interrumpir por ello la descarga ni la
+    composición.
     """
 
     def report(fraction) -> None:
@@ -349,7 +383,7 @@ def _stage_progress_reporter(task_id: str, stage_start: float, stage_end: float)
             )
         except Exception as exc:
             logger.warning(
-                f"failed to update task progress: task_id={task_id}, "
+                f"no se pudo actualizar el progreso de la tarea: task_id={task_id}, "
                 f"error={type(exc).__name__}, detail={exc}"
             )
 
@@ -357,7 +391,7 @@ def _stage_progress_reporter(task_id: str, stage_start: float, stage_end: float)
 
 
 def generate_script(task_id, params):
-    logger.info("\n\n## generating video script")
+    logger.info("\n\n## generando el guion del vídeo")
     video_script = params.video_script.strip()
     if not video_script:
         video_script = llm.generate_script(
@@ -368,22 +402,24 @@ def generate_script(task_id, params):
             custom_system_prompt=params.custom_system_prompt,
         )
     else:
-        logger.debug(f"video script: \n{video_script}")
+        logger.debug(f"guion del vídeo: \n{video_script}")
 
     if not video_script:
-        _mark_task_failed(task_id, "script", "failed to generate video script")
+        _mark_task_failed(task_id, "script", "no se pudo generar el guion del vídeo")
         return None
 
     return video_script
 
 
 def generate_terms(task_id, params, video_script):
-    logger.info("\n\n## generating video terms")
+    logger.info("\n\n## generando los términos del vídeo")
     video_terms = params.video_terms
     if not video_terms:
-        # 开启素材按文案顺序匹配后，关键词本身也必须按脚本叙事顺序生成；
-        # 否则后续即使顺序下载和顺序拼接，也只能复用一组全局主题词，
-        # 无法改善“后面内容的画面提前出现”的问题。
+        # Con la correspondencia de material en el orden del guion activada, las propias
+        # palabras clave también deben generarse en el orden narrativo del guion; si no,
+        # aunque después se descargue y se monte en orden, solo se podría reutilizar un
+        # conjunto global de temas, sin resolver el problema de que "las imágenes de lo
+        # que viene después aparecen antes".
         video_terms = llm.generate_terms(
             video_subject=params.video_subject,
             video_script=utils.remove_pause_tags(video_script),
@@ -396,23 +432,26 @@ def generate_terms(task_id, params, video_script):
         elif isinstance(video_terms, list):
             video_terms = [term.strip() for term in video_terms]
         else:
-            raise ValueError("video_terms must be a string or a list of strings.")
+            raise ValueError("video_terms debe ser una cadena o una lista de cadenas.")
 
-        # Delimiter-only input must not reach paid reranking or material search.
+        # Una entrada formada solo por delimitadores no debe llegar al reordenamiento de
+        # pago ni a la búsqueda de material.
         video_terms = [term for term in video_terms if term]
 
-        logger.debug(f"video terms: {utils.to_json(video_terms)}")
+        logger.debug(f"términos del vídeo: {utils.to_json(video_terms)}")
 
     if not video_terms:
         _mark_task_failed(
             task_id,
             "terms",
-            "failed to generate video search terms",
+            "no se pudieron generar los términos de búsqueda del vídeo",
         )
         return None
 
-    # 可选的 TwelveLabs Marengo 语义重排：未启用时返回原顺序，无任何副作用。
-    # 顺序匹配模式下关键词顺序本身就是脚本叙事顺序，必须保持原样，故跳过。
+    # Reordenamiento semántico opcional con TwelveLabs Marengo: si no está activado
+    # devuelve el orden original, sin efectos secundarios. En el modo de correspondencia
+    # ordenada, el orden de las palabras clave ya es el orden narrativo del guion y debe
+    # mantenerse, así que se omite.
     if not params.match_materials_to_script:
         video_terms = twelvelabs.rerank_terms_by_subject(
             video_subject=params.video_subject,
@@ -450,18 +489,20 @@ def resolve_custom_audio_file(
     except ValueError as exc:
         task_dir_error = exc
 
-    # A missing path that otherwise stays inside the task directory is safe to
-    # report precisely. Paths outside that boundary use the same generic error
-    # regardless of whether they exist, so callers cannot probe the host filesystem.
-    if str(task_dir_error) == "file does not exist":
+    # Una ruta que falta pero que por lo demás queda dentro del directorio de la tarea
+    # se puede informar con precisión. Las rutas fuera de ese límite usan el mismo error
+    # genérico existan o no, para que quien llama no pueda sondear el sistema de
+    # archivos del host.
+    if str(task_dir_error) == "el archivo no existe":
         raise task_dir_error
 
-    # HTTP requests and other untrusted callers must never turn a submitted path
-    # into a server-side file read. WebUI uploads already live in the task directory;
-    # only the local CLI explicitly opts into resolving files elsewhere on the host.
+    # Las solicitudes HTTP y demás llamadores no fiables nunca deben convertir una ruta
+    # enviada en una lectura de archivos en el servidor. Las subidas de la WebUI ya
+    # viven en el directorio de la tarea; solo la CLI local opta explícitamente por
+    # resolver archivos en otros lugares del host.
     if not allow_server_file_input:
         raise ValueError(
-            "custom audio file must be stored within the current task directory"
+            "el archivo de audio personalizado debe estar dentro del directorio de la tarea actual"
         ) from task_dir_error
 
     server_audio_file = path.realpath(
@@ -474,16 +515,16 @@ def resolve_custom_audio_file(
         try:
             if path.commonpath([project_root, server_audio_file]) != project_root:
                 raise ValueError(
-                    "relative custom audio paths must stay within the project directory"
+                    "las rutas relativas de audio personalizado deben quedar dentro del directorio del proyecto"
                 )
         except ValueError as exc:
             raise ValueError(
-                "custom audio file must be task-local or an existing server-side file"
+                "el archivo de audio personalizado debe ser local de la tarea o un archivo existente del servidor"
             ) from exc
 
     if not path.isfile(server_audio_file):
         raise ValueError(
-            "custom audio file does not exist or is not a file"
+            "el archivo de audio personalizado no existe o no es un archivo"
         ) from task_dir_error
 
     return server_audio_file
@@ -496,11 +537,13 @@ def _resolve_reusable_voice_preview(
     voice_preview: dict | None,
 ) -> tuple[str, float, object] | None:
     """
-    校验并解析 WebUI 提交的完整试听缓存。
+    Valida y analiza la caché de vista previa completa enviada por la WebUI.
 
-    该载荷不是公开 API 参数，只能来自当前进程的 WebUI。即便如此，后台任务
-    仍重新核对文案和全部配音参数，并限制音频位于当前任务目录；任何不一致都
-    回退普通 TTS，不让过期试听污染正式成片。
+    Esta carga útil no es un parámetro público de la API y solo puede venir de la WebUI
+    del proceso actual. Aun así, la tarea en segundo plano vuelve a comprobar el texto y
+    todos los parámetros de locución, y exige que el audio esté en el directorio de la
+    tarea actual; ante cualquier diferencia vuelve al TTS normal, para que una vista
+    previa caducada no contamine el vídeo final definitivo.
     """
     if not voice_preview:
         return None
@@ -515,8 +558,8 @@ def _resolve_reusable_voice_preview(
         voice_preview.get(key) != value for key, value in expected_values.items()
     ):
         logger.info(
-            f"skip stale voice preview cache, task_id: {task_id}, "
-            "reason: voice parameters changed"
+            f"se omite una caché de vista previa de voz obsoleta, task_id: {task_id}, "
+            "motivo: cambiaron los parámetros de la voz"
         )
         return None
 
@@ -538,13 +581,13 @@ def _resolve_reusable_voice_preview(
         or sub_maker is None
     ):
         logger.warning(
-            f"skip invalid voice preview cache, task_id: {task_id}, "
+            f"se omite una caché de vista previa de voz no válida, task_id: {task_id}, "
             f"audio_file: {preview_file or '<empty>'}"
         )
         return None
 
     logger.info(
-        f"using full voice preview audio, task_id: {task_id}, duration: {duration:.2f}s"
+        f"se usa el audio de la vista previa completa de la voz, task_id: {task_id}, duration: {duration:.2f}s"
     )
     return preview_file, math.ceil(duration), sub_maker
 
@@ -561,18 +604,18 @@ def generate_audio(
     voxcpm_prompt_text: str = "",
 ):
     """
-    Generate audio for the video script.
-    If a custom audio file is provided, it will be used directly.
-    There will be no subtitle maker object returned in this case.
-    Otherwise, TTS will be used to generate the audio.
+    Genera el audio para el guion del vídeo. Si se proporciona un archivo de audio
+    personalizado, se usa directamente. En ese caso no se devuelve ningún objeto
+    generador de subtítulos. Si no, se usa el TTS para generar el audio.
     Returns:
-        - audio_file: path to the generated or provided audio file
-        - audio_duration: duration of the audio in seconds
-        - sub_maker: subtitle maker object if TTS is used, None otherwise
+        - audio_file: ruta del archivo de audio generado o proporcionado
+        - audio_duration: duración del audio en segundos
+        - sub_maker: objeto generador de subtítulos si se usa el TTS; None en otro caso
     """
-    logger.info("\n\n## generating audio")
-    # /audio 和 /subtitle 请求模型不包含 custom_audio_file，
-    # 这里统一做兼容读取，避免直调接口时抛属性错误。
+    logger.info("\n\n## generando el audio")
+    # Los modelos de solicitud de /audio y /subtitle no incluyen custom_audio_file, así
+    # que aquí se lee de forma compatible, para no lanzar un error de atributo al llamar
+    # directamente a la interfaz.
     requested_custom_audio_file = getattr(params, "custom_audio_file", None)
     try:
         custom_audio_file = resolve_custom_audio_file(
@@ -584,7 +627,7 @@ def generate_audio(
         _mark_task_failed(
             task_id,
             "audio",
-            f"invalid custom audio file: {exc}",
+            f"archivo de audio personalizado no válido: {exc}",
         )
         return None, None, None
 
@@ -598,7 +641,7 @@ def generate_audio(
         if reusable_preview:
             return reusable_preview
 
-        logger.info("no custom audio file provided, using TTS to generate audio.")
+        logger.info("no se proporcionó un archivo de audio personalizado; se genera el audio con TTS.")
         audio_file = path.join(utils.task_dir(task_id), "audio.mp3")
         tts_kwargs = {
             "text": video_script,
@@ -616,32 +659,32 @@ def generate_audio(
             _mark_task_failed(
                 task_id,
                 "audio",
-                "failed to synthesize audio; verify the selected voice and TTS connectivity",
+                "no se pudo sintetizar el audio; verifica la voz elegida y la conectividad del TTS",
             )
             return None, None, None
-        # Measure the real written audio_file, not sub_maker.cues[-1].end:
-        # the latter is the last WORD BOUNDARY, and TTS leaves a fixed tail
-        # past it (Edge TTS: ~0.88s at any length - 19% of a 7-word clip but
-        # 1.4% of a 153-word one, so short scripts suffer most). The
-        # under-count sizes paid generate_bgm() calls, is reported as
-        # audio_duration to the API/WebUI, and under-sources
-        # download_videos() material, scaled by video_count.
+        # Se mide el audio_file escrito de verdad, no sub_maker.cues[-1].end:
+        # este último es el último LÍMITE DE PALABRA, y el TTS deja una cola fija
+        # después (Edge TTS: ~0,88 s con cualquier longitud, el 19 % de un clip de 7
+        # palabras pero el 1,4 % de uno de 153, así que los guiones cortos son los más
+        # perjudicados). La infravaloración dimensiona las llamadas de pago a
+        # generate_bgm(), se informa como audio_duration a la API/WebUI y se queda corta
+        # de material en download_videos(), multiplicado por video_count.
         file_duration = voice.get_audio_duration(audio_file)
         audio_duration = math.ceil(
             file_duration if file_duration > 0 else voice.get_audio_duration(sub_maker)
         )
         if audio_duration == 0:
-            _mark_task_failed(task_id, "audio", "generated audio duration is zero")
+            _mark_task_failed(task_id, "audio", "la duración del audio generado es cero")
             return None, None, None
         return audio_file, audio_duration, sub_maker
     else:
-        logger.info(f"using custom audio file: {custom_audio_file}")
+        logger.info(f"se usa el archivo de audio personalizado: {custom_audio_file}")
         audio_duration = voice.get_audio_duration(custom_audio_file)
         if audio_duration == 0:
             _mark_task_failed(
                 task_id,
                 "audio",
-                "custom audio duration is zero",
+                "la duración del audio personalizado es cero",
             )
             return None, None, None
         return custom_audio_file, audio_duration, None
@@ -649,37 +692,40 @@ def generate_audio(
 
 def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
     """
-    Generate subtitle for the video script.
-    If subtitle generation is disabled or no subtitle maker is provided, it will return an empty string.
-    Otherwise, it will generate the subtitle using the specified provider.
+    Genera los subtítulos para el guion del vídeo. Si la generación de subtítulos está
+    desactivada o no se proporciona generador de subtítulos, devuelve una cadena vacía.
+    Si no, genera los subtítulos con el proveedor indicado.
     Returns:
-        - subtitle_path: path to the generated subtitle file
+        - subtitle_path: ruta del archivo de subtítulos generado
     """
-    logger.info("\n\n## generating subtitle")
+    logger.info("\n\n## generando los subtítulos")
     if not params.subtitle_enabled:
         return ""
 
     final_subtitle_path = path.join(utils.task_dir(task_id), "subtitle.srt")
     subtitle_provider = config.app.get("subtitle_provider", "edge").strip().lower()
-    logger.info(f"\n\n## generating subtitle, provider: {subtitle_provider}")
+    logger.info(f"\n\n## generando los subtítulos, proveedor: {subtitle_provider}")
 
     if not subtitle_provider:
-        logger.info("subtitle provider is empty, skip subtitle generation")
+        logger.info("el proveedor de subtítulos está vacío; se omite la generación de subtítulos")
         return ""
 
     if sub_maker is None and subtitle_provider != "whisper":
-        # 自定义音频不会经过 TTS，因此没有 Edge/Azure 等 TTS 返回的
-        # sub_maker 时间轴。只有 Whisper 可以直接从音频文件转写字幕；
-        # 其他字幕提供方继续保持原有行为，避免生成错误的空时间轴。
+        # El audio personalizado no pasa por el TTS, así que no tiene la línea de tiempo
+        # sub_maker que devuelven los TTS como Edge/Azure. Solo Whisper puede
+        # transcribir los subtítulos directamente desde el archivo de audio; los demás
+        # proveedores de subtítulos mantienen el comportamiento original, para no
+        # generar líneas de tiempo vacías erróneas.
         logger.warning(
-            "subtitle maker is missing, skip subtitle generation for provider: "
+            "falta el generador de subtítulos; se omite la generación de subtítulos para el proveedor: "
             f"{subtitle_provider}"
         )
         return ""
 
     is_word_level = getattr(params, "subtitle_display_mode", "sentence") == "word_by_word"
 
-    # A failed retry must never reuse captions from an earlier narration.
+    # Un reintento fallido nunca debe reutilizar los subtítulos de una narración
+    # anterior.
     with staged_subtitle_file(final_subtitle_path) as subtitle_path:
         if subtitle_provider == "edge":
             voice.create_subtitle(
@@ -689,13 +735,16 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
                 word_level=is_word_level,
             )
             if not os.path.exists(subtitle_path):
-                # Edge 字幕偶尔会因为时间轴与文案无法匹配而没有产出文件。这里不能
-                # 自动切换到 Whisper，否则首次失败会在用户不知情的情况下下载数 GB
-                # 的模型。只有显式配置 Whisper 时才允许加载模型，Edge 失败则保留
-                # 无字幕视频并记录原因，避免意外的网络和磁盘开销。
+                # Los subtítulos de Edge a veces no producen archivo porque la línea de
+                # tiempo no se puede hacer coincidir con el texto. Aquí no se puede
+                # pasar automáticamente a Whisper, o el primer fallo descargaría un
+                # modelo de varios GB sin que el usuario lo sepa. Solo se permite cargar
+                # el modelo cuando Whisper está configurado explícitamente; si Edge
+                # falla se conserva el vídeo sin subtítulos y se registra el motivo,
+                # evitando gastos inesperados de red y de disco.
                 logger.warning(
-                    "edge subtitle generation did not produce a subtitle file; "
-                    "skip subtitles without falling back to whisper"
+                    "la generación de subtítulos de edge no produjo un archivo de subtítulos; "
+                    "se omiten los subtítulos sin volver a whisper"
                 )
                 return ""
 
@@ -706,15 +755,15 @@ def generate_subtitle(task_id, params, video_script, sub_maker, audio_file):
                 word_level=is_word_level,
             )
             if not subtitle.file_to_subtitles(subtitle_path):
-                logger.warning("whisper produced no usable subtitle cues")
+                logger.warning("whisper no produjo subtítulos utilizables")
                 return ""
             if not is_word_level:
-                logger.info("\n\n## correcting subtitle")
+                logger.info("\n\n## corrigiendo los subtítulos")
                 subtitle.correct(subtitle_file=subtitle_path, video_script=video_script)
 
         subtitle_lines = subtitle.file_to_subtitles(subtitle_path)
         if not subtitle_lines:
-            logger.warning(f"subtitle file is invalid: {subtitle_path}")
+            logger.warning(f"el archivo de subtítulos no es válido: {subtitle_path}")
             return ""
 
         os.replace(subtitle_path, final_subtitle_path)
@@ -729,7 +778,7 @@ def get_video_materials(
     loomloom_video_request: loomloom.LoomLoomConfirmedVideoRequest | None = None,
 ):
     if params.video_source == "local":
-        logger.info("\n\n## preprocess local materials")
+        logger.info("\n\n## preprocesando el material local")
         materials = video.preprocess_video(
             materials=params.video_materials,
             clip_duration=params.video_clip_duration,
@@ -739,7 +788,7 @@ def get_video_materials(
             _mark_task_failed(
                 task_id,
                 "materials",
-                "no valid local video materials were found",
+                "no se encontró material de vídeo local válido",
             )
             return None
         return [material_info.url for material_info in materials]
@@ -750,14 +799,14 @@ def get_video_materials(
             _mark_task_failed(
                 task_id,
                 "materials",
-                "LoomLoom video generation requires a confirmed quote",
+                "la generación de vídeo con LoomLoom requiere un presupuesto confirmado",
             )
             return None
 
         request = loomloom_video_request
         logger.info(
-            "\n\n## generating "
-            f"{len(request.batch.input_rows)} video materials with LoomLoom"
+            "\n\n## generando "
+            f"{len(request.batch.input_rows)} materiales de vídeo con LoomLoom"
         )
         run_id = ""
         try:
@@ -770,17 +819,22 @@ def get_video_materials(
                 confirm=True,
             )
             run_id = execution.run_id
-            # execute 返回即表示付费任务已经由远端接受。必须先把 run ID 写入
-            # 进程日志，即使 Redis 等状态后端随后不可用，运维人员仍能凭日志
-            # 在胜算云侧定位任务，不能让唯一标识只存在于局部变量中。
+            # Que execute vuelva significa que el servidor ya ha aceptado la tarea de
+            # pago. Hay que escribir primero el run ID en el log del proceso, para que
+            # aunque después el backend de estado (Redis, etc.) no esté disponible, el
+            # personal de operaciones pueda localizar la tarea en Shengsuan Cloud con el
+            # log; el único identificador no puede quedarse solo en una variable local.
             logger.info(
-                "LoomLoom paid video run created: "
+                "ejecución de vídeo de pago de LoomLoom creada: "
                 f"task_id={task_id}, run_id={run_id}, "
                 f"listing_version_id={request.listing_version_id}"
             )
-            # 付费任务一旦创建就立即记录远端 ID。即使后续轮询超时，日志和任务
-            # 状态仍能帮助用户或平台支持人员定位并找回已经生成的产物。状态后端
-            # 故障只能降低可观测性，不能中断已经开始计费的远端任务和产物下载。
+            # En cuanto se crea una tarea de pago se registra de inmediato el ID remoto.
+            # Aunque más tarde el sondeo agote el tiempo, el log y el estado de la tarea
+            # siguen ayudando al usuario o al soporte de la plataforma a localizar y
+            # recuperar el producto ya generado. Un fallo del backend de estado solo
+            # puede reducir la observabilidad; no puede interrumpir una tarea remota que
+            # ya ha empezado a facturarse ni la descarga del producto.
             _record_loomloom_run_reference(
                 task_id=task_id,
                 run_id=run_id,
@@ -805,9 +859,12 @@ def get_video_materials(
             )
             return None
     else:
-        logger.info(f"\n\n## downloading videos from {params.video_source}")
-        # 顺序匹配模式只在用户显式开启时生效。这里强制素材下载按关键词顺序
-        # 轮询，避免某个早期关键词下载太多素材，把后续脚本主题挤出最终时间线。
+        logger.info(f"\n\n## descargando vídeos de {params.video_source}")
+        # El modo de correspondencia ordenada solo tiene efecto cuando el usuario lo
+        # activa explícitamente. Aquí se fuerza que la descarga de material vaya rotando
+        # por las palabras clave en orden, para que una palabra clave temprana no
+        # descargue demasiado material y saque de la línea de tiempo final los temas
+        # posteriores del guion.
         try:
             downloaded_videos = material.download_videos(
                 task_id=task_id,
@@ -823,14 +880,17 @@ def get_video_materials(
                 max_clip_duration=params.video_clip_duration,
                 match_script_order=params.match_materials_to_script,
                 image_motion=params.image_motion,
-                # 素材阶段占用 40%~50%：每下完一个文件推进一次，慢速网络下
-                # 进度条不再长时间停在 40%。
+                # La fase de material ocupa del 40 % al 50 %: avanza cada vez que se
+                # descarga un archivo, para que con redes lentas la barra de progreso no
+                # se quede mucho tiempo en el 40 %.
                 progress_callback=_stage_progress_reporter(task_id, 40, 50),
             )
         except volcengine_seedance.VolcEngineSeedanceError as exc:
-            # 未确认状态和已生成但下载失败都对应一个可在方舟控制台恢复的远端
-            # 任务。统一从异常携带的 task_id 写入失败状态，避免不同异常分支
-            # 各自维护恢复信息并在后续扩展时再次遗漏。
+            # Tanto el estado sin confirmar como el generado pero con descarga fallida
+            # corresponden a una tarea remota que se puede recuperar en la consola de
+            # Ark. El estado de fallo se escribe siempre a partir del task_id que lleva
+            # la excepción, para que cada rama de excepción no mantenga su propia
+            # información de recuperación y se olvide otra vez en futuras ampliaciones.
             remote_task_id = str(getattr(exc, "task_id", "") or "").strip()
             details = (
                 {"volcengine_seedance_task_id": remote_task_id}
@@ -848,21 +908,25 @@ def get_video_materials(
             material.WaveSpeedUnconfirmedTaskError,
             material.WaveSpeedDownloadError,
         ) as exc:
-            # Once a paid prediction exists, a polling or download failure must
-            # leave its ID in task state. Earlier successful clips cannot turn
-            # this incomplete run into an apparently completed video task.
+            # Una vez que existe una predicción de pago, un fallo de sondeo o de
+            # descarga debe dejar su ID en el estado de la tarea. Los clips anteriores
+            # correctos no pueden convertir esta ejecución incompleta en una tarea de
+            # vídeo aparentemente completada.
             prediction_id = str(getattr(exc, "prediction_id", "") or "").strip()
             details = {"wavespeed_prediction_id": prediction_id} if prediction_id else None
             _mark_task_failed(task_id, "materials", str(exc), details=details)
             return None
         except material.OpenAIImagePaidResultError as exc:
-            # A paid request with an uncertain response, failed result download,
-            # or failed local render must stop before another image order.
+            # Una solicitud de pago con una respuesta incierta, una descarga del
+            # resultado fallida o un renderizado local fallido debe detenerse antes de
+            # otro pedido de imagen.
             _mark_task_failed(task_id, "materials", str(exc))
             return None
         except ofox.OFoxError as exc:
-            # 与方舟同一恢复语义：未确认状态和已生成但下载失败都对应一个可在
-            # OFox 控制台恢复的远端任务，统一从异常携带的 task_id 写入失败状态。
+            # La misma semántica de recuperación que en Ark: tanto el estado sin
+            # confirmar como el generado pero con descarga fallida corresponden a una
+            # tarea remota que se puede recuperar en la consola de OFox, y el estado de
+            # fallo se escribe siempre a partir del task_id que lleva la excepción.
             remote_task_id = str(getattr(exc, "task_id", "") or "").strip()
             details = (
                 {"ofox_task_id": remote_task_id} if remote_task_id else None
@@ -875,9 +939,10 @@ def get_video_materials(
             )
             return None
         except metaso_minimax.MetasoMiniMaxError as exc:
-            # 秘塔任务与方舟任务使用不同的恢复入口和字段名，不能合并成一个
-            # 模糊的 remote_task_id。保留明确 Provider 前缀便于 API、WebUI
-            # 和运维日志直接定位对应平台。
+            # Las tareas de Metaso y las de Ark usan entradas de recuperación y nombres
+            # de campo distintos, y no se pueden fusionar en un remote_task_id ambiguo.
+            # Conservar un prefijo de proveedor claro permite a la API, la WebUI y los
+            # logs de operaciones localizar directamente la plataforma correspondiente.
             remote_task_id = str(getattr(exc, "task_id", "") or "").strip()
             details = (
                 {"metaso_minimax_task_id": remote_task_id} if remote_task_id else None
@@ -897,9 +962,10 @@ def get_video_materials(
             )
             return None
         except muapi.MuAPIError as exc:
-            # MuAPI tasks are billable after acceptance.  Preserve the remote
-            # request ID on any ambiguous or post-completion failure so the
-            # user can recover it from the provider dashboard.
+            # Las tareas de MuAPI son facturables tras aceptarse. Se conserva el ID de
+            # solicitud remoto ante cualquier fallo ambiguo o posterior a la
+            # finalización para que el usuario pueda recuperarlo en el panel del
+            # proveedor.
             remote_task_id = str(getattr(exc, "task_id", "") or "").strip()
             details = {"muapi_task_id": remote_task_id} if remote_task_id else None
             _mark_task_failed(
@@ -913,7 +979,7 @@ def get_video_materials(
             _mark_task_failed(
                 task_id,
                 "materials",
-                f"failed to download video materials from {params.video_source}",
+                f"no se pudo descargar el material de vídeo de {params.video_source}",
             )
             return None
         return downloaded_videos
@@ -923,11 +989,14 @@ def _record_loomloom_run_reference(
     *, task_id: str, run_id: str, listing_version_id: str
 ) -> bool | None:
     """
-    尽最大努力保存已创建的付费 LoomLoom Run，不让状态故障中断远端任务。
+    Hace todo lo posible por guardar el Run de LoomLoom de pago ya creado, sin que un
+    fallo del estado interrumpa la tarea remota.
 
-    返回 True 表示保存成功，False 表示任务记录已经不存在，None 表示状态后端
-    在有限重试后仍不可用。调用方无论得到哪种结果都应继续轮询和下载，因为
-    execute 已经产生外部付费副作用，停止本地流程只会让产物更难找回。
+    Devuelve True si se guardó correctamente, False si el registro de la tarea ya no
+    existe, y None si el backend de estado sigue sin estar disponible tras los
+    reintentos limitados. Sea cual sea el resultado, quien llama debe seguir sondeando y
+    descargando, porque execute ya ha producido un efecto externo de pago, y detener el
+    flujo local solo haría más difícil recuperar el producto.
     """
     fields = {
         "loomloom_run_id": run_id,
@@ -939,13 +1008,13 @@ def _record_loomloom_run_reference(
         except Exception as exc:
             if attempt >= _LOOMLOOM_STATE_WRITE_ATTEMPTS:
                 logger.exception(
-                    "failed to persist LoomLoom paid run after retries: "
+                    "no se pudo guardar la ejecución de pago de LoomLoom tras los reintentos: "
                     f"task_id={task_id}, run_id={run_id}, attempts={attempt}, "
                     f"error={exc}"
                 )
                 return None
             logger.warning(
-                "retry LoomLoom paid run state update: "
+                "se reintenta la actualización del estado de la ejecución de pago de LoomLoom: "
                 f"task_id={task_id}, run_id={run_id}, attempt={attempt}, "
                 f"error={exc}"
             )
@@ -954,7 +1023,7 @@ def _record_loomloom_run_reference(
 
         if updated is False:
             logger.warning(
-                "could not persist LoomLoom paid run because task is missing: "
+                "no se pudo guardar la ejecución de pago de LoomLoom porque falta la tarea: "
                 f"task_id={task_id}, run_id={run_id}"
             )
         return updated
@@ -963,7 +1032,9 @@ def _record_loomloom_run_reference(
 
 
 def _get_material_source_groups(task_id: str, video_paths: list[str]) -> dict[str, str]:
-    """Recover keyword groups from the downloaded material manifest."""
+    """Recupera los grupos de palabras clave a partir del manifiesto de material
+    descargado.
+    """
     try:
         with open(path.join(utils.task_dir(task_id), "script.json"), encoding="utf-8") as file:
             payload = json.load(file)
@@ -981,7 +1052,7 @@ def _get_material_source_groups(task_id: str, video_paths: list[str]) -> dict[st
             if path.basename(file) in groups
         }
     except (OSError, ValueError, AttributeError, TypeError) as exc:
-        logger.warning(f"Cannot read material keyword groups: task_id={task_id}, error={exc}")
+        logger.warning(f"No se pueden leer los grupos de palabras clave del material: task_id={task_id}, error={exc}")
         return {}
 
 
@@ -989,13 +1060,16 @@ def generate_final_videos(
     task_id, params, downloaded_videos, audio_file, subtitle_path, audio_duration,
     *, partial_results: dict | None = None,
 ):
-    """Record completed outputs even if a later clip raises before returning."""
+    """Registra los resultados completados aunque un clip posterior lance una excepción
+    antes de volver.
+    """
     final_video_paths = []
     combined_video_paths = []
     warnings = []
     if partial_results is not None:
-        # The caller owns this snapshot so it can report completed files even
-        # when the state backend fails during a progress/checkpoint write.
+        # Quien llama es dueño de esta instantánea para poder informar de los archivos
+        # completados incluso cuando el backend de estado falla durante una escritura de
+        # progreso/punto de control.
         partial_results.update(
             videos=final_video_paths, combined_videos=combined_video_paths,
             warnings=warnings,
@@ -1016,7 +1090,8 @@ def generate_final_videos(
         video_music_provider is not None
         and bgm_service.should_use_bgm(params.bgm_type, params.bgm_volume)
     )
-    # Matching preserves keyword order; batch allocation varies each keyword's candidates.
+    # La correspondencia conserva el orden de las palabras clave; la asignación por
+    # lotes varía los candidatos de cada palabra clave.
     if params.match_materials_to_script:
         video_concat_mode = VideoConcatMode.sequential
     elif params.video_count == 1:
@@ -1033,7 +1108,7 @@ def generate_final_videos(
         combined_video_path = path.join(
             utils.task_dir(task_id), f"combined-{index}.mp4"
         )
-        logger.info(f"\n\n## combining video: {index} => {combined_video_path}")
+        logger.info(f"\n\n## montando el vídeo: {index} => {combined_video_path}")
         used_video_paths = []
         batch_options = (
             {
@@ -1043,8 +1118,9 @@ def generate_final_videos(
             }
             if allocate_batch_materials else {}
         )
-        # 每条视频占 50% 进度中的一份，合成与最终编码各占一半。片段处理是
-        # 合成里最耗时的部分，逐段推进这一半的进度。
+        # Cada vídeo ocupa una parte del 50 % del progreso, mitad para la composición y
+        # mitad para la codificación final. El procesamiento de clips es la parte más
+        # lenta de la composición, y esa mitad del progreso avanza segmento a segmento.
         combine_share = 50 / params.video_count / 2
         video.combine_videos(
             combined_video_path=combined_video_path,
@@ -1074,7 +1150,7 @@ def generate_final_videos(
             })
             task_artifacts.patch_script_data(task_id, material_selections=material_selections)
             logger.info(
-                f"Batch material allocation: video_index={index}, "
+                f"Asignación de material por lotes: video_index={index}, "
                 f"sources={len(selected_sources)}, reused_sources={len(reused_sources)}"
             )
             if reused_sources:
@@ -1089,8 +1165,10 @@ def generate_final_videos(
 
         final_video_path = path.join(utils.task_dir(task_id), f"final-{index}.mp4")
 
-        # 视频配乐模式先明确禁用默认 BGM 解析，避免旧任务残留的 bgm_file 被
-        # 误用。只有音量大于 0 才生成代理并调用付费 API；0 音量统一跳过。
+        # El modo de música para el vídeo desactiva primero explícitamente la resolución
+        # de la BGM por defecto, para que no se use por error un bgm_file residual de
+        # una tarea antigua. Solo con volumen mayor que 0 se genera el proxy y se llama
+        # a la API de pago; con volumen 0 se omite siempre.
         bgm_file_override = "" if video_music_provider else None
         if video_music_requested:
             service = video_music_provider["service"]
@@ -1109,16 +1187,18 @@ def generate_final_videos(
                 )
                 bgm_file_override = generated_bgm_path
             except video_music_provider["error_type"] as exc:
-                # 视频、旁白和字幕都已生成时，第三方配乐临时失败不应浪费整条
-                # 任务。当前视频明确禁用 BGM，并把降级结果返回 WebUI 提醒用户。
+                # Cuando el vídeo, la narración y los subtítulos ya se han generado, un
+                # fallo temporal de la música de un tercero no debería desperdiciar toda
+                # la tarea. El vídeo actual desactiva explícitamente la BGM y el
+                # resultado degradado se devuelve a la WebUI para avisar al usuario.
                 logger.warning(
-                    f"{display_name} BGM generation failed: task_id={task_id}, "
+                    f"falló la generación de la BGM de {display_name}: task_id={task_id}, "
                     f"video_index={index}, error={exc}"
                 )
                 bgm_file_override = ""
                 warnings.append({"code": warning_code, "video_index": index})
 
-        logger.info(f"\n\n## generating video: {index} => {final_video_path}")
+        logger.info(f"\n\n## generando el vídeo: {index} => {final_video_path}")
         bgm_mix_succeeded = video.generate_video(
             video_path=combined_video_path,
             audio_path=audio_file,
@@ -1132,9 +1212,11 @@ def generate_final_videos(
             and bgm_file_override
             and not bgm_mix_succeeded
         ):
-            # 第三方已成功返回并通过 FFmpeg 校验，但 MoviePy 最终混音仍可能
-            # 因运行环境失败。视频服务会保留无 BGM 成片；API 生成失败时
-            # override 为空，因此不会重复追加警告。
+            # El tercero ya ha devuelto la música con éxito y ha pasado la validación de
+            # FFmpeg, pero la mezcla final de MoviePy aún puede fallar por el entorno de
+            # ejecución. El servicio de vídeo conservará el vídeo final sin BGM; si la
+            # generación por API falla, override está vacío, así que no se añade el
+            # aviso dos veces.
             warnings.append(
                 {
                     "code": video_music_provider["warning_code"],
@@ -1154,24 +1236,29 @@ def generate_final_videos(
 
 
 def _patch_cross_post_state(task_id: str, **kwargs) -> bool | None:
-    """安全更新发布字段；短暂状态后端故障时有限重试。"""
+    """Actualiza de forma segura los campos de publicación, con reintentos limitados ante
+    fallos breves del backend de estado.
+    """
     for attempt in range(1, _CROSS_POST_STATE_WRITE_ATTEMPTS + 1):
         try:
             return sm.state.patch_task(task_id, **kwargs)
         except Exception as exc:
-            # Redis 短暂断连不应让任务永久停留在 pending/processing。发布状态
-            # 写入频率很低，这里使用固定次数和短等待即可覆盖瞬时故障，同时
-            # 避免后台线程无限阻塞。最后一次失败保留完整堆栈便于定位。
+            # Una desconexión breve de Redis no debe dejar la tarea para siempre en
+            # pending/processing. El estado de publicación se escribe con muy poca
+            # frecuencia, así que aquí basta un número fijo de intentos con esperas
+            # cortas para cubrir los fallos pasajeros, evitando a la vez que el hilo en
+            # segundo plano se bloquee indefinidamente. El último fallo conserva la
+            # traza completa para poder localizarlo.
             if attempt >= _CROSS_POST_STATE_WRITE_ATTEMPTS:
                 logger.exception(
-                    f"failed to update cross-post state after retries, "
+                    f"no se pudo actualizar el estado de la publicación multiplataforma tras los reintentos, "
                     f"task_id: {task_id}, fields: {', '.join(kwargs)}, "
                     f"attempts: {attempt}, error: {exc}"
                 )
                 return None
 
             logger.warning(
-                f"retry cross-post state update, task_id: {task_id}, "
+                f"se reintenta la actualización del estado de la publicación multiplataforma, task_id: {task_id}, "
                 f"fields: {', '.join(kwargs)}, attempt: {attempt}, error: {exc}"
             )
             time.sleep(_CROSS_POST_STATE_RETRY_DELAY_SECONDS)
@@ -1184,7 +1271,9 @@ def _record_cross_post_failure(
     error: Exception,
     results: list[dict] | None = None,
 ) -> None:
-    """尽最大努力保存发布失败；状态后端不可用时由日志保留诊断信息。"""
+    """Hace todo lo posible por guardar el fallo de publicación; si el backend de estado no
+    está disponible, el log conserva la información de diagnóstico.
+    """
     updated = _patch_cross_post_state(
         task_id,
         cross_post_state=const.CROSS_POST_STATE_FAILED,
@@ -1193,18 +1282,22 @@ def _record_cross_post_failure(
         cross_post_owner=None,
     )
     if updated is False:
-        logger.warning(f"discard cross-post failure for missing task: {task_id}")
+        logger.warning(f"se descarta el fallo de publicación multiplataforma de una tarea que no existe: {task_id}")
 
 
 def _ensure_cross_post_terminal_state(task_id: str) -> None:
-    """Future 结束后把仍处于活动态的任务收敛为失败。"""
+    """Cuando termina el Future, las tareas que siguen en estado activo se cierran como
+    fallidas.
+    """
     try:
         task = sm.state.get_task(task_id)
     except Exception as exc:
-        # 此处已经是 Future 的最终回调，没有后续同步调用方可以处理异常。
-        # 状态后端恢复后，下一次进程启动仍会通过恢复逻辑处理遗留状态。
+        # Esto ya es el callback final del Future, y no hay ningún llamador síncrono
+        # posterior que pueda tratar la excepción. Cuando el backend de estado se
+        # recupere, el siguiente arranque del proceso tratará los estados residuales con
+        # la lógica de recuperación.
         logger.exception(
-            f"failed to verify final cross-post state, task_id: {task_id}, error: {exc}"
+            f"no se pudo verificar el estado final de la publicación multiplataforma, task_id: {task_id}, error: {exc}"
         )
         return
 
@@ -1212,32 +1305,39 @@ def _ensure_cross_post_terminal_state(task_id: str) -> None:
         return
 
     logger.warning(
-        f"cross-post worker ended without terminal state, task_id: {task_id}, "
+        f"el worker de publicación multiplataforma terminó sin estado final, task_id: {task_id}, "
         f"state: {task.get('cross_post_state')}"
     )
     _record_cross_post_failure(
         task_id,
-        RuntimeError("cross-post worker ended without persisting a terminal state"),
+        RuntimeError("el proceso de publicación multiplataforma terminó sin guardar un estado final"),
         task.get("cross_post_results"),
     )
 
 
 def recover_interrupted_cross_posts(page_size: int = 100) -> int | None:
     """
-    将进程重启后无法恢复的发布任务标记为失败。
+    Marca como fallidas las tareas de publicación que no se pueden recuperar tras
+    reiniciar el proceso.
 
-    跨平台发布使用当前进程内的线程池，不是持久化任务队列。进程启动时，
-    Redis 中残留的 pending/processing 不会自动继续执行；如果继续把它们视为
-    运行中，用户将永久无法删除任务。这里仅收集一次任务 ID，再读取当前状态；
-    不能跨多次 Redis SCAN 按页码推进，否则扫描顺序变化会漏掉遗留任务。
-    只处理当前进程没有对应 Future 的活动记录，并保留已经生成的视频结果。
+    La publicación multiplataforma usa el pool de hilos del proceso actual, no una cola
+    de tareas persistente. Al arrancar el proceso, los pending/processing que quedan en
+    Redis no siguen ejecutándose solos; si se siguieran considerando en ejecución, el
+    usuario nunca podría borrar la tarea. Aquí solo se recogen una vez los ID de tarea y
+    luego se lee el estado actual; no se puede avanzar por número de página a lo largo
+    de varios SCAN de Redis, porque un cambio en el orden del escaneo haría que se
+    perdieran tareas residuales. Solo se tratan los registros activos sin Future
+    correspondiente en el proceso actual, conservando los resultados de vídeo ya
+    generados.
     """
     recovered = 0
     try:
         task_ids = sm.state.list_task_ids(scan_count=page_size)
         for task_id in task_ids:
-            # 扫描之后任务可能已被删除或转为终态；以最新状态决定是否恢复，
-            # 不能使用扫描时的旧快照覆盖已经完成的发布结果。
+            # Tras el escaneo, la tarea puede haberse borrado o haber pasado a un estado
+            # final; se decide si recuperar según el estado más reciente, sin
+            # sobrescribir un resultado de publicación ya completado con la instantánea
+            # antigua del escaneo.
             task = sm.state.get_task(task_id)
             if (
                 not task
@@ -1256,11 +1356,11 @@ def recover_interrupted_cross_posts(page_size: int = 100) -> int | None:
             if updated is True:
                 recovered += 1
     except Exception as exc:
-        logger.exception(f"failed to recover interrupted cross-post tasks: {exc}")
+        logger.exception(f"no se pudieron recuperar las tareas de publicación multiplataforma interrumpidas: {exc}")
         return None
 
     if recovered:
-        logger.warning(f"recovered interrupted cross-post tasks: {recovered}")
+        logger.warning(f"tareas de publicación multiplataforma interrumpidas recuperadas: {recovered}")
     return recovered
 
 
@@ -1275,7 +1375,9 @@ def _run_cross_post(
     youtube_made_for_kids: bool = False,
     upload_account: dict | None = None,
 ) -> None:
-    """后台执行跨平台发布，并只补充发布相关的任务字段。"""
+    """Ejecuta la publicación multiplataforma en segundo plano, completando solo los campos
+    de la tarea relacionados con la publicación.
+    """
     results = []
     try:
         state_updated = _patch_cross_post_state(
@@ -1285,28 +1387,30 @@ def _run_cross_post(
             cross_post_owner=_cross_post_process_owner,
         )
         if state_updated is not True:
-            # False 表示任务已删除，None 表示状态后端暂时不可用。两种情况都
-            # 不应继续调用第三方接口，否则用户无法查询或控制这次发布。
+            # False significa que la tarea se ha borrado y None que el backend de estado
+            # no está disponible temporalmente. En ambos casos no se debe seguir
+            # llamando a la interfaz de terceros, o el usuario no podría consultar ni
+            # controlar esta publicación.
             if state_updated is False:
-                logger.warning(f"skip cross-post for missing task: {task_id}")
+                logger.warning(f"se omite la publicación multiplataforma de una tarea que no existe: {task_id}")
             else:
                 _record_cross_post_failure(
                     task_id,
-                    RuntimeError("failed to persist cross-post processing state"),
+                    RuntimeError("no se pudo guardar el estado de procesamiento de la publicación multiplataforma"),
                 )
             return
 
         logger.info(
-            f"cross-post started, task_id: {task_id}, platforms: {', '.join(platforms)}"
+            f"publicación multiplataforma iniciada, task_id: {task_id}, platforms: {', '.join(platforms)}"
         )
         youtube_extra = None
-        post_title = video_subject or "Check out this video! #shorts #viral"
+        post_title = video_subject or "¡Mira este vídeo! #shorts #viral"
         if platforms:
             has_youtube = any(platform.startswith("youtube") for platform in platforms)
             social_platform = "youtube_shorts"
             if not has_youtube:
                 first = (platforms[0] or "").strip().lower()
-                # llm.py resolves unknown ids to its default platform.
+                # llm.py resuelve los ids desconocidos a su plataforma por defecto.
                 social_platform = _CROSS_POST_SOCIAL_PLATFORMS.get(first, first)
             metadata = llm.generate_social_metadata(
                 video_subject=video_subject,
@@ -1327,7 +1431,7 @@ def _run_cross_post(
                 metadata.get("caption")
                 or metadata.get("title")
                 or video_subject
-                or "Check out this video! #shorts #viral"
+                or "¡Mira este vídeo! #shorts #viral"
             )
 
         for video_path in video_paths:
@@ -1335,8 +1439,9 @@ def _run_cross_post(
 
             def record_background_request(request_id: str) -> None:
                 nonlocal pending_result_index
-                # Persist the remote handle before polling. If this process
-                # exits mid-upload, recovery can expose the ID to the user.
+                # Se persiste el identificador remoto antes de sondear. Si este proceso
+                # sale a mitad de la subida, la recuperación puede mostrar el ID al
+                # usuario.
                 pending_result_index = len(results)
                 results.append(
                     {
@@ -1349,7 +1454,7 @@ def _run_cross_post(
                     task_id, cross_post_results=list(results)
                 ) is not True:
                     logger.warning(
-                        "could not persist background upload request ID: "
+                        "no se pudo guardar el ID de solicitud de la subida en segundo plano: "
                         f"task_id={task_id}, request_id={request_id}"
                     )
 
@@ -1367,7 +1472,7 @@ def _run_cross_post(
             if not isinstance(result, dict):
                 result = {
                     "success": False,
-                    "error": "Upload-Post returned an invalid response",
+                    "error": "Upload-Post devolvió una respuesta no válida",
                 }
             if pending_result_index is None:
                 results.append(result)
@@ -1380,21 +1485,21 @@ def _run_cross_post(
                 str(
                     result.get("error")
                     or result.get("message")
-                    or "unknown upload error"
+                    or "error de subida desconocido"
                 )
                 for result in failures
             ]
             cross_post_state = const.CROSS_POST_STATE_FAILED
             cross_post_error = "; ".join(error_messages)
             logger.warning(
-                f"cross-post completed with failures, task_id: {task_id}, "
+                f"publicación multiplataforma completada con fallos, task_id: {task_id}, "
                 f"failed: {len(failures)}, total: {len(results)}"
             )
         else:
             cross_post_state = const.CROSS_POST_STATE_COMPLETE
             cross_post_error = None
             logger.success(
-                f"cross-post completed, task_id: {task_id}, videos: {len(results)}"
+                f"publicación multiplataforma completada, task_id: {task_id}, videos: {len(results)}"
             )
 
         state_updated = _patch_cross_post_state(
@@ -1405,31 +1510,38 @@ def _run_cross_post(
             cross_post_owner=None,
         )
         if state_updated is False:
-            logger.warning(f"discard cross-post result for missing task: {task_id}")
+            logger.warning(f"se descarta el resultado de publicación multiplataforma de una tarea que no existe: {task_id}")
         elif state_updated is None:
-            # 上传已经结束但结果没有持久化时，不能继续保留 processing。
-            # 失败状态写入会再次经过有限重试，至少让调用方得到明确终态。
+            # Si la subida ya ha terminado pero el resultado no se ha persistido, no se
+            # puede seguir manteniendo processing. La escritura del estado de fallo
+            # vuelve a pasar por reintentos limitados, para que al menos quien llama
+            # obtenga un estado final claro.
             _record_cross_post_failure(
                 task_id,
-                RuntimeError("failed to persist final cross-post result"),
+                RuntimeError("no se pudo guardar el resultado final de la publicación multiplataforma"),
                 results,
             )
     except Exception as exc:
-        # 发布失败只影响发布状态，不能反向覆盖已经完成的视频任务。
-        # 异常原文写入任务状态，API 调用方无需访问服务端日志也能定位问题。
-        logger.exception(f"cross-post failed, task_id: {task_id}, error: {exc}")
+        # Un fallo de publicación solo afecta al estado de publicación y no puede
+        # sobrescribir a la inversa una tarea de vídeo ya completada. El texto original
+        # de la excepción se escribe en el estado de la tarea, para que quien llama a la
+        # API pueda localizar el problema sin acceder a los logs del servidor.
+        logger.exception(f"falló la publicación multiplataforma, task_id: {task_id}, error: {exc}")
         _record_cross_post_failure(task_id, exc, results)
 
 
 def _run_cross_post_with_slot(*args) -> None:
-    """执行发布任务，并确保成功、失败或异常时都会归还队列容量。"""
+    """Ejecuta la tarea de publicación, asegurando que se devuelve la capacidad de la cola
+    tanto si tiene éxito como si falla o lanza una excepción.
+    """
     try:
         _run_cross_post(*args)
     except Exception as exc:
-        # _run_cross_post 已处理预期异常；这里是最后一道保护，避免未来新增
-        # 逻辑抛出的异常只保存在无人读取的 Future 中。
+        # _run_cross_post ya trata las excepciones previstas; esto es la última
+        # protección, para que las excepciones que lance lógica añadida en el futuro no
+        # se queden solo en un Future que nadie lee.
         task_id = str(args[0]) if args else "unknown"
-        logger.exception(f"cross-post worker crashed, task_id: {task_id}, error: {exc}")
+        logger.exception(f"el worker de publicación multiplataforma falló, task_id: {task_id}, error: {exc}")
         if args:
             _record_cross_post_failure(task_id, exc)
     finally:
@@ -1437,31 +1549,34 @@ def _run_cross_post_with_slot(*args) -> None:
 
 
 def _finalize_cross_post_future(task_id: str, future: Future) -> None:
-    """清理 Future 注册，并确保取消、异常和状态写入失败都能收敛。"""
+    """Limpia el registro de Futures, asegurando que la cancelación, las excepciones y los
+    fallos de escritura del estado se cierran.
+    """
     _unregister_cross_post_future(task_id, future)
 
     try:
         error = future.exception()
     except CancelledError:
-        logger.warning(f"cross-post future was cancelled, task_id: {task_id}")
-        # Future 在开始执行前被取消时，worker 的 finally 不会运行，因此需要
-        # 在回调中归还队列容量，并把持久化状态改为失败。
+        logger.warning(f"se canceló el future de publicación multiplataforma, task_id: {task_id}")
+        # Si un Future se cancela antes de empezar a ejecutarse, el finally del worker
+        # no se ejecuta, así que hay que devolver la capacidad de la cola en el callback
+        # y cambiar el estado persistido a fallo.
         _cross_post_slots.release()
         _record_cross_post_failure(
             task_id,
-            RuntimeError("cross-post job was cancelled before execution"),
+            RuntimeError("el trabajo de publicación multiplataforma se canceló antes de ejecutarse"),
         )
         return
     except Exception as exc:
         logger.exception(
-            f"failed to inspect cross-post future, task_id: {task_id}, error: {exc}"
+            f"no se pudo inspeccionar el future de publicación multiplataforma, task_id: {task_id}, error: {exc}"
         )
         _ensure_cross_post_terminal_state(task_id)
         return
 
     if error is not None:
         logger.error(
-            f"cross-post future failed, task_id: {task_id}, "
+            f"falló el future de publicación multiplataforma, task_id: {task_id}, "
             f"error: {type(error).__name__}: {error}"
         )
 
@@ -1477,11 +1592,13 @@ def _schedule_cross_post(
     youtube_privacy_status: str,
     youtube_made_for_kids: bool = False,
 ) -> str | None:
-    """提交后台发布任务；成功返回 None，调度失败返回可查询的错误原因。"""
+    """Envía la tarea de publicación en segundo plano; si tiene éxito devuelve None, y si
+    falla la planificación devuelve un motivo de error consultable.
+    """
     if not _cross_post_slots.acquire(blocking=False):
-        error = "cross-post queue is full; publishing was skipped"
+        error = "la cola de publicación multiplataforma está llena; se omitió la publicación"
         logger.warning(
-            f"skip cross-post because queue is full, task_id: {task_id}, "
+            f"se omite la publicación multiplataforma porque la cola está llena, task_id: {task_id}, "
             f"capacity: {_cross_post_max_pending_tasks}"
         )
         _patch_cross_post_state(
@@ -1511,15 +1628,15 @@ def _schedule_cross_post(
         _unregister_cross_post_future(task_id)
         _cross_post_slots.release()
         logger.exception(
-            f"failed to schedule cross-post, task_id: {task_id}, error: {exc}"
+            f"no se pudo programar la publicación multiplataforma, task_id: {task_id}, error: {exc}"
         )
         _patch_cross_post_state(
             task_id,
             cross_post_state=const.CROSS_POST_STATE_FAILED,
-            cross_post_error=f"failed to schedule cross-post: {exc}",
+            cross_post_error=f"no se pudo programar la publicación multiplataforma: {exc}",
             cross_post_owner=None,
         )
-        return f"failed to schedule cross-post: {exc}"
+        return f"no se pudo programar la publicación multiplataforma: {exc}"
 
     return None
 
@@ -1535,7 +1652,7 @@ def _run_pipeline(
     voxcpm_prompt_audio: bytes | None = None,
     voxcpm_prompt_text: str = "",
 ):
-    logger.info(f"start task: {task_id}, stop_at: {stop_at}")
+    logger.info(f"inicio de la tarea: {task_id}, stop_at: {stop_at}")
     sm.state.update_task(
         task_id, state=const.TASK_STATE_PROCESSING, progress=5,
         failed_stage=None, error=None,
@@ -1550,7 +1667,7 @@ def _run_pipeline(
 
     if stop_at in {"materials", "video"} and params.video_source not in _SUPPORTED_VIDEO_SOURCES:
         return _mark_task_failed(
-            task_id, "preflight", f"unsupported video source: {params.video_source!r}"
+            task_id, "preflight", f"fuente de vídeo no admitida: {params.video_source!r}"
         )
 
     if (
@@ -1561,16 +1678,16 @@ def _run_pipeline(
         return _mark_task_failed(
             task_id,
             "preflight",
-            "Volcano Engine Seedance requires an Ark API key",
+            "Volcano Engine Seedance requiere una API Key de Ark",
         )
 
     if stop_at in {"materials", "video"} and params.video_source == "infistar":
         try:
             if not infistar_video.is_enabled():
-                raise infistar_video.InfistarVideoError("Infistar video generation requires an API key")
+                raise infistar_video.InfistarVideoError("La generación de vídeo de Infistar necesita una clave API")
             infistar_video.model_id()
             if params.video_aspect not in {"16:9", "9:16"}:
-                raise infistar_video.InfistarVideoError("Infistar video currently supports 16:9 and 9:16")
+                raise infistar_video.InfistarVideoError("El vídeo de Infistar admite actualmente 16:9 y 9:16")
         except infistar_video.InfistarVideoError as exc:
             return _mark_task_failed(task_id, "preflight", str(exc))
 
@@ -1582,7 +1699,7 @@ def _run_pipeline(
         return _mark_task_failed(
             task_id,
             "preflight",
-            "OFox video generation requires an OFox API key",
+            "la generación de vídeo con OFox requiere una API Key de OFox",
         )
 
     if (
@@ -1593,7 +1710,7 @@ def _run_pipeline(
         return _mark_task_failed(
             task_id,
             "preflight",
-            "Metaso MiniMax requires an API key",
+            "Metaso MiniMax requiere una API Key",
         )
 
     if (
@@ -1604,7 +1721,7 @@ def _run_pipeline(
         return _mark_task_failed(
             task_id,
             "preflight",
-            "MuAPI video generation requires a MuAPI API key",
+            "la generación de vídeo con MuAPI requiere una API Key de MuAPI",
         )
 
     if (
@@ -1617,13 +1734,16 @@ def _run_pipeline(
         return _mark_task_failed(
             task_id,
             "preflight",
-            "OpenAI image source requires openai_image_base_url and "
-            "openai_image_model in config.toml (openai_image_api_keys is "
-            "optional for local gateways that need no auth)",
+            "la fuente de imágenes OpenAI requiere openai_image_base_url y "
+            "openai_image_model en config.toml (openai_image_api_keys es "
+            "opcional para puertas de enlace locales sin autenticación)",
         )
 
-    # 只有完整成片流程需要视频配乐供应商。尽早阻止缺少 Key 的完整任务，避免
-    # 先消耗 LLM、TTS 和素材服务额度；中间产物接口仍可独立使用。
+    # Solo el flujo de vídeo final completo necesita el proveedor de música para el
+    # vídeo. Las tareas completas a las que les falta la clave se bloquean lo antes
+    # posible, para no gastar antes el saldo del LLM, del TTS y de los servicios de
+    # material; las interfaces de productos intermedios siguen pudiendo usarse por
+    # separado.
     video_music_provider = _VIDEO_MUSIC_PROVIDERS.get(params.bgm_type)
     video_music_enabled = (
         stop_at == "video"
@@ -1637,23 +1757,28 @@ def _run_pipeline(
             return _mark_task_failed(
                 task_id,
                 "preflight",
-                f"{display_name} background music requires an API key",
+                f"la música de fondo de {display_name} requiere una API Key",
             )
 
-        # WebUI 会限制输入长度，但 API、CLI 和历史任务可以绕过前端控件。
-        # 在生成脚本、配音和素材之前按供应商上限再次校验，避免完整视频合成后
-        # 才由第三方请求拒绝。服务层仍保留同一校验，作为直接调用时的最后防线。
+        # La WebUI limita la longitud de la entrada, pero la API, la CLI y las tareas
+        # históricas pueden saltarse los controles del frontend. Antes de generar el
+        # guion, la locución y el material se vuelve a validar con el límite del
+        # proveedor, para no esperar a que una solicitud del tercero lo rechace tras
+        # componer el vídeo entero. La capa de servicio mantiene la misma validación
+        # como última defensa ante llamadas directas.
         music_prompt = _get_video_music_prompt(params)
         max_prompt_length = int(getattr(service, "MAX_PROMPT_LENGTH", 0) or 0)
         if max_prompt_length and len(music_prompt) > max_prompt_length:
             return _mark_task_failed(
                 task_id,
                 "preflight",
-                (f"{display_name} music prompt exceeds {max_prompt_length} characters"),
+                (f"el prompt de música de {display_name} supera los {max_prompt_length} caracteres"),
             )
 
-        # 供应商可以选择提供不计费的账号前置检查。检查函数只应抛出确定性
-        # 错误；网络波动或权限范围无法确认时由服务层记录警告并继续实际生成。
+        # Un proveedor puede ofrecer una comprobación previa de la cuenta que no se
+        # factura. La función de comprobación solo debe lanzar errores deterministas; si
+        # por fluctuaciones de red o alcance de permisos no se puede confirmar, la capa
+        # de servicio registra un aviso y sigue con la generación real.
         validate_access = getattr(service, "validate_generation_access", None)
         if callable(validate_access):
             try:
@@ -1661,23 +1786,26 @@ def _run_pipeline(
             except video_music_provider["error_type"] as exc:
                 return _mark_task_failed(task_id, "preflight", str(exc))
 
-    # 只有 script/terms 中间产物不需要 FFmpeg（它们不生成音频或视频）。API、
-    # CLI 和 WebUI 都通过这个共享入口执行任务，因此在此统一探测，而不是
-    # 分别在各个入口重复检查，能保证三条路径的行为一致。放在配乐 Key 校验
-    # 之后，是为了不改变那些校验原有的"最先失败"顺序和错误信息。
+    # Solo los productos intermedios script/terms no necesitan FFmpeg (no generan audio
+    # ni vídeo). La API, la CLI y la WebUI ejecutan las tareas a través de esta entrada
+    # compartida, así que comprobarlo aquí de forma común, en lugar de repetirlo en cada
+    # entrada, garantiza que las tres rutas se comporten igual. Va después de la
+    # validación de la clave de música para no cambiar el orden de "fallar primero" ni
+    # los mensajes de error originales de esas validaciones.
     if stop_at not in ("script", "terms") and not utils.check_ffmpeg_ready():
         return _mark_task_failed(
             task_id,
             "preflight",
-            "ffmpeg is not available; install ffmpeg or set app.ffmpeg_path "
-            "in config.toml to a working ffmpeg executable",
+            "ffmpeg no está disponible; instala ffmpeg o configura app.ffmpeg_path "
+            "en config.toml con un ejecutable de ffmpeg que funcione",
         )
 
-    # 1. Generate script
+    # 1. Genera el guion
     video_script = generate_script(task_id, params)
-    # The LLM adapter uses a leading "Error: " as its failure sentinel. A
-    # user-provided script may legitimately quote that text anywhere, including
-    # at the beginning, so only interpret it for an LLM-generated script.
+    # El adaptador del LLM usa un "Error: " inicial como centinela de fallo. Un guion
+    # proporcionado por el usuario puede citar ese texto legítimamente en cualquier
+    # sitio, incluido el principio, así que solo se interpreta en un guion generado por
+    # el LLM.
     is_provider_error = (
         not (params.video_script or "").strip()
         and isinstance(video_script, str)
@@ -1687,7 +1815,7 @@ def _run_pipeline(
         error = (
             video_script.removeprefix("Error: ").strip()
             if is_provider_error
-            else "failed to generate video script"
+            else "no se pudo generar el guion del vídeo"
         )
         return _mark_task_failed(task_id, "script", error)
 
@@ -1699,7 +1827,7 @@ def _run_pipeline(
         )
         return {"script": video_script}
 
-    # 2. Generate terms
+    # 2. Genera los términos
     video_terms = ""
     if stop_at in {"terms", "materials", "video"} and params.video_source != "local":
         video_terms = generate_terms(task_id, params, video_script)
@@ -1707,7 +1835,7 @@ def _run_pipeline(
             return _mark_task_failed(
                 task_id,
                 "terms",
-                "failed to generate video search terms",
+                "no se pudieron generar los términos de búsqueda del vídeo",
             )
 
     save_script_data(task_id, video_script, video_terms, params)
@@ -1720,7 +1848,7 @@ def _run_pipeline(
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=20)
 
-    # 3. Generate audio
+    # 3. Genera el audio
     generate_audio_kwargs = {
         "voice_preview": voice_preview,
         "allow_server_file_input": allow_server_file_input,
@@ -1740,14 +1868,15 @@ def _run_pipeline(
         return _mark_task_failed(
             task_id,
             "audio",
-            "failed to prepare narration audio",
+            "no se pudo preparar el audio de la narración",
         )
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=30)
 
     if stop_at == "audio":
-        # Full video jobs apply gain in the final mixer. Audio-only exports have
-        # no mixer, so apply it here to an owned output (never a custom input).
+        # Los trabajos de vídeo completos aplican la ganancia en el mezclador final. Las
+        # exportaciones solo de audio no tienen mezclador, así que aquí se aplica a una
+        # salida propia (nunca a una entrada personalizada).
         audio_volume = 1.0 if params.voice_volume is None else float(params.voice_volume)
         if audio_volume != 1.0:
             descriptor, output_file = tempfile.mkstemp(
@@ -1758,13 +1887,13 @@ def _run_pipeline(
             try:
                 export_ready = voice.apply_audio_volume(audio_file, output_file, audio_volume)
                 if not export_ready:
-                    return _mark_task_failed(task_id, "audio", "failed to apply audio export volume")
+                    return _mark_task_failed(task_id, "audio", "no se pudo aplicar el volumen de exportación del audio")
             finally:
                 if not export_ready:
                     try:
                         os.remove(output_file)
                     except OSError as exc:
-                        logger.warning(f"failed to remove incomplete audio export: {exc}")
+                        logger.warning(f"no se pudo eliminar la exportación de audio incompleta: {exc}")
             audio_file = output_file
         sm.state.update_task(
             task_id,
@@ -1774,7 +1903,7 @@ def _run_pipeline(
         )
         return {"audio_file": audio_file, "audio_duration": audio_duration}
 
-    # 4. Generate subtitle
+    # 4. Genera los subtítulos
     subtitle_path = generate_subtitle(
         task_id, params, video_script, sub_maker, audio_file
     )
@@ -1784,7 +1913,7 @@ def _run_pipeline(
             return _mark_task_failed(
                 task_id,
                 "subtitle",
-                "failed to generate subtitles; verify the subtitle provider and timeline",
+                "no se pudieron generar los subtítulos; verifica el proveedor de subtítulos y la línea de tiempo",
             )
         sm.state.update_task(
             task_id,
@@ -1796,7 +1925,7 @@ def _run_pipeline(
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=40)
 
-    # 5. Get video materials
+    # 5. Obtiene el material de vídeo
     downloaded_videos = get_video_materials(
         task_id,
         params,
@@ -1808,7 +1937,7 @@ def _run_pipeline(
         return _mark_task_failed(
             task_id,
             "materials",
-            "failed to prepare video materials",
+            "no se pudo preparar el material de vídeo",
         )
 
     if stop_at == "materials":
@@ -1822,12 +1951,13 @@ def _run_pipeline(
 
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=50)
 
-    # 仅完整视频生成流程才需要处理视频拼接模式；
-    # 这样可以避免 /subtitle 和 /audio 这类请求访问不存在的字段。
+    # Solo el flujo de generación de vídeo completo necesita tratar el modo de montaje
+    # del vídeo; así se evita que solicitudes como /subtitle y /audio accedan a campos
+    # que no existen.
     if type(params.video_concat_mode) is str:
         params.video_concat_mode = VideoConcatMode(params.video_concat_mode)
 
-    # 6. Generate final videos
+    # 6. Genera los vídeos finales
     partial_results = {}
     try:
         final_video_paths, combined_video_paths, generation_warnings = generate_final_videos(
@@ -1840,8 +1970,8 @@ def _run_pipeline(
             partial_results=partial_results,
         )
     except Exception as exc:
-        logger.exception(f"video batch failed, task_id: {task_id}, error: {exc}")
-        # Warnings for the failing clip do not describe any usable output.
+        logger.exception(f"falló el lote de vídeos, task_id: {task_id}, error: {exc}")
+        # Los avisos del clip que falla no describen ninguna salida utilizable.
         completed_count = len(partial_results.get("videos", []))
         partial_results["warnings"] = [
             warning for warning in partial_results.get("warnings", [])
@@ -1855,15 +1985,17 @@ def _run_pipeline(
         return _mark_task_failed(
             task_id,
             "video",
-            "failed to generate final video",
+            "no se pudo generar el vídeo final",
         )
 
     logger.success(
-        f"task {task_id} finished, generated {len(final_video_paths)} videos."
+        f"la tarea {task_id} terminó y generó {len(final_video_paths)} vídeos."
     )
 
-    # 7. 先完成视频生成任务，再按需提交跨平台发布。第三方上传可能耗时
-    # 数分钟，不应阻塞视频结果返回，也不能反向影响已经生成的成片。
+    # 7. Primero se completa la tarea de generación de vídeo y después, si hace falta,
+    #    se envía la publicación multiplataforma. Las subidas a terceros pueden tardar
+    #    varios minutos, así que no deben bloquear la devolución del resultado del vídeo
+    #    ni afectar a la inversa al vídeo final ya generado.
     cross_post_enabled = (
         upload_post.upload_post_service.is_configured()
         and upload_post.upload_post_service.auto_upload
@@ -1874,7 +2006,7 @@ def _run_pipeline(
     should_cross_post = cross_post_enabled and bool(platforms)
     if cross_post_enabled and not platforms:
         logger.warning(
-            f"skip cross-post because no platforms are configured, task_id: {task_id}"
+            f"se omite la publicación multiplataforma porque no hay plataformas configuradas, task_id: {task_id}"
         )
     cross_post_state = const.CROSS_POST_STATE_PENDING if should_cross_post else None
 
@@ -1907,13 +2039,17 @@ def _run_pipeline(
             youtube_privacy_status=(
                 upload_post.upload_post_service.youtube_privacy_status
             ),
-            # 固定排队时的受众选择，之后修改 WebUI 不应改变已排队视频的声明。
+            # Se fija la elección de público en el momento de encolar; cambiar después
+            # la WebUI no debe cambiar la declaración del vídeo ya encolado.
             youtube_made_for_kids=(
                 upload_post.upload_post_service.youtube_made_for_kids
             ),
         )
-        # 队列满或线程池关闭属于同步可知的调度失败。任务状态已经由调度函数
-        # 更新，这里同步修正返回快照，避免调用方收到与后续查询不一致的 pending。
+        # Una cola llena o un pool de hilos cerrado son fallos de planificación que se
+        # conocen de forma síncrona. La función de planificación ya ha actualizado el
+        # estado de la tarea, así que aquí se corrige de forma síncrona la instantánea
+        # devuelta, para que quien llama no reciba un pending distinto de lo que dirán
+        # las consultas posteriores.
         if scheduling_error:
             kwargs["cross_post_state"] = const.CROSS_POST_STATE_FAILED
             kwargs["cross_post_error"] = scheduling_error
@@ -1934,10 +2070,12 @@ def start(
     voxcpm_prompt_text: str = "",
 ):
     """
-    执行任务流水线，并确保未预期异常也会转换成可查询的失败状态。
+    Ejecuta el flujo de la tarea, asegurando que también las excepciones inesperadas se
+    conviertan en un estado de fallo consultable.
 
-    ``allow_server_file_input`` 只供本机 CLI 使用。HTTP API 和 WebUI 必须保持
-    默认值，让自定义音频始终受当前任务目录约束。
+    ``allow_server_file_input`` solo lo usa la CLI local. La API HTTP y la WebUI deben
+    mantener el valor por defecto, para que el audio personalizado siga siempre limitado
+    al directorio de la tarea actual.
     """
     try:
         return _run_pipeline(
@@ -1953,7 +2091,7 @@ def start(
         )
     except Exception as exc:
         logger.exception(
-            f"unexpected task pipeline failure, task_id: {task_id}, error: {exc}"
+            f"fallo inesperado del flujo de la tarea, task_id: {task_id}, error: {exc}"
         )
         return _mark_task_failed(
             task_id,
@@ -1965,7 +2103,7 @@ def start(
 if __name__ == "__main__":
     task_id = "task_id"
     params = VideoParams(
-        video_subject="金钱的作用",
+        video_subject="El papel del dinero",
         voice_name="zh-CN-XiaoyiNeural-Female",
         voice_rate=1.0,
     )

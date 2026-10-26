@@ -11,7 +11,8 @@ from app.services import voice
 
 
 def response_for(chunks):
-    # Both interfaces let the unchanged parser exercise the same hostile bytes.
+    # Ambas interfaces permiten que el analizador sin cambios procese los mismos bytes
+    # hostiles.
     return SimpleNamespace(iter_content=lambda **kw: iter(chunks), iter_lines=lambda **kw: (line for chunk in chunks for line in chunk.split(b"\n")))
 
 
@@ -21,13 +22,13 @@ def test_unterminated_sse_line_is_rejected_before_reading_more(monkeypatch):
         yield b"data: " + b"x" * 20
         raise AssertionError("must stop at the first oversized chunk")
     response = SimpleNamespace(iter_content=lambda **kw: chunks(), iter_lines=lambda **kw: chunks())
-    with pytest.raises(ValueError, match="size limit"):
+    with pytest.raises(ValueError, match="límite de tamaño"):
         list(voice._iter_voxcpm_sse_events(response))
 
 
 def test_multiline_event_cannot_bypass_aggregate_limit(monkeypatch):
     monkeypatch.setattr(voice, "_VOXCPM_SSE_MAX_EVENT_BYTES", 32, raising=False)
-    with pytest.raises(ValueError, match="size limit"):
+    with pytest.raises(ValueError, match="límite de tamaño"):
         list(voice._iter_voxcpm_sse_events(response_for([b'data: {"value":\ndata: "' + b"x" * 24 + b'"}\n\n'])))
 
 
@@ -72,7 +73,7 @@ def test_split_crlf_does_not_dispatch_a_multiline_event_early():
 def test_line_ending_variants_keep_the_aggregate_event_limit(monkeypatch, ending):
     monkeypatch.setattr(voice, "_VOXCPM_SSE_MAX_EVENT_BYTES", 32)
     content = ending.join([b'data: {"value":', b'data: "' + b"x" * 24 + b'"}', b"", b""])
-    with pytest.raises(ValueError, match="size limit"):
+    with pytest.raises(ValueError, match="límite de tamaño"):
         list(voice._iter_voxcpm_sse_events(response_for([content])))
 
 

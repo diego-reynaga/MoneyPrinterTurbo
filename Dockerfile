@@ -1,24 +1,24 @@
-# Use an official Python runtime as a parent image
+# Usa un runtime oficial de Python como imagen base
 FROM python:3.11-slim-bullseye
 
-# Set the working directory in the container
+# Define el directorio de trabajo dentro del contenedor
 WORKDIR /MoneyPrinterTurbo
 
-# 设置/MoneyPrinterTurbo目录权限为777
+# Pone los permisos del directorio /MoneyPrinterTurbo a 777
 RUN chmod 777 /MoneyPrinterTurbo
 
 ENV PYTHONPATH="/MoneyPrinterTurbo"
 
-# 本地用户默认继续优先使用国内镜像；GitHub Actions 发布 GHCR 镜像时使用 default，
-# 避免海外 runner 访问国内镜像过慢导致镜像发布长时间卡住。
+# Los usuarios locales siguen usando por defecto primero los espejos de China; al publicar la imagen en GHCR desde GitHub Actions se usa default,
+# para que los runners fuera de China no tarden demasiado en acceder a los espejos chinos y la publicación de la imagen no se atasque.
 ARG DOCKER_BUILD_MIRROR=china
 ARG PIP_USE_OFFICIAL=0
 
-# 系统依赖安装需要同时满足两点：国内环境保留镜像回退能力，所有镜像均
-# 失败时必须让 Docker 构建立刻失败。旧循环最后执行的 sleep 总会返回 0，
-# 导致 git/ffmpeg 未安装时仍生成不可用镜像。这里把“写入软件源”“安装”
-# 和“三次重试”拆成边界清晰的 shell 函数，并用函数返回值决定是否继续。
-# 所有软件源统一使用 HTTPS，避免部分网络环境直接拦截明文 HTTP 请求。
+# La instalación de dependencias del sistema debe cumplir dos cosas a la vez: mantener en China la posibilidad de volver a otros espejos y, si fallan
+# todos los espejos, hacer fallar de inmediato la construcción de Docker. El sleep que ejecutaba al final el bucle antiguo siempre devolvía 0,
+# así que se generaba una imagen inservible aunque no se hubieran instalado git/ffmpeg. Aquí "escribir la fuente de software", "instalar"
+# y "tres reintentos" se separan en funciones de shell con límites claros, y el valor de retorno de la función decide si se continúa.
+# Todas las fuentes de software usan HTTPS, para que algunas redes no bloqueen directamente las solicitudes HTTP en claro.
 RUN set -u; \
     write_debian_sources() { \
         main_url="$1"; \
@@ -34,13 +34,13 @@ RUN set -u; \
     retry_system_dependencies() { \
         attempt=1; \
         while [ "$attempt" -le 3 ]; do \
-            echo "Attempt $attempt: installing system dependencies"; \
+            echo "Intento $attempt: instalando dependencias del sistema"; \
             if install_system_dependencies; then \
                 return 0; \
             fi; \
-            echo "Attempt $attempt failed" >&2; \
+            echo "El intento $attempt falló" >&2; \
             if [ "$attempt" -lt 3 ]; then \
-                echo "Retrying in 5 seconds..." >&2; \
+                echo "Reintentando en 5 segundos..." >&2; \
                 sleep 5; \
             fi; \
             attempt=$((attempt + 1)); \
@@ -52,37 +52,37 @@ RUN set -u; \
             "https://mirrors.aliyun.com/debian" \
             "https://mirrors.aliyun.com/debian-security"; \
         if ! retry_system_dependencies; then \
-            echo "Aliyun mirror failed, switching to Tsinghua mirror" >&2; \
+            echo "Falló el espejo de Aliyun, se cambia al espejo de Tsinghua" >&2; \
             write_debian_sources \
                 "https://mirrors.tuna.tsinghua.edu.cn/debian" \
                 "https://mirrors.tuna.tsinghua.edu.cn/debian-security"; \
             if ! install_system_dependencies; then \
-                echo "Tsinghua mirror failed, switching to default Debian mirror" >&2; \
+                echo "Falló el espejo de Tsinghua, se cambia al espejo de Debian por defecto" >&2; \
                 write_debian_sources \
                     "https://deb.debian.org/debian" \
                     "https://deb.debian.org/debian-security"; \
                 if ! install_system_dependencies; then \
-                    echo "Failed to install system dependencies from all configured mirrors" >&2; \
+                    echo "No se pudieron instalar las dependencias del sistema desde ningún espejo configurado" >&2; \
                     exit 1; \
                 fi; \
             fi; \
         fi; \
     else \
-        echo "Using default Debian mirrors"; \
+        echo "Usando los espejos de Debian por defecto"; \
         write_debian_sources \
             "https://deb.debian.org/debian" \
             "https://deb.debian.org/debian-security"; \
         if ! retry_system_dependencies; then \
-            echo "Failed to install system dependencies from the default Debian mirror" >&2; \
+            echo "No se pudieron instalar las dependencias del sistema desde el espejo de Debian por defecto" >&2; \
             exit 1; \
         fi; \
     fi; \
     rm -rf /var/lib/apt/lists/*
 
-# Copy only the requirements.txt first to leverage Docker cache
+# Copia primero solo requirements.txt para aprovechar la caché de Docker
 COPY requirements.txt ./
 
-# 本地默认优先国内 PyPI 镜像；GHCR 发布使用官方 PyPI，避免海外 runner 因跨境镜像访问变慢。
+# En local se usa por defecto primero el espejo de PyPI de China; la publicación en GHCR usa el PyPI oficial, para que los runners fuera de China no vayan lentos por el acceso transfronterizo al espejo.
 RUN if [ "$PIP_USE_OFFICIAL" = "1" ]; then \
         pip install --no-cache-dir --retries 3 --timeout 60 -r requirements.txt; \
     else \
@@ -91,21 +91,21 @@ RUN if [ "$PIP_USE_OFFICIAL" = "1" ]; then \
         pip install --no-cache-dir --retries 3 --timeout 60 -r requirements.txt; \
     fi
 
-# Now copy the rest of the codebase into the image
+# Ahora copia el resto del código a la imagen
 COPY . .
 
-# Expose the port the app runs on
+# Expone el puerto en el que se ejecuta la aplicación
 EXPOSE 8501
 
-# 容器内部必须监听 0.0.0.0，宿主机仍通过 docker 端口映射限制为 127.0.0.1。
-# browser.serverAddress 只决定浏览器展示的访问地址，不能替代 server.address。
+# Dentro del contenedor hay que escuchar en 0.0.0.0; el host sigue limitándolo a 127.0.0.1 con el mapeo de puertos de Docker.
+# browser.serverAddress solo decide la dirección de acceso que muestra el navegador y no sustituye a server.address.
 CMD ["streamlit", "run", "./webui/Main.py", "--server.address=0.0.0.0", "--server.port=8501", "--browser.serverAddress=127.0.0.1", "--server.enableCORS=True", "--browser.gatherUsageStats=False", "--client.toolbarMode=minimal", "--logger.hideWelcomeMessage=True", "--server.showEmailPrompt=False"]
 
-# 1. Build the Docker image using the following command
+# 1. Construye la imagen de Docker con el siguiente comando
 # docker build -t moneyprinterturbo .
 
-# 2. Run the Docker container using the following command
-## For Linux or MacOS:
+# 2. Ejecuta el contenedor de Docker con el siguiente comando
+## En Linux o macOS:
 # docker run -v $(pwd)/config.toml:/MoneyPrinterTurbo/config.toml -v $(pwd)/storage:/MoneyPrinterTurbo/storage -p 127.0.0.1:8501:8501 moneyprinterturbo
-## For Windows:
+## En Windows:
 # docker run -v ${PWD}/config.toml:/MoneyPrinterTurbo/config.toml -v ${PWD}/storage:/MoneyPrinterTurbo/storage -p 127.0.0.1:8501:8501 moneyprinterturbo

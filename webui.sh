@@ -1,18 +1,18 @@
 #!/usr/bin/env sh
 
-# If you could not download the model from the official site, you can use the mirror site.
-# Just remove the comment of the following line .
-# 如果你无法从官方网站下载模型，你可以使用镜像网站。
-# 只需要移除下面一行的注释即可。
+# Si no puedes descargar el modelo del sitio oficial, puedes usar el sitio espejo.
+# Basta con quitar el comentario de la línea siguiente.
+# (El espejo es útil sobre todo desde redes con acceso limitado a Hugging Face.)
+#
 
 # export HF_ENDPOINT=https://hf-mirror.com
 
 CURRENT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 export PYTHONPATH="$CURRENT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
-# 0.0.0.0 只能表示“监听所有网卡”，不适合作为浏览器访问地址。
-# macOS/Linux 下浏览器打开 http://0.0.0.0:8501 可能会经过代理或网关，
-# 最终出现 502。默认绑定并打开 127.0.0.1，与 Windows 启动脚本保持一致。
+# 0.0.0.0 solo significa "escuchar en todas las interfaces" y no sirve como dirección de acceso para el navegador.
+# En macOS/Linux, abrir http://0.0.0.0:8501 en el navegador puede pasar por un proxy o una puerta de enlace
+# y acabar en un 502. Por defecto se enlaza y se abre 127.0.0.1, igual que el script de arranque de Windows.
 MPT_WEBUI_HOST="${MPT_WEBUI_HOST:-127.0.0.1}"
 MPT_WEBUI_PORT="${MPT_WEBUI_PORT:-8501}"
 
@@ -23,11 +23,11 @@ elif command -v uv >/dev/null 2>&1; then
   set -- uv run streamlit
   find_port() { find_available_port uv run python; }
 elif command -v streamlit >/dev/null 2>&1; then
-  echo "***** Warning: using streamlit from PATH. If dependencies fail, run 'uv sync --frozen' first. *****"
+  echo "***** Aviso: se usa el streamlit del PATH. Si fallan las dependencias, ejecuta primero 'uv sync --frozen'. *****"
   set -- streamlit
   find_port() { find_available_port python3; }
 else
-  echo "***** Neither project Python, uv, nor streamlit was found. Please install dependencies first. *****"
+  echo "***** No se ha encontrado ni el Python del proyecto, ni uv, ni streamlit. Instala primero las dependencias. *****"
   exit 1
 fi
 
@@ -54,21 +54,21 @@ sys.exit(1)
 PY
 }
 
-# 用 Python 做端口探测，避免依赖 lsof/nc 在不同 macOS/Linux 发行版上的差异。
+# Se usa Python para detectar los puertos, para no depender de las diferencias de lsof/nc entre distribuciones de macOS/Linux.
 SELECTED_WEBUI_PORT=$(find_port)
 
 if [ -z "$SELECTED_WEBUI_PORT" ]; then
-  echo "***** No available WebUI port found in 8501-8599 for $MPT_WEBUI_HOST. *****"
+  echo "***** No hay ningún puerto libre para la WebUI entre 8501 y 8599 en $MPT_WEBUI_HOST. *****"
   exit 1
 fi
 
 if [ "$SELECTED_WEBUI_PORT" != "$MPT_WEBUI_PORT" ]; then
-  echo "***** Port $MPT_WEBUI_PORT is unavailable, using $SELECTED_WEBUI_PORT instead. *****"
+  echo "***** El puerto $MPT_WEBUI_PORT no está disponible; se usa $SELECTED_WEBUI_PORT en su lugar. *****"
 fi
 
 MPT_WEBUI_PORT="$SELECTED_WEBUI_PORT"
 
-echo "***** WebUI address: http://$MPT_WEBUI_HOST:$MPT_WEBUI_PORT *****"
+echo "***** Dirección de la WebUI: http://$MPT_WEBUI_HOST:$MPT_WEBUI_PORT *****"
 "$@" run "$CURRENT_DIR/webui/Main.py" \
   --server.address="$MPT_WEBUI_HOST" \
   --server.port="$MPT_WEBUI_PORT" \

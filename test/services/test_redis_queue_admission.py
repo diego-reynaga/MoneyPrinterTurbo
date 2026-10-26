@@ -1,4 +1,4 @@
-"""Queue capacity is shared by every manager using the Redis list."""
+"""La capacidad de la cola la comparten todos los gestores que usan la lista de Redis."""
 
 import os
 import threading
@@ -35,8 +35,9 @@ class TestRedisQueueAdmission(unittest.TestCase):
         self.addCleanup(self.managers[0].redis_client.delete, queue)
 
     def test_simultaneous_managers_cannot_exceed_shared_capacity(self):
-        # Hold both callers after their real LLEN reads. Their local locks are
-        # independent, as they are in separate API processes sharing Redis.
+        # Retiene a ambos llamadores tras sus lecturas reales de LLEN. Sus bloqueos
+        # locales son independientes, igual que en procesos de API separados que
+        # comparten Redis.
         barrier = threading.Barrier(2)
 
         def add(manager):
@@ -71,8 +72,9 @@ class TestRedisQueueAdmission(unittest.TestCase):
         }})
 
         def failed_start(*args, **kwargs):
-            # A second process admits a fresh task after the first pop. Restoring
-            # the old accepted work must remain possible even at the new limit.
+            # Un segundo proceso admite una tarea nueva tras el primer pop. Restaurar el
+            # trabajo aceptado antiguo debe seguir siendo posible incluso con el nuevo
+            # límite.
             self.managers[1].add_task(
                 tm.start, task_id="new", params=VideoParams(video_subject="Tea")
             )

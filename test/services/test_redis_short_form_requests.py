@@ -1,4 +1,4 @@
-"""Short-form HTTP requests must survive the Redis queue boundary."""
+"""Las solicitudes HTTP abreviadas deben sobrevivir al paso por la cola de Redis."""
 
 import os
 import unittest

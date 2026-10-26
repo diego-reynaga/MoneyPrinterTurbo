@@ -1,16 +1,16 @@
-# pip 安装包与 PyPI 发布
+# Paquete de instalación con pip y publicación en PyPI
 
-发行包名采用 `mpt`，项目名称仍为 MoneyPrinterTurbo，当前待发布版本为 `1.3.9`。
-`1.3.8` 已于 2026-10-16 使用 `harry0703` 发布到
-[PyPI](https://pypi.org/project/mpt/1.3.8/)，同时提供 wheel 和 sdist。
-已发布文件不可覆盖，后续代码变更需要提升版本后重新构建和验证。
+El paquete de distribución se llama `mpt`, el nombre del proyecto sigue siendo MoneyPrinterTurbo, y la versión pendiente de publicar es `1.3.9`.
+La `1.3.8` se publicó el 2026-10-16 con `harry0703` en
+[PyPI](https://pypi.org/project/mpt/1.3.8/), con wheel y sdist.
+Los archivos publicados no se pueden sobrescribir, así que los cambios de código posteriores necesitan subir la versión y volver a construir y verificar.
 
-## 构建和安装
+## Construcción e instalación
 
-需要 Python 3.11 或更新版本。依赖会随 wheel 一起解析安装，FFmpeg 优先使用系统
-版本，也可使用 imageio-ffmpeg 提供的二进制。
+Requiere Python 3.11 o superior. Las dependencias se resuelven e instalan con la wheel, y FFmpeg usa primero la versión del sistema;
+también se puede usar el binario que proporciona imageio-ffmpeg.
 
-用户从 PyPI 安装并启动：
+Instalación y arranque desde PyPI:
 
 ```sh
 python -m pip install mpt
@@ -18,7 +18,7 @@ mpt webui
 mpt cli --help
 ```
 
-本地构建和验证：
+Construcción y verificación en local:
 
 ```sh
 uv build --out-dir storage/package/mpt-dist
@@ -28,10 +28,10 @@ mpt webui
 mpt cli --help
 ```
 
-正式上传前应确认 PyPI 账号、目标版本和发行包哈希，避免使用混有旧包的目录
-进行批量上传。每次发布均需用户明确授权，不随代码提交或推送自动发布。
+Antes de la subida definitiva hay que confirmar la cuenta de PyPI, la versión de destino y los hashes de los paquetes, para no subir por lotes
+un directorio mezclado con paquetes antiguos. Cada publicación requiere la autorización explícita del usuario y no se publica automáticamente con los commits ni los push.
 
-## 发布前检查
+## Comprobaciones antes de publicar
 
 ```sh
 uvx twine check --strict \
@@ -39,55 +39,55 @@ uvx twine check --strict \
   storage/package/mpt-dist/mpt-1.3.9.tar.gz
 ```
 
-检查 PyPI 说明页、发行包元数据和依赖可安装性，并在新虚拟环境中完成视频生成。
-只有明确授权上传后才执行正式发布；账号密码、验证码和 API Token 不写入仓库、
-命令示例或日志。各语种 README 提供用户安装入口，PyPI 的说明单独维护在
-`docs/pypi-description.md`；更新仓库文档不会自动修改已经发布的 PyPI 介绍页。
+Comprueba la página de descripción de PyPI, los metadatos del paquete y que las dependencias se pueden instalar, y completa una generación de vídeo en un entorno virtual nuevo.
+Solo se ejecuta la publicación definitiva tras una autorización explícita de subida; las contraseñas de cuenta, los códigos de verificación y los API Token no se escriben en el repositorio,
+en los ejemplos de comandos ni en los logs. El README da la entrada de instalación a los usuarios, y la descripción de PyPI se mantiene aparte en
+`docs/pypi-description.md`; actualizar la documentación del repositorio no modifica automáticamente la página de presentación de PyPI ya publicada.
 
-`mpt webui` 默认仅监听 `127.0.0.1`，从 8501 开始选择空闲端口，自动打开浏览器。
-可使用 `--host`、`--port` 指定地址，`--headless` 禁止自动打开浏览器：
+`mpt webui` escucha por defecto solo en `127.0.0.1`, elige un puerto libre a partir del 8501 y abre automáticamente el navegador.
+Se pueden usar `--host` y `--port` para indicar la dirección, y `--headless` para no abrir el navegador automáticamente:
 
 ```sh
 mpt webui --port 8503 --headless
 ```
 
-CLI 复用 `python cli.py` 的参数、任务流水线、退出码和 JSON 输出。完整离线示例：
+La CLI reutiliza los parámetros, el flujo de tareas, los códigos de salida y la salida JSON de `python cli.py`. Ejemplo completo sin conexión:
 
 ```sh
-mpt cli --video-script "A short video from local materials." \
-  --video-source local --video-materials /absolute/path/clip.mp4 \
-  --custom-audio-file /absolute/path/narration.wav \
+mpt cli --video-script "Un vídeo corto a partir de material local." \
+  --video-source local --video-materials /ruta/absoluta/clip.mp4 \
+  --custom-audio-file /ruta/absoluta/narracion.wav \
   --no-subtitle-enabled --bgm-type none
 ```
 
-在线文案、素材、TTS 等功能仍需相应服务的配置、密钥和网络连接。Whisper 模型按需
-加载，不放入 wheel。CLI 日志写入 stderr，成功时 stdout 输出包含视频路径的 JSON。
+Las funciones en línea, como el texto, el material o el TTS, siguen necesitando la configuración, las claves y la conexión de red de cada servicio. Los modelos de Whisper se cargan
+bajo demanda y no se incluyen en la wheel. Los logs de la CLI se escriben en stderr, y si tiene éxito stdout emite un JSON con la ruta del vídeo.
 
-## 配置与数据
+## Configuración y datos
 
-源码运行继续使用项目根目录。安装版不依赖当前工作目录，默认运行目录为：
+La ejecución desde el código fuente sigue usando el directorio raíz del proyecto. La versión instalada no depende del directorio de trabajo actual, y su directorio de ejecución por defecto es:
 
-| 平台 | 运行目录 |
+| Plataforma | Directorio de ejecución |
 | --- | --- |
 | macOS | `~/Library/Application Support/MoneyPrinterTurbo` |
 | Windows | `%LOCALAPPDATA%\MoneyPrinterTurbo` |
-| Linux | `$XDG_DATA_HOME/MoneyPrinterTurbo`，默认 `~/.local/share/MoneyPrinterTurbo` |
+| Linux | `$XDG_DATA_HOME/MoneyPrinterTurbo`, por defecto `~/.local/share/MoneyPrinterTurbo` |
 
-可通过 `MPT_HOME` 显式指定运行目录（源码版也支持）。其中：
+Se puede indicar explícitamente el directorio de ejecución con `MPT_HOME` (también en la versión de código fuente). Dentro de él:
 
-- `config.toml`：首次运行从不含密钥的模板初始化，后续启动不会覆盖已有配置。
-- `storage/tasks`：任务和生成的视频；其他缓存和上传文件在 `storage` 下。
-- `resource/fonts`、`resource/songs`：首次使用时复制内置资源，可添加自己的文件。
-- `models`：可放置手工下载的 Whisper 模型。
+- `config.toml`: en la primera ejecución se inicializa a partir de una plantilla sin claves, y los arranques posteriores no sobrescriben la configuración existente.
+- `storage/tasks`: tareas y vídeos generados; las demás cachés y archivos subidos están en `storage`.
+- `resource/fonts`, `resource/songs`: en el primer uso se copian los recursos integrados, y puedes añadir tus propios archivos.
+- `models`: aquí se pueden colocar los modelos de Whisper descargados a mano.
 
-用户资源只补齐缺失文件，升级不覆盖已有文件。安装包包含两种默认中文字体、
-越南语字体和内置背景音乐；备用的 `STHeitiLight.ttc`、`MicrosoftYaHeiNormal.ttc`
-不进入发行包，以控制文件体积。需要这些字重时可放入运行目录的 `resource/fonts`。
-源码版原有资源和外观不变。
+Los recursos del usuario solo se completan con los archivos que faltan, y las actualizaciones no sobrescriben los existentes. El paquete de instalación incluye dos fuentes chinas por defecto,
+una fuente vietnamita y la música de fondo integrada; las alternativas `STHeitiLight.ttc` y `MicrosoftYaHeiNormal.ttc`
+no entran en el paquete, para controlar su tamaño. Si necesitas esos pesos de fuente, colócalos en `resource/fonts` del directorio de ejecución.
+Los recursos y el aspecto originales de la versión de código fuente no cambian.
 
-## 本地验证要求
+## Requisitos de la verificación local
 
-从 sdist 重建 wheel，安装到不继承系统包的新虚拟环境，离开源码目录并清除
-`PYTHONPATH` 后验证 `mpt cli --help`、WebUI 实际页面和视频生成。输出视频应由
-FFmpeg 完整解码，并确认配置与产物没有写入 site-packages。发行包不得包含
-本机 `config.toml`、密钥、缓存、任务产物或本地协作指令。
+Reconstruye la wheel a partir del sdist, instálala en un entorno virtual nuevo que no herede paquetes del sistema, sal del directorio del código fuente y vacía
+`PYTHONPATH`, y luego verifica `mpt cli --help`, la página real de la WebUI y la generación de un vídeo. El vídeo de salida debe poder
+decodificarlo entero FFmpeg, y hay que confirmar que la configuración y los productos no se escriben en site-packages. El paquete no debe incluir
+el `config.toml` local, claves, cachés, productos de tareas ni instrucciones de colaboración locales.

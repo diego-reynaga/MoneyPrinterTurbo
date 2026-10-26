@@ -69,7 +69,7 @@ def test_v4_nonunity_speed_is_reported_without_a_paid_request(tmp_path, model):
     with patch.dict(config.elevenlabs, {"api_key": "fixture-key", "model_id": model}), patch.object(voice.requests, "post") as post, patch.object(voice.logger, "error") as error:
         assert voice.elevenlabs_tts("Coffee", "fixture", str(tmp_path / "voice.mp3"), voice_rate=1.5) is None
     post.assert_not_called()
-    assert "does not support" in str(error.call_args)
+    assert "no admite" in str(error.call_args)
     assert model in str(error.call_args)
 
 

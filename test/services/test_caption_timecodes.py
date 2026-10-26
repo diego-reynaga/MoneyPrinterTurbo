@@ -1,4 +1,6 @@
-"""Native caption publication and final rendering must retain spoken timecodes."""
+"""La publicación nativa de subtítulos y el renderizado final deben conservar los tiempos
+hablados.
+"""
 
 import pytest
 from edge_tts import SubMaker

@@ -1,20 +1,20 @@
-# MoneyPrinterTurbo — Official Python Package
+# MoneyPrinterTurbo — Paquete oficial de Python
 
-**mpt is the official Python distribution of
-[MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo), maintained by
+**mpt es la distribución oficial de Python de
+[MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo), mantenida por
 [harry0703](https://pypi.org/user/harry0703/).**
 
-Install the official package with **`python -m pip install mpt`**.
-The separately named `MoneyPrinterTurbo` package on PyPI is a third-party
-distribution and is not maintained by this project.
+Instala el paquete oficial con **`python -m pip install mpt`**.
+El paquete `MoneyPrinterTurbo` de PyPI, con otro nombre, es una distribución
+de terceros y este proyecto no lo mantiene.
 
-MoneyPrinterTurbo generates short videos from a topic or a prepared script.
-It combines local or online materials, voice narration, subtitles, and background
-music. Use the WebUI interactively or run the same video pipeline from the CLI.
+MoneyPrinterTurbo genera vídeos cortos a partir de un tema o de un guion ya preparado.
+Combina material local o en línea, narración de voz, subtítulos y música
+de fondo. Usa la WebUI de forma interactiva o ejecuta el mismo flujo de vídeo desde la CLI.
 
-## Install
+## Instalación
 
-Requires Python 3.11 or later. A virtual environment is recommended:
+Requiere Python 3.11 o superior. Se recomienda un entorno virtual:
 
 ```sh
 python -m venv .venv
@@ -24,53 +24,53 @@ source .venv/bin/activate
 python -m pip install mpt
 ```
 
-## Start the WebUI
+## Arrancar la WebUI
 
 ```sh
 mpt webui
 ```
 
-The WebUI listens on localhost and opens in your browser. To select a port or run
-without opening a browser:
+La WebUI escucha en localhost y se abre en el navegador. Para elegir un puerto o ejecutarla
+sin abrir el navegador:
 
 ```sh
 mpt webui --port 8503 --headless
 ```
 
-## Generate a video from the CLI
+## Generar un vídeo desde la CLI
 
 ```sh
 mpt cli --help
-mpt cli --video-script "Your complete script." \
-  --video-source local --video-materials /absolute/path/clip.mp4 \
-  --custom-audio-file /absolute/path/narration.wav \
+mpt cli --video-script "Tu guion completo." \
+  --video-source local --video-materials /ruta/absoluta/clip.mp4 \
+  --custom-audio-file /ruta/absoluta/narracion.wav \
   --no-subtitle-enabled --bgm-type none
 ```
 
-Local images and videos are supported. Online language models, stock media,
-and speech providers require the appropriate configuration and network access.
-Choose providers and enter credentials in the WebUI settings or `config.toml`.
+Se admiten imágenes y vídeos locales. Los modelos de lenguaje en línea, el material de stock
+y los proveedores de voz necesitan la configuración adecuada y acceso a la red.
+Elige los proveedores e introduce las credenciales en los ajustes de la WebUI o en `config.toml`.
 
-The package includes default fonts, background music, and an FFmpeg binary through
-imageio-ffmpeg. An installed system FFmpeg takes precedence. Whisper models are
-loaded on demand.
+El paquete incluye fuentes por defecto, música de fondo y un binario de FFmpeg mediante
+imageio-ffmpeg. Si hay un FFmpeg del sistema instalado, tiene prioridad. Los modelos de Whisper se
+cargan bajo demanda.
 
-## Configuration and generated files
+## Configuración y archivos generados
 
-The installed application keeps configuration, credentials, uploads, and generated
-videos in your user directory:
+La aplicación instalada guarda la configuración, las credenciales, las subidas y los vídeos
+generados en tu directorio de usuario:
 
-| System | Default directory |
+| Sistema | Directorio por defecto |
 | --- | --- |
 | macOS | `~/Library/Application Support/MoneyPrinterTurbo` |
 | Windows | `%LOCALAPPDATA%\MoneyPrinterTurbo` |
-| Linux | `~/.local/share/MoneyPrinterTurbo` (or `$XDG_DATA_HOME/MoneyPrinterTurbo`) |
+| Linux | `~/.local/share/MoneyPrinterTurbo` (o `$XDG_DATA_HOME/MoneyPrinterTurbo`) |
 
-Set `MPT_HOME` before starting the application to choose another directory.
-Configuration is stored in `config.toml`; generated videos are under
-`storage/tasks/<task-id>/`. Existing user configuration and resources are preserved
-when the application starts or upgrades.
+Define `MPT_HOME` antes de arrancar la aplicación para elegir otro directorio.
+La configuración se guarda en `config.toml`; los vídeos generados están en
+`storage/tasks/<task-id>/`. La configuración y los recursos existentes del usuario se conservan
+cuando la aplicación arranca o se actualiza.
 
-See the [project documentation](https://github.com/harry0703/MoneyPrinterTurbo)
-for supported providers and advanced options. Report problems through
+Consulta la [documentación del proyecto](https://github.com/harry0703/MoneyPrinterTurbo)
+para ver los proveedores admitidos y las opciones avanzadas. Informa de los problemas en
 [GitHub Issues](https://github.com/harry0703/MoneyPrinterTurbo/issues).

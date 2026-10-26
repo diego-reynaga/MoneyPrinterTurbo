@@ -15,20 +15,20 @@ __pycache__
 logs/
 
 node_modules
-# VuePress 默认临时文件目录
+# Directorio de archivos temporales por defecto de VuePress
 /sites/docs/.vuepress/.temp
-# VuePress 默认缓存目录
+# Directorio de caché por defecto de VuePress
 /sites/docs/.vuepress/.cache
-# VuePress 默认构建生成的静态文件目录
+# Directorio de archivos estáticos que genera por defecto la compilación de VuePress
 /sites/docs/.vuepress/dist
-# 模型目录
+# Directorio de modelos
 /models/
 ./models/*
 
 venv/
 .venv
 
-# Debug and test files
+# Archivos de depuración y de pruebas
 CLAUDE.md
 debug/
 debug_*.py
@@ -43,5 +43,5 @@ htmlcov/
 /docs/superpowers
 .understand-anything
 
-# Claude Code 订阅令牌（docker compose 自动读取），禁止提交
+# Token de la suscripción de Claude Code (lo lee automáticamente docker compose); no debe subirse
 .env

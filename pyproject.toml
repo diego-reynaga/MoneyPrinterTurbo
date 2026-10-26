@@ -1,6 +1,6 @@
-# 说明：
-# 1. 主依赖来源统一收敛到 pyproject.toml。
-# 2. 运行环境通过 uv.lock 固定，避免不同机器解析出不同版本组合。
+# Notas:
+# 1. Las dependencias principales se declaran todas en pyproject.toml.
+# 2. El entorno de ejecución se fija con uv.lock, para que distintas máquinas no resuelvan combinaciones de versiones distintas.
 [build-system]
 requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
@@ -8,14 +8,14 @@ build-backend = "hatchling.build"
 [project]
 name = "mpt"
 version = "1.3.9"
-description = "Official MoneyPrinterTurbo package with WebUI and CLI, maintained by harry0703."
+description = "Paquete oficial de MoneyPrinterTurbo con WebUI y CLI, mantenido por harry0703."
 readme = "docs/pypi-description.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "moviepy==2.2.1",
     "streamlit==1.59.1",
-    # Streamlit 1.59.1 的 gzip 适配依赖旧响应协议，新版本会使媒体响应失败。
+    # La adaptación gzip de Streamlit 1.59.1 depende del protocolo de respuesta antiguo; las versiones nuevas hacen fallar las respuestas multimedia.
     "starlette==1.2.1",
     "streamlit-tour==1.1.0",
     "edge-tts==7.3.1",
@@ -23,7 +23,7 @@ dependencies = [
     "uvicorn==0.32.1",
     "openai==2.24.0",
     "faster-whisper==1.1.0",
-    # 与 requirements.txt 保持一致：PyAV 19 移除了 Whisper 使用的参数。
+    # Igual que en requirements.txt: PyAV 19 eliminó un parámetro que usa Whisper.
     "av<19",
     "toml==0.10.2",
     "imageio-ffmpeg==0.6.0",
@@ -50,9 +50,9 @@ Homepage = "https://github.com/harry0703/MoneyPrinterTurbo"
 Issues = "https://github.com/harry0703/MoneyPrinterTurbo/issues"
 
 [project.optional-dependencies]
-# Optional TwelveLabs (https://twelvelabs.io) video-understanding/embedding
-# integration. Only needed when `twelvelabs_api_keys` is configured; install
-# with `uv sync --extra twelvelabs`.
+# Integración opcional de comprensión/embeddings de vídeo de TwelveLabs (https://twelvelabs.io).
+# Solo hace falta cuando se configura `twelvelabs_api_keys`; se instala
+# con `uv sync --extra twelvelabs`.
 twelvelabs = [
     "twelvelabs>=1.2.8",
 ]
@@ -65,21 +65,21 @@ dev = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# WebUI 需要先把项目根目录加入 sys.path，随后才能导入 app 包。
+# La WebUI tiene que añadir primero la raíz del proyecto a sys.path para poder importar después el paquete app.
 "webui/Main.py" = ["E402"]
 
 [tool.coverage.run]
-# 统计分支覆盖率可以识别“代码行执行了，但条件的另一条分支从未验证”的情况，
-# 比只统计行覆盖率更适合作为 CI 质量基线。CLI 和 WebUI 都属于生产入口，
-# 因此与 app 服务层、服务启动入口和面向 Agent 用户发布的 Skill 脚本一起
-# 纳入统计，避免覆盖率只反映局部模块。
+# Medir la cobertura de ramas permite detectar los casos en que "la línea se ejecutó, pero la otra rama de la condición nunca se verificó",
+# y es mejor base de calidad para la CI que medir solo la cobertura de líneas. La CLI y la WebUI son entradas de producción,
+# así que se incluyen en la medición junto con la capa de servicio de app, la entrada de arranque del servicio y el script de la Skill
+# publicado para los usuarios de agentes, para que la cobertura no refleje solo módulos sueltos.
 branch = true
 source = ["app", "cli", "webui", "main", "docs/skill"]
 
 [tool.coverage.report]
-# Python 3.11 和 3.13 完整测试的实测分支覆盖率均超过 70.4%。以 70%
-# 作为稳定底线，可以固化失败状态、异步发布恢复和 Redis 原子更新测试，
-# 同时为不同 Python 版本与操作系统的少量分支差异保留余量。
+# La cobertura de ramas medida en los tests completos de Python 3.11 y 3.13 supera en ambos casos el 70,4 %. Usar el 70 %
+# como mínimo estable consolida los tests de estados de fallo, recuperación de publicaciones asíncronas y actualizaciones atómicas de Redis,
+# dejando a la vez margen para las pequeñas diferencias de ramas entre versiones de Python y sistemas operativos.
 fail_under = 70
 show_missing = true
 skip_covered = true
@@ -87,8 +87,8 @@ skip_covered = true
 [tool.hatch.build.targets.wheel]
 packages = ["app", "webui"]
 
-# 字体保留中英文默认字体和越南语字体。两个大体积备用字重不进入安装包，
-# 避免 wheel 超过 PyPI 默认文件大小限制；源码版的字体文件保持原样。
+# Se conservan las fuentes por defecto para chino e inglés y la fuente vietnamita. Los dos pesos alternativos de gran tamaño no entran en el paquete,
+# para que la wheel no supere el límite de tamaño de archivo por defecto de PyPI; los archivos de fuentes de la versión de código fuente no cambian.
 [tool.hatch.build.targets.wheel.force-include]
 "cli.py" = "app/cli.py"
 "config.example.toml" = "app/_assets/config.example.toml"
@@ -106,7 +106,7 @@ packages = ["app", "webui"]
 exclude = ["**/.DS_Store", "**/__pycache__", "**/*.pyc", "**/.streamlit"]
 
 [tool.hatch.build.targets.sdist]
-# 使用白名单，禁止本机配置、凭据、storage、AGENTS.md 等混入源码发行包。
+# Se usa una lista blanca, para que la configuración local, las credenciales, storage, AGENTS.md, etc., no se cuelen en el paquete de código fuente.
 include = [
     "/app", "/cli.py", "/webui", "/config.example.toml", "/pyproject.toml",
     "/uv.lock", "/LICENSE", "/docs/pypi-description.md", "/docs/packaging.md",

@@ -7,7 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-# 测试文件直接运行时，也能从仓库根目录导入 app 包。
+# Al ejecutar el archivo de test directamente, también se puede importar el paquete app
+# desde la raíz del repositorio.
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from app.services import subtitle
@@ -15,7 +16,7 @@ from app.services import subtitle
 
 class TestSubtitleService(unittest.TestCase):
     def test_concurrent_subtitles_initialize_whisper_once(self):
-        """Concurrent jobs must not load the large Whisper model twice."""
+        """Los trabajos concurrentes no deben cargar dos veces el modelo grande de Whisper."""
         first_constructor_started = threading.Event()
         release_constructor = threading.Event()
         second_constructor_started = threading.Event()
@@ -57,7 +58,9 @@ class TestSubtitleService(unittest.TestCase):
         self.assertEqual(len(constructor_calls), 1)
 
     def test_file_to_subtitles_returns_empty_for_missing_input(self):
-        """空路径和不存在的文件都应安全返回空列表。"""
+        """Tanto una ruta vacía como un archivo inexistente deben devolver una lista vacía
+        de forma segura.
+        """
         self.assertEqual(subtitle.file_to_subtitles(""), [])
         with tempfile.TemporaryDirectory() as tmp_dir:
             missing_file = Path(tmp_dir) / "missing.srt"
@@ -119,8 +122,10 @@ class TestSubtitleService(unittest.TestCase):
 
     def test_levenshtein_distance_and_similarity_cover_common_boundaries(self):
         """
-        字幕校正依赖编辑距离选择是否继续合并相邻字幕，因此覆盖空字符串、
-        参数交换、大小写忽略和明显不相似四种边界，防止算法调整后误合并。
+        La corrección de subtítulos usa la distancia de edición para decidir si sigue
+        fusionando subtítulos contiguos, así que se cubren cuatro casos límite (cadena
+        vacía, parámetros intercambiados, ignorar mayúsculas y textos claramente
+        distintos) para evitar fusiones erróneas tras ajustar el algoritmo.
         """
         self.assertEqual(subtitle.levenshtein_distance("kitten", "sitting"), 3)
         self.assertEqual(subtitle.levenshtein_distance("a", "longer"), 6)
@@ -129,12 +134,16 @@ class TestSubtitleService(unittest.TestCase):
         self.assertLess(subtitle.similarity("hello", "world"), 0.5)
 
     def test_create_returns_empty_when_whisper_is_unavailable(self):
-        """可选 Whisper 依赖未安装时应跳过，而不是在任务线程中抛异常。"""
+        """Si la dependencia opcional de Whisper no está instalada, debe omitirse en lugar
+        de lanzar una excepción en el hilo de la tarea.
+        """
         with patch.object(subtitle, "WhisperModel", None):
             self.assertEqual(subtitle.create("audio.mp3"), "")
 
     def test_create_returns_none_when_whisper_model_cannot_load(self):
-        """模型下载或初始化失败时必须返回失败结果，并允许任务层更新状态。"""
+        """Si falla la descarga o la inicialización del modelo, debe devolverse un
+        resultado de fallo y permitir que la capa de tareas actualice el estado.
+        """
         with patch.object(subtitle, "model", None), patch.object(
             subtitle,
             "WhisperModel",
@@ -144,8 +153,10 @@ class TestSubtitleService(unittest.TestCase):
 
     def test_create_writes_punctuated_and_trailing_segments(self):
         """
-        使用假的 Whisper 模型覆盖逐词时间戳处理，不访问网络也不加载真实模型。
-        一个 segment 同时包含标点断句和末尾无标点文本，可验证两条关键写入路径。
+        Usa un modelo Whisper falso para cubrir el tratamiento de marcas de tiempo por
+        palabra, sin acceder a la red ni cargar el modelo real. Un segment contiene a la
+        vez una división por puntuación y un texto final sin puntuación, lo que permite
+        verificar las dos rutas de escritura clave.
         """
 
         class _FakeWhisperModel:
@@ -230,7 +241,9 @@ class TestSubtitleService(unittest.TestCase):
         self.assertEqual([item[2] for item in items], ["3.14", "1,000"])
 
     def test_create_word_level_writes_each_whisper_word_with_its_timing(self):
-        """逐词模式应保留 Whisper 的每个词及其独立起止时间。"""
+        """El modo por palabras debe conservar cada palabra de Whisper con sus tiempos de
+        inicio y fin propios.
+        """
         transcribe_kwargs = {}
 
         class _FakeWhisperModel:
@@ -269,7 +282,9 @@ class TestSubtitleService(unittest.TestCase):
         self.assertIn("00:00:00,400 --> 00:00:00,800", items[1][1])
 
     def test_create_falls_back_to_segment_when_word_alignment_is_missing(self):
-        """Whisper may return a segment with no aligned words in either mode."""
+        """Whisper puede devolver un segmento sin palabras alineadas en cualquiera de los
+        dos modos.
+        """
 
         class FakeWhisperModel:
             def __init__(self, **_kwargs):
@@ -301,11 +316,13 @@ class TestSubtitleService(unittest.TestCase):
 
     def test_correct_ignores_markdown_separator_lines(self):
         """
-        Whisper fallback 校正阶段也必须忽略 `---` 这类不可发声脚本行。
+        La fase de corrección de respaldo de Whisper también debe ignorar líneas de
+        guion que no se pronuncian, como `---`.
 
-        如果这里继续保留 Markdown 分隔符，`correct()` 会认为脚本行数多于
-        字幕行数，并补出 `00:00:00,000 --> 00:00:00,000`，剪辑软件会把
-        生成的 SRT 判定为不可导入。
+        Si aquí se mantuviera el separador Markdown, `correct()` creería que el guion
+        tiene más líneas que los subtítulos y añadiría `00:00:00,000 --> 00:00:00,000`,
+        y los programas de edición considerarían que el SRT generado no se puede
+        importar.
         """
         original_srt = (
             "1\n"
@@ -334,9 +351,9 @@ class TestSubtitleService(unittest.TestCase):
 
     def test_correct_ignores_symbol_only_scene_break_lines(self):
         """
-        Scene breaks made only of symbols, such as `* * *` or `———`, are never
-        spoken either. Kept as script lines, they took the next caption's time
-        and pushed that caption to `00:00:00,000 --> 00:00:00,000`.
+        Los cambios de escena formados solo por símbolos, como `* * *` o `———`, tampoco
+        se pronuncian nunca. Al conservarse como líneas del guion, tomaban el tiempo del
+        siguiente subtítulo y lo desplazaban a `00:00:00,000 --> 00:00:00,000`.
         """
         original_srt = (
             "1\n00:00:00,100 --> 00:00:01,000\nWelcome to the show\n\n"
@@ -371,8 +388,9 @@ class TestSubtitleService(unittest.TestCase):
 
     def test_correct_merges_adjacent_subtitles_for_one_script_sentence(self):
         """
-        Whisper 可能把一句文案拆成多个时间块。校正逻辑应合并时间范围并恢复
-        原始脚本文本，避免最终字幕出现不必要的碎片。
+        Whisper puede dividir una frase del guion en varios bloques de tiempo. La lógica
+        de corrección debe fusionar los rangos de tiempo y recuperar el texto original
+        del guion, para que el subtítulo final no tenga fragmentos innecesarios.
         """
         original_srt = (
             "1\n00:00:00,100 --> 00:00:01,000\nHello\n\n"
@@ -391,7 +409,7 @@ class TestSubtitleService(unittest.TestCase):
         self.assertEqual(items[0][2], "Hello world")
 
     def test_correct_removes_transcription_after_script_ends(self):
-        """Whisper's trailing hallucinations must not appear as final captions."""
+        """Las alucinaciones finales de Whisper no deben aparecer como subtítulos finales."""
         original_srt = (
             "1\n00:00:00,100 --> 00:00:01,000\nHello world\n\n"
             "2\n00:00:01,000 --> 00:00:02,000\nUnspoken words\n\n"
@@ -408,8 +426,10 @@ class TestSubtitleService(unittest.TestCase):
 
     def test_correct_replaces_mismatch_and_appends_missing_script_line(self):
         """
-        转写结果与脚本完全不一致时仍应以脚本为准；脚本多出的句子没有可复用
-        时间轴时使用明确的零时间占位，避免丢失文本且保持现有兼容行为。
+        Aunque la transcripción no coincida en nada con el guion, debe prevalecer el
+        guion; a las frases sobrantes del guion sin línea de tiempo reutilizable se les
+        asigna un marcador de tiempo cero explícito, para no perder texto y mantener el
+        comportamiento compatible actual.
         """
         original_srt = "1\n00:00:00,100 --> 00:00:01,000\nWrong text\n\n"
 
@@ -428,9 +448,9 @@ class TestSubtitleService(unittest.TestCase):
 
     def test_file_to_subtitles_keeps_last_block_without_trailing_newline(self):
         """
-        The final subtitle must be parsed even when the SRT file does not end
-        with a trailing blank line. Many tools omit it, and previously the last
-        block was silently dropped because only a blank line flushed a block.
+        El último subtítulo debe analizarse aunque el archivo SRT no termine con una
+        línea en blanco final. Muchas herramientas la omiten, y antes el último bloque
+        se perdía en silencio porque solo una línea en blanco volcaba un bloque.
         """
         srt_without_trailing_blank = (
             "1\n"
@@ -452,7 +472,7 @@ class TestSubtitleService(unittest.TestCase):
         self.assertEqual(items[1][2], "World")
 
     def test_file_to_subtitles_parses_blocks_with_trailing_newline(self):
-        """A normal SRT ending in a blank line still parses all blocks."""
+        """Un SRT normal que termina en línea en blanco sigue analizando todos los bloques."""
         srt_with_trailing_blank = (
             "1\n"
             "00:00:00,000 --> 00:00:01,000\n"
@@ -471,7 +491,9 @@ class TestSubtitleService(unittest.TestCase):
         self.assertEqual([item[2] for item in items], ["Hello", "World"])
 
     def test_file_to_subtitles_preserves_timestamps_in_cue_text(self):
-        """Timestamp examples in narration must not replace a cue's timing."""
+        """Los ejemplos de marcas de tiempo en la narración no deben sustituir el tiempo de
+        un subtítulo.
+        """
         for text in (
             "Jump to 00:01:23,456 in the recording.",
             "00:01:23,456",

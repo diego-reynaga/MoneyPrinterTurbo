@@ -46,7 +46,7 @@ def _image_bytes() -> bytes:
 
 
 def _run_webui_upload_block(files, temp_dir):
-    """Execute the actual generation handler's local-material branch headlessly."""
+    """Ejecuta sin interfaz la rama de material local del manejador de generación real."""
     tree = ast.parse(WEBUI_MAIN.read_text(encoding="utf-8"))
     generation = next(
         node for node in tree.body

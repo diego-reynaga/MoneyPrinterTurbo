@@ -42,7 +42,7 @@ def test_combined_short_footage_completes_its_transition(
     monkeypatch.setitem(video.config.app, "video_clip_concurrency", 1)
     state = random.getstate()
     try:
-        # The ordinary shuffle selection chooses FadeIn with this seed.
+        # La selección aleatoria normal elige FadeIn con esta semilla.
         random.seed(2)
         video.combine_videos(
             str(output), [str(source)], str(speech), video_aspect=VideoAspect.square,

@@ -1,4 +1,4 @@
-"""Paid video submissions and polling must stop at the provider origin."""
+"""Los envíos y sondeos de vídeo de pago deben detenerse en el origen del proveedor."""
 
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

@@ -1,4 +1,6 @@
-"""Kimi 登录界面：直接打开授权链接，并局部轮询授权状态。"""
+"""Interfaz de inicio de sesión de Kimi: abre directamente el enlace de autorización y
+sondea el estado de forma local.
+"""
 
 import time
 
@@ -19,12 +21,13 @@ def _prepare_link(region, tr):
         if prepared.get("error") or time.time() < prepared["refresh_at"]:
             return prepared
 
-    # 链接在展示按钮前准备好，点击时由浏览器原生打开新标签页。
-    # 不用服务器的 webbrowser.open，也不依赖容易被拦截的异步弹窗。
+    # El enlace se prepara antes de mostrar el botón y, al pulsarlo, el navegador abre
+    # una pestaña nueva de forma nativa. No se usa webbrowser.open del servidor ni
+    # ventanas emergentes asíncronas que suelen bloquearse.
     try:
         payload = kimi_code_oauth.request_device_code(region)
     except requests.RequestException:
-        logger.warning("kimi_code: could not prepare the authorization link")
+        logger.warning("kimi_code: no se pudo preparar el enlace de autorización")
         prepared = {"region": region, "error": tr("kimi_code.oauth.network_error")}
     except ValueError as error:
         prepared = {"region": region, "error": str(error)}
@@ -78,7 +81,7 @@ def _poll_login(tr):
         except requests.RequestException:
             flow["network_errors"] = flow.get("network_errors", 0) + 1
             logger.warning(
-                "kimi_code: authorization poll network error "
+                "kimi_code: error de red al sondear la autorización "
                 f"({flow['network_errors']}/5)"
             )
             if flow["network_errors"] >= 5:
@@ -108,7 +111,8 @@ def _poll_login(tr):
                 else:
                     _finish_login("success", tr("kimi_code.oauth.success"))
                 return
-        # 以响应结束时间计算下一次请求，避免慢请求之后立即再轮询。
+        # Calcula la siguiente solicitud a partir del momento en que terminó la
+        # respuesta, para no volver a sondear justo después de una solicitud lenta.
         flow["next_poll_at"] = time.time() + flow["interval"]
         st.session_state[FLOW_KEY] = flow
 
@@ -127,10 +131,14 @@ def _disconnect():
 
 @st.fragment(run_every="1s")
 def render_kimi_login(region, tr):
-    """在设置弹窗中渲染登录；未点击登录前不请求 token。"""
+    """Renderiza el inicio de sesión en el diálogo de ajustes; no se pide el token hasta
+    pulsar iniciar sesión.
+    """
     flow = st.session_state.get(FLOW_KEY)
     if flow and flow["region"] != region:
-        # 用户切换站点后停止旧站点的待授权流程，旧凭据仍按原区域使用。
+        # Cuando el usuario cambia de sitio se detiene el flujo de autorización
+        # pendiente del sitio anterior; las credenciales antiguas se siguen usando con
+        # su región original.
         st.session_state.pop(FLOW_KEY, None)
         flow = None
 
@@ -165,7 +173,8 @@ def render_kimi_login(region, tr):
         if flow.get("network_errors"):
             st.warning(tr("kimi_code.oauth.poll_retry"))
         st.info(tr("kimi_code.oauth.pending"))
-        # 保留重新打开入口，与取消操作放在同一行。
+        # Mantiene el enlace para volver a abrir en la misma fila que la acción de
+        # cancelar.
         with st.container(horizontal=True, gap="small"):
             st.link_button(
                 tr("kimi_code.oauth.open_page"), flow["verification_uri_complete"]

@@ -1,4 +1,4 @@
-# Exclude common Python files and directories
+# Excluye los archivos y directorios habituales de Python
 venv/
 .venv/
 __pycache__/
@@ -10,7 +10,7 @@ __pycache__/
 *.pyi
 *.egg-info/
 
-# Exclude development and local files
+# Excluye los archivos de desarrollo y locales
 .env
 .env.*
 *.log
@@ -21,7 +21,7 @@ __pycache__/
 .idea/
 logs/
 
-# Exclude version control system files
+# Excluye los archivos del sistema de control de versiones
 .git/
 .gitignore
 .svn/

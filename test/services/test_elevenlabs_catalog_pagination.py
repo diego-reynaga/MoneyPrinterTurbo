@@ -66,7 +66,7 @@ def test_budget_exhaustion_returns_collected_pages_without_another_request():
         assert voice.get_elevenlabs_voices('key') == ['elevenlabs:v1:First']
         assert get.call_count == 1
         assert get.call_args.kwargs['timeout'] == (10, 10)
-        assert 'time budget' in warning.call_args.args[0]
+        assert 'se agotó el tiempo' in warning.call_args.args[0]
 
 
 def test_second_page_failure_closes_response_and_discards_partial_catalog():
@@ -92,4 +92,4 @@ def test_page_cap_is_explicit_and_preserves_collected_voices():
     with patch.object(voice.requests, 'get', side_effect=responses) as get, patch.object(voice.time, 'monotonic', return_value=100), patch.object(voice.logger, 'warning') as warning:
         assert len(voice.get_elevenlabs_voices('key')) == 100
         assert get.call_count == 100
-        assert 'page limit' in warning.call_args.args[0]
+        assert 'límite de páginas' in warning.call_args.args[0]

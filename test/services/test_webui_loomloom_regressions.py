@@ -1,4 +1,6 @@
-"""胜算云吸收优化的回归：隔离状态、准确试听时长和既有文案路由。"""
+"""Regresiones de la integración optimizada de Shengsuan Cloud: estado aislado, duración
+exacta de la vista previa y enrutamiento de guiones existente.
+"""
 
 import ast
 import hashlib
@@ -19,7 +21,9 @@ MAIN = Path(__file__).parents[2] / "webui" / "Main.py"
 
 
 def helpers(state):
-    """只执行待测 helper，避免为了验证缓存语义启动整页或访问外部服务。"""
+    """Solo ejecuta la función auxiliar bajo prueba, para no arrancar la página completa ni
+    acceder a servicios externos al verificar la semántica de la caché.
+    """
     names = {
         "_loomloom_video_account_signature",
         "_load_loomloom_video_capability",
@@ -72,7 +76,8 @@ def test_capability_cache_isolated_by_endpoint_and_key_and_recovers():
         )
         assert load("key-a", force=True) == capability
         assert state["loomloom_video_capability_error"] == "offline"
-        # 换 Key/端点后失败必须清空旧目录，不能把其他账户的目录误认为有效。
+        # Tras cambiar de clave o endpoint, un fallo debe vaciar el catálogo antiguo; no
+        # se puede tomar por válido el catálogo de otra cuenta.
         assert load("key-b") is None
         backend.resolve_video_capability.side_effect = None
         assert load("key-b", force=True) == capability
@@ -144,11 +149,12 @@ def test_batch_script_and_video_use_settings_key_without_local_llm():
         patch.object(llm, "generate_script") as generate,
     ):
         app = AppTest.from_file(str(MAIN), default_timeout=30)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.run()
         fields = [x for x in app.text_input if x.key == "loomloom_user_api_token"]
         assert len(fields) == 0
-        # 设置是唯一凭据入口；配置更新后两个功能都读取最新快照。
+        # Los ajustes son la única entrada de credenciales; tras actualizar la
+        # configuración, ambas funciones leen la instantánea más reciente.
         values["loomloom_api_token"] = "test-key"
         app.run()
         assert not app.exception
@@ -164,7 +170,9 @@ def widget(items, key):
 
 @pytest.fixture
 def quote_page():
-    """用真实 Streamlit 控件运行失败路径，模拟网络且禁止写配置和提交任务。"""
+    """Ejecuta la ruta de fallo con controles reales de Streamlit, simulando la red y
+    prohibiendo escribir la configuración y enviar tareas.
+    """
     values = dict(
         config.app,
         video_source="loomloom",
@@ -196,7 +204,7 @@ def quote_page():
         )
         submit = stack.enter_context(patch("app.services.webui_task.submit_generation"))
         app = AppTest.from_file(str(MAIN), default_timeout=30)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.session_state["video_subject"] = "AI daily life"
         app.session_state["video_script"] = "AI helps people every day."
         app.session_state["video_terms"] = "robot, office"
@@ -254,9 +262,9 @@ def test_changed_billable_inputs_allow_one_new_quote_attempt(quote_page, field):
     elif field == "terms":
         widget(app.text_area, "video_terms").set_value("new scene")
     elif field == "model":
-        widget(app.selectbox, "loomloom_video_model_select_en").select("b")
+        widget(app.selectbox, "loomloom_video_model_select_es").select("b")
     elif field == "ratio":
-        widget(app.selectbox, "video_aspect_for_loomloom_en").select("9:16")
+        widget(app.selectbox, "video_aspect_for_loomloom_es").select("9:16")
     elif field == "count":
         widget(app.number_input, "loomloom_video_scene_count").set_value(2)
     elif field == "key":
@@ -284,19 +292,22 @@ def test_missing_key_clears_error_and_never_retries(quote_page):
 
 @pytest.mark.parametrize("change", ["script", "source"])
 def test_unrelated_edits_do_not_retry_failed_quote(quote_page, change):
-    """文案正文不改变已有主题/关键词报价；切到其它来源也不能触发胜算云请求。"""
+    """El texto del guion no cambia el presupuesto existente de tema/palabras clave;
+    cambiar a otra fuente tampoco puede lanzar solicitudes a Shengsuan Cloud.
+    """
     app, _, quote, _ = quote_page
     quote.side_effect = loomloom.LoomLoomAPIError("offline")
     app.run()
     if change == "script":
         widget(app.text_area, "video_script").set_value("A different narration.").run()
     else:
-        # 来源使用自定义分组控件，AppTest 无 selectbox 适配器；模拟其回传状态。
-        app.session_state["video_source_select_en"] = "pexels"
+        # La fuente usa un control de grupos personalizado y AppTest no tiene adaptador
+        # de selectbox; se simula el estado que devuelve.
+        app.session_state["video_source_select_es"] = "pexels"
         app.run()
         app.run()
         assert not any(item.key == "loomloom_retry_video_quote" for item in app.button)
-        app.session_state["video_source_select_en"] = "loomloom"
+        app.session_state["video_source_select_es"] = "loomloom"
         app.run()
     assert quote.call_count == 1
 
@@ -321,7 +332,7 @@ def test_new_quote_failure_disables_old_confirmation(quote_page):
     widget(app.checkbox, "loomloom_video_confirm_charge").check().run()
     old_id = app.session_state["loomloom_video_client_request_id"]
     quote.side_effect = loomloom.LoomLoomAPIError("offline")
-    widget(app.selectbox, "loomloom_video_model_select_en").select("b").run()
+    widget(app.selectbox, "loomloom_video_model_select_es").select("b").run()
     assert not app.session_state["loomloom_video_confirm_charge"]
     assert widget(app.checkbox, "loomloom_video_confirm_charge").disabled
     widget(app.button, "generate_video_button").click().run()
@@ -357,7 +368,7 @@ def test_batch_candidate_autofill_once_preserves_manual_count(script):
         patch.object(config, "try_save_config", return_value=True),
     ):
         app = AppTest.from_file(str(MAIN), default_timeout=30)
-        app.session_state["ui_language"] = "en"
+        app.session_state["ui_language"] = "es"
         app.session_state["loomloom_script_candidates"] = (candidate,)
         app.run()
         widget(app.button, "loomloom_apply_candidate").click().run()
@@ -371,8 +382,8 @@ def test_batch_candidate_autofill_once_preserves_manual_count(script):
 
 
 def test_reference_price_copy_does_not_promise_quote_is_final():
-    for locale in ("zh", "en"):
-        messages = json.loads((MAIN.parent / "i18n" / f"{locale}.json").read_text())
-        # 价格仅作选择参考，避免与“不完整估算仍可能扣费”的警告矛盾。
-        text = messages["Translation"]["AI Video Model Reference Price"]
-        assert ("实际模型调用" if locale == "zh" else "actual model usage") in text
+    messages = json.loads((MAIN.parent / "i18n" / "es.json").read_text(encoding="utf-8"))
+    # El precio solo sirve de referencia para elegir, para no contradecir el aviso
+    # de que una estimación incompleta aún puede cobrar.
+    text = messages["Translation"]["AI Video Model Reference Price"]
+    assert "uso real del modelo" in text

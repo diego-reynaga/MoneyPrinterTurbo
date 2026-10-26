@@ -1,4 +1,6 @@
-"""OpenAI-compatible /v1/images/generations server running SDXL Lightning locally."""
+"""Servidor /v1/images/generations compatible con OpenAI que ejecuta SDXL Lightning en
+local.
+"""
 
 import base64
 import io
@@ -36,14 +38,14 @@ NEGATIVE = (
     "eyeglasses, modern clothing, map, looking at camera, posed portrait"
 )
 
-# sdxl sizes near 1 megapixel
+# tamaños de sdxl cercanos a 1 megapíxel
 BUCKETS = [
     (1024, 1024), (896, 1152), (832, 1216), (768, 1344), (640, 1536),
     (1152, 896), (1216, 832), (1344, 768), (1536, 640),
 ]
 DEFAULT_SIZE = (832, 1216)
 
-# one lock guards the pipeline and the gpu state below
+# un solo bloqueo protege el pipeline y el estado de la GPU de abajo
 lock = threading.Lock()
 pipe = None
 on_gpu = False
@@ -66,7 +68,7 @@ class ImageRequest(BaseModel):
             return None
         w, sep, h = v.strip().lower().partition("x")
         if not (sep and w.isdigit() and h.isdigit() and int(w) > 0 and int(h) > 0):
-            raise ValueError("size must be WIDTHxHEIGHT with positive integers, e.g. 1024x1536")
+            raise ValueError("size debe ser ANCHOxALTO con enteros positivos, p. ej. 1024x1536")
         return v.strip().lower()
 
 
@@ -96,7 +98,8 @@ def ollama_models():
 
 
 def unload_ollama():
-    # ollama can load again between requests, so this runs before every image
+    # ollama puede volver a cargarse entre solicitudes, así que esto se ejecuta antes de
+    # cada imagen
     names = ollama_models()
     for name in names:
         try:
@@ -109,14 +112,15 @@ def unload_ollama():
             pass
     if not names:
         return []
-    # wait until ollama reports the models gone, so their vram is free
+    # espera a que ollama informe de que los modelos se han descargado, para que su VRAM
+    # quede libre
     deadline = time.time() + OLLAMA_UNLOAD_TIMEOUT
     while (left := ollama_models()) and time.time() < deadline:
         time.sleep(0.5)
     if left:
-        print(f"ollama still holds {', '.join(left)} after {OLLAMA_UNLOAD_TIMEOUT:g}s, painting anyway")
+        print(f"ollama sigue teniendo {', '.join(left)} tras {OLLAMA_UNLOAD_TIMEOUT:g}s; se pinta igualmente")
     else:
-        print(f"unloaded ollama: {', '.join(names)}")
+        print(f"ollama descargado: {', '.join(names)}")
     return names
 
 
@@ -143,7 +147,7 @@ def empty_cuda_cache():
 
 
 def claim_gpu():
-    """Make SDXL the only large model on the gpu. Call with the lock held."""
+    """Hace que SDXL sea el único modelo grande en la GPU. Llamar con el bloqueo adquirido."""
     global pipe, on_gpu
     unload_ollama()
     if pipe is None:
@@ -169,7 +173,7 @@ def paint(p, prompt, negative, width, height):
 
 
 def offload_if_idle():
-    """Move SDXL back to the cpu once it has been idle long enough."""
+    """Devuelve SDXL a la CPU cuando lleva suficiente tiempo inactivo."""
     global on_gpu
     with lock:
         if not on_gpu or time.time() - last_used < IDLE_SECONDS:
@@ -177,7 +181,7 @@ def offload_if_idle():
         pipe.to("cpu")
         empty_cuda_cache()
         on_gpu = False
-    print("idle: moved pipeline to cpu")
+    print("inactivo: pipeline movido a la cpu")
     return True
 
 
@@ -188,7 +192,7 @@ def idle_worker():
 
 @asynccontextmanager
 async def lifespan(app):
-    # runs under both `python server.py` and `uvicorn server:app`
+    # funciona tanto con `python server.py` como con `uvicorn server:app`
     global idle_thread
     stop_idle.clear()
     idle_thread = threading.Thread(target=idle_worker, name="idle-offload", daemon=True)
@@ -227,13 +231,15 @@ def generate(req: ImageRequest):
     data = []
     with lock:
         for _ in range(max(1, min(req.n, 4))):
-            # reclaim per image: ollama may have loaded while the last one painted
+            # recupera memoria en cada imagen: ollama puede haberse cargado mientras se
+            # pintaba la anterior
             p = claim_gpu()
             image = paint(p, prompt, negative, width, height)
             buf = io.BytesIO()
             image.save(buf, format="PNG")
             data.append({"b64_json": base64.b64encode(buf.getvalue()).decode()})
-        # torch keeps ~7 GB of decode buffers cached; give it back so ollama fits
+        # torch mantiene en caché unos 7 GB de búferes de decodificación; se liberan
+        # para que quepa ollama
         empty_cuda_cache()
         last_used = time.time()
     return {"created": int(time.time()), "data": data}

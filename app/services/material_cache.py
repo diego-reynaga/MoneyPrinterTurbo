@@ -1,4 +1,4 @@
-"""在线素材搜索结果的磁盘缓存。"""
+"""Caché en disco de los resultados de búsqueda de material en línea."""
 
 from __future__ import annotations
 
@@ -25,22 +25,29 @@ MATERIAL_SEARCH_CACHE_TTL_SECONDS = 24 * 60 * 60
 _CACHE_FORMAT_VERSION = 2
 _CACHE_CLEANUP_INTERVAL_SECONDS = 60 * 60
 _CACHE_FILE_PATTERN = re.compile(r"^[0-9a-f]{64}\.json$")
-# 保存缓存时先写入 NamedTemporaryFile(delete=False)，再用 os.replace 发布。
-# 进程被强制终止（Ctrl+C、容器停止、断电）时 Python 的异常兜底没有机会执行，
-# 会留下一个没有被替换的中间文件；它不匹配上面的缓存文件模式，必须单独识别
-# 才能回收，否则会永久累积在缓存目录里。
+# Al guardar la caché primero se escribe en NamedTemporaryFile(delete=False) y luego se
+# publica con os.replace. Cuando el proceso se termina a la fuerza (Ctrl+C, parada del
+# contenedor, corte de luz), el respaldo de excepciones de Python no llega a ejecutarse
+# y queda un archivo intermedio sin sustituir; no coincide con el patrón de archivos de
+# caché de arriba, así que hay que identificarlo aparte para recuperarlo, o se
+# acumularía para siempre en el directorio de caché.
 _CACHE_TEMP_FILE_PATTERN = re.compile(r"^\.[0-9a-f]{64}-[a-z0-9_]+\.tmp$")
 
-# API 默认允许多个视频任务并发执行。固定数量的锁分片可以让相同搜索条件共用
-# 一个锁，同时避免按关键词永久保存 Lock 导致内存持续增长。它只负责合并当前
-# 进程内的并发请求；跨进程写入仍由临时文件和 os.replace 保证完整性。
+# La API permite por defecto varias tareas de vídeo concurrentes. Un número fijo de
+# fragmentos de bloqueo hace que las búsquedas con las mismas condiciones compartan un
+# bloqueo, sin guardar para siempre un Lock por palabra clave, lo que haría crecer la
+# memoria sin parar. Solo se encarga de agrupar las solicitudes concurrentes dentro del
+# proceso actual; la integridad de las escrituras entre procesos la siguen garantizando
+# los archivos temporales y os.replace.
 _CACHE_LOCKS = tuple(threading.Lock() for _ in range(256))
 _cleanup_state_lock = threading.Lock()
 _last_cleanup_monotonic: float | None = None
 
 
 def _safe_public_url(value) -> str | None:
-    """移除公开页面 URL 的查询参数和用户凭据，避免缓存意外保存 token。"""
+    """Quita los parámetros de consulta y las credenciales de usuario de las URL de páginas
+    públicas, para que la caché no guarde un token por accidente.
+    """
     if not isinstance(value, str) or not value.strip():
         return None
     try:
@@ -59,11 +66,15 @@ def _safe_public_url(value) -> str | None:
 
 def _cached_source_info(item: MaterialInfo) -> dict | None:
     """
-    按白名单构造可落盘的来源信息。
+    Construye con una lista blanca la información de origen que se puede guardar en
+    disco.
 
-    搜索关键词已经包含在缓存键中，不再明文写入缓存内容；读取时由调用参数
-    恢复。下载 URL 由 ``MaterialInfo.url`` 单独保存，这里只允许公开素材页、
-    作者公开页和稳定业务标识，避免任意扩展字段进入磁盘缓存。
+    La palabra clave de búsqueda ya forma parte de la clave de caché, así que no se
+    escribe en claro en el contenido; al leer se recupera de los parámetros de la
+    llamada. La URL de descarga se guarda aparte en ``MaterialInfo.url``; aquí solo se
+    permiten la página pública del material, la página pública del autor y los
+    identificadores de negocio estables, para que campos de extensión arbitrarios no
+    entren en la caché en disco.
     """
     source = item.source_info
     if not isinstance(source, dict) or not source:
@@ -108,10 +119,12 @@ def _cached_source_info(item: MaterialInfo) -> dict | None:
 
 def _cache_dir() -> Path:
     """
-    返回所有运行入口共用的素材搜索缓存目录。
+    Devuelve el directorio de caché de búsqueda de material que comparten todas las
+    entradas de ejecución.
 
-    缓存必须位于 ``storage`` 下，而不是 WebUI session 或进程内存中，才能让
-    WebUI、API、CLI 以及 Docker 重启后的任务复用同一份结果。
+    La caché debe estar bajo ``storage`` y no en la sesión de la WebUI ni en la memoria
+    del proceso, para que la WebUI, la API, la CLI y las tareas tras reiniciar Docker
+    reutilicen el mismo resultado.
     """
     return Path(utils.storage_dir("cache_material_search", create=True))
 
@@ -123,10 +136,13 @@ def _cache_key(
     video_aspect: VideoAspect | str,
 ) -> str:
     """
-    根据会影响搜索结果的业务参数生成稳定文件名。
+    Genera un nombre de archivo estable a partir de los parámetros de negocio que
+    afectan a los resultados de búsqueda.
 
-    API Key 只负责鉴权，不影响公开搜索结果，因此不能写入缓存键或缓存内容。
-    使用 SHA-256 可以避免关键词直接出现在文件名中，同时保持路径长度固定。
+    La clave API solo sirve para autenticar y no afecta a los resultados de búsqueda
+    públicos, así que no puede escribirse en la clave ni en el contenido de la caché.
+    Usar SHA-256 evita que la palabra clave aparezca en el nombre del archivo y mantiene
+    fija la longitud de la ruta.
     """
     aspect_value = getattr(video_aspect, "value", video_aspect)
     cache_key = json.dumps(
@@ -164,7 +180,9 @@ def get_material_search_cache_lock(
     minimum_duration: int,
     video_aspect: VideoAspect | str,
 ) -> threading.Lock:
-    """返回当前搜索条件对应的进程内锁分片。"""
+    """Devuelve el fragmento de bloqueo del proceso que corresponde a las condiciones de
+    búsqueda actuales.
+    """
     digest = _cache_key(
         provider=provider,
         search_term=search_term,
@@ -175,7 +193,9 @@ def get_material_search_cache_lock(
 
 
 def _is_same_cache_file(cache_path: Path, expected: os.stat_result) -> bool:
-    """Avoid removing a file replaced since the scan/read snapshot."""
+    """Evita borrar un archivo que se haya sustituido desde la instantánea del
+    análisis/lectura.
+    """
     try:
         current = cache_path.stat(follow_symlinks=False)
     except FileNotFoundError:
@@ -188,14 +208,16 @@ def _is_same_cache_file(cache_path: Path, expected: os.stat_result) -> bool:
 def _remove_invalid_cache(
     cache_path: Path, expected: os.stat_result | None = None
 ) -> None:
-    """删除已经过期或无法解析的单个缓存文件，失败时不影响素材搜索主流程。"""
+    """Borra un archivo de caché caducado o que no se puede analizar; si falla, no afecta
+    al flujo principal de búsqueda de material.
+    """
     try:
         if expected is not None and not _is_same_cache_file(cache_path, expected):
             return
         cache_path.unlink(missing_ok=True)
     except OSError as exc:
         logger.warning(
-            f"failed to remove invalid material search cache: "
+            f"no se pudo eliminar la caché de búsqueda de material no válida: "
             f"file={cache_path.name}, error={exc}"
         )
 
@@ -209,14 +231,18 @@ def load_material_search_cache(
     now: float | None = None,
 ) -> list[MaterialInfo] | None:
     """
-    读取仍在 24 小时有效期内的素材搜索结果。
+    Lee los resultados de búsqueda de material que siguen dentro de la validez de 24
+    horas.
 
-    ``None`` 表示缓存未命中，需要请求远端 API；空列表不作为有效缓存返回，
-    避免网络错误或上游异常被误缓存后持续阻断后续任务。
+    ``None`` significa fallo de caché y hay que pedir a la API remota; una lista vacía
+    no se devuelve como caché válida, para que un error de red o un fallo del proveedor
+    guardados por error no sigan bloqueando las tareas posteriores.
     """
     if str(provider).strip().lower() == "coverr":
-        # Coverr 的下载地址包含绑定 API Key 的签名 JWT。它只用于当前请求，
-        # 不能进入磁盘缓存；查询相同条件时顺带删除旧版本可能留下的缓存。
+        # Las direcciones de descarga de Coverr contienen un JWT firmado vinculado a la
+        # clave API. Solo sirve para la solicitud actual y no puede entrar en la caché
+        # en disco; al consultar con las mismas condiciones se borra de paso la caché
+        # que pudieran dejar versiones antiguas.
         try:
             _remove_invalid_cache(
                 _cache_path(
@@ -228,7 +254,7 @@ def load_material_search_cache(
             )
         except Exception as exc:
             logger.warning(
-                "failed to remove disabled Coverr material search cache: "
+                "no se pudo eliminar la caché de búsqueda de material de Coverr desactivada: "
                 f"error={type(exc).__name__}, detail={exc}"
             )
         return None
@@ -241,10 +267,12 @@ def load_material_search_cache(
             video_aspect=video_aspect,
         )
     except Exception as exc:
-        # 缓存目录创建、路径解析等异常不能阻断远端素材搜索。这里保留完整异常
-        # 类型和信息，便于定位权限或挂载问题，同时按缓存未命中继续主流程。
+        # Las excepciones al crear el directorio de caché, resolver rutas, etc. no
+        # pueden bloquear la búsqueda de material remota. Aquí se conservan el tipo y el
+        # mensaje completos de la excepción para localizar problemas de permisos o de
+        # montaje, y se sigue el flujo principal como fallo de caché.
         logger.warning(
-            "failed to prepare material search cache: "
+            "no se pudo preparar la caché de búsqueda de material: "
             f"operation=read, error={type(exc).__name__}, detail={exc}"
         )
         return None
@@ -254,15 +282,17 @@ def load_material_search_cache(
         return None
     except OSError as exc:
         logger.warning(
-            f"failed to inspect material search cache: "
+            f"no se pudo inspeccionar la caché de búsqueda de material: "
             f"file={cache_path.name}, error={exc}"
         )
         return None
 
     current_time = time.time() if now is None else now
     cache_age = current_time - stat_result.st_mtime
-    # 系统时间回拨或文件从其它机器复制后，mtime 可能落在未来。此时不能把
-    # 缓存长期视为新鲜数据，直接失效并重新请求远端更可靠。
+    # Si la hora del sistema retrocede o el archivo se copia desde otra máquina, el
+    # mtime puede quedar en el futuro. En ese caso no se puede considerar la caché como
+    # fresca durante mucho tiempo; es más fiable invalidarla y volver a pedir al
+    # servidor.
     if cache_age < 0 or cache_age >= MATERIAL_SEARCH_CACHE_TTL_SECONDS:
         _remove_invalid_cache(cache_path, expected=stat_result)
         return None
@@ -277,12 +307,12 @@ def load_material_search_cache(
             or not isinstance(payload.get("items"), list)
             or not payload["items"]
         ):
-            raise ValueError("invalid cache payload")
+            raise ValueError("carga útil de caché no válida")
 
         items = []
         for raw_item in payload["items"]:
             if not isinstance(raw_item, dict):
-                raise ValueError("invalid material item")
+                raise ValueError("elemento de material no válido")
             item_provider = raw_item.get("provider")
             item_url = raw_item.get("url")
             item_duration = raw_item.get("duration")
@@ -299,7 +329,7 @@ def load_material_search_cache(
                 or not isinstance(source_info, dict)
                 or not source_info
             ):
-                raise ValueError("invalid material fields")
+                raise ValueError("campos de material no válidos")
             source_info = dict(source_info)
             source_info["search_term"] = search_term
             items.append(
@@ -312,13 +342,13 @@ def load_material_search_cache(
             )
     except (OSError, ValueError, TypeError) as exc:
         logger.warning(
-            f"failed to load material search cache: file={cache_path.name}, error={exc}"
+            f"no se pudo cargar la caché de búsqueda de material: file={cache_path.name}, error={exc}"
         )
         _remove_invalid_cache(cache_path, expected=stat_result)
         return None
 
     logger.info(
-        f"material search cache hit: provider={provider}, "
+        f"acierto de la caché de búsqueda de material: provider={provider}, "
         f"term={search_term!r}, items={len(items)}"
     )
     return items
@@ -332,11 +362,13 @@ def save_material_search_cache(
     items: Iterable[MaterialInfo],
 ) -> bool:
     """
-    原子保存一次成功的非空素材搜索结果。
+    Guarda de forma atómica un resultado de búsqueda de material correcto y no vacío.
 
-    多个任务可能并发搜索相同关键词。先写入同目录唯一临时文件，再通过
-    ``os.replace`` 发布，可以保证读进程只会看到完整旧文件或完整新文件；
-    即使两个写进程同时完成，最终内容也都是同一缓存键对应的合法结果。
+    Varias tareas pueden buscar a la vez la misma palabra clave. Escribir primero en un
+    archivo temporal único del mismo directorio y publicarlo luego con ``os.replace``
+    garantiza que un proceso lector solo vea el archivo antiguo completo o el nuevo
+    completo; aunque dos procesos escritores terminen a la vez, el contenido final
+    siempre es un resultado válido para la misma clave de caché.
     """
     if str(provider).strip().lower() == "coverr":
         return False
@@ -392,7 +424,7 @@ def save_material_search_cache(
         return True
     except Exception as exc:
         logger.warning(
-            "failed to save material search cache: "
+            "no se pudo guardar la caché de búsqueda de material: "
             f"error={type(exc).__name__}, detail={exc}"
         )
         if temp_path is not None:
@@ -409,12 +441,16 @@ def cleanup_expired_material_search_cache(
     force: bool = False,
 ) -> int:
     """
-    低频清理没有再次被查询到的过期搜索缓存，以及中断写入遗留的临时文件。
+    Limpia con poca frecuencia la caché de búsquedas caducadas que no se han vuelto a
+    consultar y los archivos temporales que dejaron escrituras interrumpidas.
 
-    正常写入路径每小时最多扫描一次目录，避免每次搜索都产生线性目录遍历；
-    ``force`` 仅供测试或显式维护调用。只删除 SHA-256 命名的 JSON 缓存文件和本
-    模块自己生成的 ``.tmp`` 中间文件，不会触碰用户放入目录的其它文件。两者共用
-    同一套过期判定，因此仍在写入中的临时文件不会被并发清理误删。
+    La ruta de escritura normal analiza el directorio como mucho una vez por hora, para
+    que cada búsqueda no genere un recorrido lineal del directorio; ``force`` solo es
+    para tests o mantenimiento explícito. Solo se borran los archivos de caché JSON con
+    nombre SHA-256 y los intermedios ``.tmp`` que genera este módulo, sin tocar otros
+    archivos que el usuario haya puesto en el directorio. Ambos comparten el mismo
+    criterio de caducidad, así que los temporales que se siguen escribiendo no los borra
+    por error una limpieza concurrente.
     """
     global _last_cleanup_monotonic
 
@@ -434,7 +470,7 @@ def cleanup_expired_material_search_cache(
         entries = os.scandir(cache_dir)
     except Exception as exc:
         logger.warning(
-            "failed to scan material search cache: "
+            "no se pudo analizar la caché de búsqueda de material: "
             f"error={type(exc).__name__}, detail={exc}"
         )
         return 0
@@ -452,13 +488,14 @@ def cleanup_expired_material_search_cache(
             try:
                 if not entry.is_file(follow_symlinks=False):
                     continue
-                # DirEntry.stat() reports st_dev/st_ino as 0 on Windows, which
-                # would never match the identity check in _is_same_cache_file().
+                # DirEntry.stat() devuelve st_dev/st_ino como 0 en Windows, lo que nunca
+                # coincidiría con la comprobación de identidad de _is_same_cache_file().
                 expected = os.stat(entry.path, follow_symlinks=False)
                 cache_age = current_time - expected.st_mtime
                 if _CACHE_TEMP_FILE_PATTERN.fullmatch(entry.name):
-                    # An active write may look future-dated after a clock
-                    # rollback. Only remove temp files demonstrably old enough.
+                    # Una escritura activa puede parecer del futuro tras un retroceso
+                    # del reloj. Solo se eliminan archivos temporales que sean
+                    # demostrablemente lo bastante antiguos.
                     if cache_age < MATERIAL_SEARCH_CACHE_TTL_SECONDS:
                         continue
                 elif 0 <= cache_age < MATERIAL_SEARCH_CACHE_TTL_SECONDS:
@@ -470,13 +507,13 @@ def cleanup_expired_material_search_cache(
             except OSError as exc:
                 failed_count += 1
                 logger.warning(
-                    "failed to delete material search cache file: "
+                    "no se pudo borrar el archivo de caché de búsqueda de material: "
                     f"file={entry.name}, error={exc}"
                 )
 
     if deleted_count or failed_count:
         logger.info(
-            "finished cleaning material search cache: "
+            "terminó la limpieza de la caché de búsqueda de material: "
             f"deleted={deleted_count}, failed={failed_count}"
         )
     return deleted_count

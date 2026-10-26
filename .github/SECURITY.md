@@ -1,28 +1,28 @@
-# Security Policy
+# Política de seguridad
 
-## Supported Versions
+## Versiones admitidas
 
-Security fixes are applied on a best-effort basis to the latest `main` branch and the most recent published release line.
+Las correcciones de seguridad se aplican en la medida de lo posible a la rama `main` más reciente y a la última línea de versiones publicada.
 
-## Reporting a Vulnerability
+## Informar de una vulnerabilidad
 
-Please do **not** disclose suspected vulnerabilities in public GitHub issues.
+**No** divulgues posibles vulnerabilidades en incidencias públicas de GitHub.
 
-Preferred process:
+Proceso preferido:
 
-1. Use GitHub private vulnerability reporting for this repository if it is available in the repository security settings.
-2. If private reporting is not available, open a minimal public issue that only requests a private contact channel and does **not** include vulnerability details, proof-of-concept code, payloads, or sensitive file paths.
-3. Wait for a maintainer response before sharing any technical details publicly.
+1. Usa el informe privado de vulnerabilidades de GitHub para este repositorio si está disponible en los ajustes de seguridad del repositorio.
+2. Si el informe privado no está disponible, abre una incidencia pública mínima que solo pida un canal de contacto privado y que **no** incluya detalles de la vulnerabilidad, código de prueba de concepto, cargas útiles ni rutas de archivos sensibles.
+3. Espera la respuesta de un mantenedor antes de compartir públicamente cualquier detalle técnico.
 
-When reporting a vulnerability privately, include:
+Al informar de una vulnerabilidad en privado, incluye:
 
-- affected commit, tag, or release version
-- attack surface or vulnerable endpoint
-- impact summary
-- reproduction conditions
-- suggested remediation, if available
+- el commit, la etiqueta o la versión afectados
+- la superficie de ataque o el endpoint vulnerable
+- un resumen del impacto
+- las condiciones de reproducción
+- una propuesta de solución, si la tienes
 
-## Disclosure Expectations
+## Expectativas de divulgación
 
-- Please give maintainers reasonable time to investigate and prepare a fix before public disclosure.
-- Once a fix is available, coordinated public disclosure is welcome.
+- Da a los mantenedores un tiempo razonable para investigar y preparar una corrección antes de la divulgación pública.
+- Cuando haya una corrección disponible, se agradece una divulgación pública coordinada.

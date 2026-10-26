@@ -1,4 +1,4 @@
-"""pip 安装后的 mpt 启动入口，复用现有 WebUI 和 CLI。"""
+"""Punto de entrada mpt tras instalar con pip; reutiliza la WebUI y la CLI existentes."""
 
 import argparse
 import socket
@@ -13,15 +13,17 @@ def _port_number(value: str) -> int:
     try:
         port = int(value)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("port must be an integer") from exc
+        raise argparse.ArgumentTypeError("el puerto debe ser un entero") from exc
     if not 1 <= port <= 65535:
-        raise argparse.ArgumentTypeError("port must be between 1 and 65535")
+        raise argparse.ArgumentTypeError("el puerto debe estar entre 1 y 65535")
     return port
 
 
 def _available_port(host: str) -> int:
-    # 与源码启动脚本保持一致：默认端口被占用时继续寻找，显式指定的端口则
-    # 交给 Streamlit 原样绑定和报错，避免把用户带到另一个服务上。
+    # Igual que el script de arranque desde el código fuente: si el puerto por defecto
+    # está ocupado se sigue buscando, pero un puerto indicado explícitamente se pasa tal
+    # cual a Streamlit para que lo enlace y falle si hace falta, sin llevar al usuario a
+    # otro servicio.
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     for port in range(8501, 8600):
         try:
@@ -30,12 +32,13 @@ def _available_port(host: str) -> int:
             return port
         except OSError:
             continue
-    raise OSError(f"no available WebUI port on {host} between 8501 and 8599")
+    raise OSError(f"no hay ningún puerto libre para la WebUI en {host} entre 8501 y 8599")
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    # CLI 自己负责完整参数校验、帮助和退出码，避免两层解析器吞掉业务参数。
+    # La CLI se encarga de validar todos los parámetros, la ayuda y los códigos de
+    # salida, para que dos analizadores no se traguen los parámetros de negocio.
     if argv and argv[0] == "cli":
         if paths.is_source_checkout():
             import cli
@@ -48,11 +51,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="mpt", description="MoneyPrinterTurbo")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command")
-    commands.add_parser("cli", help="generate videos (mpt cli --help)")
-    webui = commands.add_parser("webui", help="start the WebUI")
-    webui.add_argument("--host", default="127.0.0.1", help="listen address")
-    webui.add_argument("--port", type=_port_number, help="listen port (default: first free port from 8501)")
-    webui.add_argument("--headless", action="store_true", help="do not open a browser")
+    commands.add_parser("cli", help="genera vídeos (mpt cli --help)")
+    webui = commands.add_parser("webui", help="arranca la WebUI")
+    webui.add_argument("--host", default="127.0.0.1", help="dirección de escucha")
+    webui.add_argument("--port", type=_port_number, help="puerto de escucha (por defecto: el primer puerto libre a partir del 8501)")
+    webui.add_argument("--headless", action="store_true", help="no abre el navegador")
     args = parser.parse_args(argv)
     if args.command != "webui":
         parser.print_help()

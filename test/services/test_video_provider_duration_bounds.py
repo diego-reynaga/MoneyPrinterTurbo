@@ -18,8 +18,8 @@ from app.config import config
 def test_nonfinite_configured_duration_bounds_fall_back_to_defaults(
     module_name, prefix, bad_value
 ):
-    # TOML can express inf/nan. Invalid bounds must use the documented
-    # defaults instead of escaping as a raw OverflowError.
+    # TOML puede expresar inf/nan. Los límites no válidos deben usar los valores por
+    # defecto documentados en lugar de escapar como un OverflowError en bruto.
     module = importlib.import_module(module_name)
     settings = {
         f"{prefix}_min_duration": bad_value,

@@ -18,9 +18,11 @@ def _widget_by_key(elements, key):
 
 
 def test_webui_upload_post_setup_guide_links_to_required_pages():
-    # 首次使用自动发布时，API Key 和发布用户需要在 Upload-Post 的不同页面
-    # 分别配置。这里锁定两个精确入口，避免后续文案调整后再次退化成无法点击的
-    # 泛化提示，导致用户误把登录邮箱当作发布用户名称。
+    # La primera vez que se usa la publicación automática, la clave API y el usuario de
+    # publicación se configuran en páginas distintas de Upload-Post. Aquí se fijan las
+    # dos entradas exactas, para que futuros cambios de texto no vuelvan a degradarse a
+    # un aviso genérico sin enlace y el usuario confunda el correo de inicio de sesión
+    # con el nombre del usuario de publicación.
     with patch.object(config, "try_save_config", return_value=True):
         app = AppTest.from_file(str(WEBUI_MAIN), default_timeout=60)
         app.run()
@@ -36,10 +38,10 @@ def test_webui_upload_post_setup_guide_links_to_required_pages():
 
 
 def test_webui_upload_post_checkboxes_stay_decoupled():
-    # enabled=True / auto_upload=False is a deliberate split: an external
-    # pipeline may call Upload-Post while auto-publish stays off. Opening the
-    # settings dialog must not rewrite either key, and each checkbox must
-    # reflect and write only its own key.
+    # enabled=True / auto_upload=False es una separación deliberada: un flujo externo
+    # puede llamar a Upload-Post mientras la publicación automática sigue desactivada.
+    # Abrir el diálogo de ajustes no debe reescribir ninguna de las dos claves, y cada
+    # casilla debe reflejar y escribir solo su propia clave.
     test_app_config = dict(
         config.app,
         upload_post_enabled=True,
@@ -60,19 +62,21 @@ def test_webui_upload_post_checkboxes_stay_decoupled():
         assert enabled_box.value is True
         assert auto_box.value is False
 
-        # Merely rendering the dialog must not have rewritten the split config
+        # El simple renderizado del diálogo no debe haber reescrito la configuración
+        # separada
         assert config.app["upload_post_enabled"] is True
         assert config.app["upload_post_auto_upload"] is False
 
-        # Toggling auto_upload on must leave enabled untouched
+        # Activar auto_upload debe dejar enabled intacto
         auto_box.set_value(True)
         app.run()
         assert config.app["upload_post_enabled"] is True
         assert config.app["upload_post_auto_upload"] is True
 
 def test_webui_upload_post_youtube_privacy_fallback_to_public():
-    # If the config somehow contains an invalid YouTube privacy value (e.g. "draft"),
-    # it should not crash the UI and should silently fallback to "public".
+    # Si la configuración contiene por algún motivo un valor de privacidad de YouTube no
+    # válido (p. ej. "draft"), no debe romper la interfaz y debe volver en silencio a
+    # "public".
     test_app_config = dict(
         config.app,
         upload_post_platforms=["youtube"],
@@ -88,14 +92,16 @@ def test_webui_upload_post_youtube_privacy_fallback_to_public():
         app.session_state["settings_dialog_open"] = True
         app.run()
 
-        # The selectbox should be rendered and its value should fallback to "public"
+        # El selectbox debe renderizarse y su valor debe volver a "public"
         yt_privacy_selectbox = _widget_by_key(app.selectbox, "upload_post_youtube_privacy_status_selectbox")
         assert yt_privacy_selectbox.value == "public"
 
 
 @pytest.mark.parametrize("saved", [False, True, "false"])
 def test_youtube_audience_selection_persists_on_first_change(saved):
-    """真实运行 Streamlit 控件，验证布尔值、非法配置及第一次切换的持久化。"""
+    """Ejecuta de verdad los controles de Streamlit, verificando los booleanos, la
+    configuración no válida y la persistencia del primer cambio.
+    """
     values = dict(config.app, upload_post_platforms=["youtube"],
                   upload_post_youtube_made_for_kids=saved)
     with patch.object(config, "app", values), patch.object(config, "try_save_config", return_value=True):
@@ -114,7 +120,9 @@ def test_youtube_audience_selection_persists_on_first_change(saved):
 
 
 def test_youtube_audience_hidden_for_other_platforms():
-    """不选择 YouTube 时不显示受众项，也不覆写已保存的声明。"""
+    """Si no se elige YouTube, no se muestra la opción de público ni se sobrescribe la
+    declaración guardada.
+    """
     values = dict(config.app, upload_post_platforms=["tiktok", "instagram"],
                   upload_post_youtube_made_for_kids=True)
     with patch.object(config, "app", values), patch.object(config, "try_save_config", return_value=True):

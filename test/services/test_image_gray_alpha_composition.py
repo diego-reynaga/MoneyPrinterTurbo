@@ -13,7 +13,8 @@ def test_alpha_image_preserves_partial_opacity_in_native_render(tmp_path, mode, 
     clip = VideoFileClip(output, audio=False)
     try:
         pixel = clip.get_frame(0)[16, 16]
-        # Half-opacity gray180 over the renderer's black canvas is gray90.
+        # Un gris 180 con opacidad media sobre el lienzo negro del renderizador da gris
+        # 90.
         assert all(abs(int(channel) - 90) <= 5 for channel in pixel)
     finally:
         close_clip(clip)

@@ -58,8 +58,10 @@ class TestMaterialSearchCache(unittest.TestCase):
 
     def test_cache_round_trip_preserves_material_fields(self):
         """
-        磁盘缓存必须能跨进程恢复 MaterialInfo 所需的全部字段，不能只缓存 URL
-        后丢失 provider 或 duration，导致后续下载与时长计算行为发生变化。
+        La caché en disco debe poder recuperar entre procesos todos los campos que
+        necesita MaterialInfo; no puede guardar solo la URL y perder provider o
+        duration, porque cambiaría el comportamiento posterior de las descargas y del
+        cálculo de duración.
         """
         saved = material_cache.save_material_search_cache(
             provider="pixabay",
@@ -93,8 +95,10 @@ class TestMaterialSearchCache(unittest.TestCase):
 
     def test_expired_cache_is_removed_and_treated_as_miss(self):
         """
-        Pixabay 要求搜索结果最多复用 24 小时。过期文件必须立即失效并删除，
-        防止旧素材 URL 被无限复用，也避免缓存目录持续积累无效 JSON。
+        Pixabay exige reutilizar los resultados de búsqueda como máximo 24 horas. Los
+        archivos caducados deben invalidarse y borrarse de inmediato, para que las URL
+        de material antiguas no se reutilicen sin límite y el directorio de caché no
+        acumule JSON no válidos.
         """
         material_cache.save_material_search_cache(
             provider="pixabay",
@@ -120,7 +124,9 @@ class TestMaterialSearchCache(unittest.TestCase):
         self.assertFalse(cache_path.exists())
 
     def test_future_dated_cache_is_removed_and_treated_as_miss(self):
-        """系统时间异常时不能让未来时间戳绕过 24 小时有效期。"""
+        """Si la hora del sistema es anómala, una marca de tiempo futura no puede saltarse
+        la validez de 24 horas.
+        """
         material_cache.save_material_search_cache(
             provider="pixabay",
             search_term="nature",
@@ -146,8 +152,10 @@ class TestMaterialSearchCache(unittest.TestCase):
 
     def test_corrupted_cache_is_removed_without_breaking_search(self):
         """
-        进程异常退出、磁盘故障或用户手动修改都可能留下损坏文件。读取失败应回退
-        到远端搜索并清理坏文件，不能让一个缓存永久阻断素材生成。
+        Una salida anómala del proceso, un fallo del disco o una edición manual del
+        usuario pueden dejar archivos dañados. Si falla la lectura hay que volver a la
+        búsqueda remota y limpiar el archivo dañado; una caché no puede bloquear para
+        siempre la generación de material.
         """
         cache_path = self._cache_path()
         cache_path.write_text("{invalid-json", encoding="utf-8")
@@ -166,8 +174,10 @@ class TestMaterialSearchCache(unittest.TestCase):
 
     def test_empty_results_are_not_cached(self):
         """
-        当前 provider 接口用 [] 同时表示没有结果和请求失败。缓存空列表会把
-        Cloudflare 拦截或短暂网络故障固化 24 小时，因此只能缓存非空成功结果。
+        La interfaz actual de proveedores usa [] tanto para "sin resultados" como para
+        "la solicitud falló". Guardar en caché una lista vacía fijaría durante 24 horas
+        un bloqueo de Cloudflare o un fallo de red pasajero, así que solo se guardan
+        resultados correctos no vacíos.
         """
         saved = material_cache.save_material_search_cache(
             provider="pixabay",
@@ -182,8 +192,10 @@ class TestMaterialSearchCache(unittest.TestCase):
 
     def test_cache_file_does_not_contain_search_parameters_or_credentials(self):
         """
-        缓存文件名使用摘要，内容只保存素材字段。即使用户共享 storage 目录，
-        文件中也不应出现关键词、API Key 或其它请求配置。
+        El nombre del archivo de caché usa un resumen y el contenido solo guarda los
+        campos del material. Aunque el usuario comparta el directorio storage, el
+        archivo no debe contener palabras clave, claves API ni otra configuración de la
+        solicitud.
         """
         item = self._item()
         item.source_info["source_page"] += "?token=drop"
@@ -206,7 +218,9 @@ class TestMaterialSearchCache(unittest.TestCase):
         self.assertNotIn("token=drop", raw_payload)
 
     def test_coverr_signed_urls_are_never_cached(self):
-        """Coverr 下载地址包含签名 JWT，不能进入可长期保留的磁盘缓存。"""
+        """Las direcciones de descarga de Coverr contienen un JWT firmado y no pueden
+        entrar en la caché en disco de larga duración.
+        """
         item = self._item(
             "https://storage.coverr.co/video/download?token=signed-jwt"
         )
@@ -225,7 +239,9 @@ class TestMaterialSearchCache(unittest.TestCase):
         self.assertEqual(list(Path(self.temp_dir.name).glob("*.json")), [])
 
     def test_coverr_cache_load_removes_legacy_signed_url(self):
-        """访问 Coverr 时应清理旧版本可能留下的签名下载地址缓存。"""
+        """Al acceder a Coverr hay que limpiar la caché de direcciones de descarga firmadas
+        que pudieran dejar versiones antiguas.
+        """
         cache_path = material_cache._cache_path(
             provider="coverr",
             search_term="nature",
@@ -259,7 +275,9 @@ class TestMaterialSearchCache(unittest.TestCase):
         self.assertFalse(cache_path.exists())
 
     def test_version_one_cache_is_invalidated(self):
-        """旧缓存缺少来源信息，升级后必须重新查询而不能生成残缺任务记录。"""
+        """A la caché antigua le falta la información de origen; tras actualizar hay que
+        volver a consultar en lugar de generar registros de tarea incompletos.
+        """
         cache_path = self._cache_path()
         cache_path.write_text(
             json.dumps(
@@ -289,8 +307,10 @@ class TestMaterialSearchCache(unittest.TestCase):
 
     def test_cache_key_separates_provider_duration_and_aspect(self):
         """
-        素材源、最小时长和画幅都会改变远端搜索结果，任何一个参数变化都必须
-        使用独立缓存，避免把不符合当前任务要求的素材返回给视频生成流程。
+        La fuente de material, la duración mínima y la relación de aspecto cambian los
+        resultados de la búsqueda remota; si cambia cualquiera de ellos hay que usar una
+        caché distinta, para no devolver al flujo de generación de vídeo material que no
+        cumple los requisitos de la tarea actual.
         """
         base_path = material_cache._cache_path(
             provider="pixabay",
@@ -324,8 +344,10 @@ class TestMaterialSearchCache(unittest.TestCase):
 
     def test_search_wrapper_reuses_cache_across_calls(self):
         """
-        第一次调用远端搜索并写缓存，第二次相同参数必须直接复用磁盘结果。
-        这是减少 Pixabay API 调用和 Cloudflare 风控触发概率的核心行为。
+        La primera llamada consulta la búsqueda remota y escribe la caché; la segunda
+        con los mismos parámetros debe reutilizar directamente el resultado en disco. Es
+        el comportamiento clave para reducir las llamadas a la API de Pixabay y la
+        probabilidad de activar el control de riesgos de Cloudflare.
         """
         remote_search = Mock(return_value=[self._item()])
 
@@ -349,8 +371,10 @@ class TestMaterialSearchCache(unittest.TestCase):
 
     def test_search_wrapper_refreshes_mixed_orientation_cache(self):
         """
-        升级前的缓存可能混入其它方向的素材。只返回过滤后的少量条目会降低素材
-        多样性，因此发现任意方向不匹配时应重新请求并替换整个候选集。
+        La caché anterior a la actualización puede mezclar material de otra orientación.
+        Devolver solo las pocas entradas filtradas reduciría la variedad del material,
+        así que si cualquier orientación no coincide hay que volver a pedir y sustituir
+        todo el conjunto de candidatos.
         """
         portrait_item = self._item("https://example.com/old-portrait.mp4")
         landscape_item = self._item("https://example.com/old-landscape.mp4")
@@ -394,7 +418,10 @@ class TestMaterialSearchCache(unittest.TestCase):
         )
 
     def test_square_search_reuses_crop_compatible_cache(self):
-        """方形任务应继续复用可裁剪素材缓存，不能因原始方向不同反复请求远端。"""
+        """Las tareas cuadradas deben seguir reutilizando la caché de material recortable,
+        sin pedir una y otra vez al servidor porque la orientación original sea
+        distinta.
+        """
         landscape_item = self._item("https://example.com/landscape.mp4")
         landscape_item.source_info["rendition"] = {
             "id": "large",
@@ -425,7 +452,9 @@ class TestMaterialSearchCache(unittest.TestCase):
         )
 
     def test_search_wrapper_retries_after_empty_result(self):
-        """空结果不缓存，下一次调用仍应访问远端，以便临时故障恢复后自动重试。"""
+        """Los resultados vacíos no se guardan en caché, así que la siguiente llamada debe
+        volver al servidor y reintentarse sola cuando se recupere un fallo temporal.
+        """
         remote_search = Mock(return_value=[])
 
         for _ in range(2):
@@ -441,7 +470,9 @@ class TestMaterialSearchCache(unittest.TestCase):
         self.assertEqual(remote_search.call_count, 2)
 
     def test_cache_read_failure_falls_back_to_remote_search(self):
-        """缓存读取异常只能降级为未命中，不能阻断远端素材搜索。"""
+        """Una excepción al leer la caché solo puede degradarse a fallo de caché; no puede
+        bloquear la búsqueda de material remota.
+        """
         remote_items = [self._item()]
         remote_search = Mock(return_value=remote_items)
 
@@ -463,7 +494,9 @@ class TestMaterialSearchCache(unittest.TestCase):
         self.assertTrue(warning.called)
 
     def test_cache_write_failure_keeps_remote_results(self):
-        """远端搜索成功后，即使缓存写入失败也必须继续返回可用素材。"""
+        """Si la búsqueda remota tiene éxito, aunque falle la escritura de la caché hay que
+        seguir devolviendo el material utilizable.
+        """
         remote_items = [self._item()]
         remote_search = Mock(return_value=remote_items)
 
@@ -489,7 +522,9 @@ class TestMaterialSearchCache(unittest.TestCase):
         self.assertTrue(warning.called)
 
     def test_invalid_cache_item_does_not_raise(self):
-        """异常素材对象不能让可选缓存写入破坏调用方主流程。"""
+        """Un objeto de material anómalo no debe permitir que la escritura opcional de la
+        caché rompa el flujo principal de quien llama.
+        """
         with patch.object(material_cache.logger, "warning") as warning:
             saved = material_cache.save_material_search_cache(
                 provider="pixabay",
@@ -504,8 +539,10 @@ class TestMaterialSearchCache(unittest.TestCase):
 
     def test_concurrent_identical_searches_share_remote_request(self):
         """
-        API 服务允许多个任务并发。相同条件首次搜索时，后到线程应等待首个线程
-        写入缓存，而不是再次消耗第三方接口额度。
+        El servicio API permite varias tareas concurrentes. En la primera búsqueda con
+        las mismas condiciones, los hilos que llegan después deben esperar a que el
+        primero escriba la caché, en lugar de volver a gastar saldo de la interfaz de
+        terceros.
         """
         remote_started = threading.Event()
         allow_remote_finish = threading.Event()
@@ -537,7 +574,8 @@ class TestMaterialSearchCache(unittest.TestCase):
         first_thread.start()
         self.assertTrue(remote_started.wait(timeout=2))
         second_thread.start()
-        # 给第二个线程时间进入缓存锁等待区，确保测试覆盖真实并发未命中。
+        # Da tiempo al segundo hilo para entrar en la zona de espera del bloqueo de
+        # caché, para que el test cubra un fallo de caché concurrente real.
         time.sleep(0.05)
         allow_remote_finish.set()
         first_thread.join(timeout=2)
@@ -550,7 +588,9 @@ class TestMaterialSearchCache(unittest.TestCase):
         self.assertEqual(results[0], results[1])
 
     def test_cleanup_removes_expired_entries_only(self):
-        """低频清理只删除过期缓存，不应影响有效缓存或用户的其它文件。"""
+        """La limpieza poco frecuente solo borra caché caducada, sin afectar a la caché
+        válida ni a otros archivos del usuario.
+        """
         stale_path = self._cache_path()
         stale_path.write_text(
             json.dumps(
@@ -594,9 +634,11 @@ class TestMaterialSearchCache(unittest.TestCase):
 
     def test_cleanup_removes_orphaned_temp_files(self):
         """
-        进程被强制终止时，NamedTemporaryFile(delete=False) 留下的中间文件没有
-        机会被 os.replace 消费，也不会触发异常兜底删除。它必须和过期缓存一起
-        回收，否则每次异常中断都会在缓存目录里永久累积一个残留文件。
+        Cuando el proceso se termina a la fuerza, el archivo intermedio que deja
+        NamedTemporaryFile(delete=False) no llega a consumirlo os.replace ni lo borra el
+        respaldo de excepciones. Debe recuperarse junto con la caché caducada; si no,
+        cada interrupción anómala dejaría para siempre un archivo residual en el
+        directorio de caché.
         """
         orphan_path = Path(self.temp_dir.name) / (
             f".{self._cache_path().stem}-m429jzwe.tmp"
@@ -617,13 +659,16 @@ class TestMaterialSearchCache(unittest.TestCase):
 
         self.assertEqual(deleted, 1)
         self.assertFalse(orphan_path.exists())
-        # 前缀不匹配的其它文件属于用户，不能被清理逻辑删除。
+        # Los demás archivos cuyo prefijo no coincide son del usuario y la lógica de
+        # limpieza no puede borrarlos.
         self.assertTrue(unrelated_path.exists())
 
     def test_cleanup_keeps_recent_temp_files(self):
         """
-        并发搜索时另一个进程可能正在写临时文件。清理必须复用缓存的过期判定，
-        让尚未超期的中间文件保持原样，避免删掉正在等待 os.replace 的文件。
+        Durante una búsqueda concurrente, otro proceso puede estar escribiendo un
+        archivo temporal. La limpieza debe reutilizar el criterio de caducidad de la
+        caché, para dejar intactos los archivos intermedios que aún no han caducado y no
+        borrar archivos que esperan a os.replace.
         """
         in_flight_path = Path(self.temp_dir.name) / (
             f".{self._cache_path().stem}-m429jzwe.tmp"

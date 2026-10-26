@@ -13,7 +13,9 @@ from app.models.schema import (
 
 class TestLlmController(unittest.TestCase):
     def test_terms_request_bounds_generated_term_count(self):
-        """Ordered term prompts must not allocate arbitrary-length examples."""
+        """Los prompts de términos ordenados no deben reservar ejemplos de longitud
+        arbitraria.
+        """
         self.assertEqual(
             VideoTermsRequest(amount=50, match_materials_to_script=True).amount,
             50,
@@ -26,7 +28,7 @@ class TestLlmController(unittest.TestCase):
                     )
 
     def test_generate_video_script_forwards_all_prompt_fields(self):
-        """文案接口不能丢失高级提示词或段落数量。"""
+        """La API de guiones no debe perder el prompt avanzado ni el número de párrafos."""
         body = VideoScriptRequest(
             video_subject="Coffee",
             video_language="en",
@@ -55,7 +57,9 @@ class TestLlmController(unittest.TestCase):
         )
 
     def test_generate_video_terms_forwards_order_matching_mode(self):
-        """素材顺序匹配开关必须继续传递到关键词生成服务。"""
+        """El interruptor de correspondencia ordenada de materiales debe seguir pasándose
+        al servicio de generación de palabras clave.
+        """
         body = VideoTermsRequest(
             video_subject="Coffee",
             video_script="First beans, then brewing.",
@@ -82,7 +86,9 @@ class TestLlmController(unittest.TestCase):
         )
 
     def test_generate_social_metadata_returns_service_payload(self):
-        """社交平台元数据接口应保持服务层结果的响应结构。"""
+        """La API de metadatos de redes sociales debe mantener la estructura de respuesta
+        del resultado de la capa de servicio.
+        """
         body = VideoSocialMetadataRequest(
             video_subject="Coffee",
             video_script="Morning coffee.",

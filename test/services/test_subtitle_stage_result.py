@@ -1,4 +1,6 @@
-"""Standalone subtitle completion requires a generated subtitle artifact."""
+"""Completar el subtítulo de forma independiente requiere un artefacto de subtítulo
+generado.
+"""
 
 import tempfile
 import unittest
@@ -22,8 +24,9 @@ class TestSubtitleStageResult(unittest.TestCase):
             patch.dict(config.app, {"subtitle_provider": "edge"}),
             patch.object(sm, "state", state),
             patch.object(tm.utils, "task_dir", return_value=directory),
-            # External TTS has produced audio but no word-boundary events. Keep
-            # script persistence, subtitle construction and task state real.
+            # El TTS externo ha producido audio pero ningún evento de límite de palabra.
+            # Se mantienen reales la persistencia del guion, la construcción de
+            # subtítulos y el estado de la tarea.
             patch.object(tm, "generate_audio", return_value=(
                 str(Path(directory, "audio.mp3")), 2.0, maker
             )),
@@ -38,7 +41,7 @@ class TestSubtitleStageResult(unittest.TestCase):
             self.assertFalse(Path(directory, "subtitle.srt").exists())
             self.assertEqual(result["state"], const.TASK_STATE_FAILED)
             self.assertEqual(result["failed_stage"], "subtitle")
-            self.assertIn("subtitle", result["error"])
+            self.assertIn("subtítulos", result["error"])
             self.assertEqual(state.get_task("subtitle-stage")["state"], const.TASK_STATE_FAILED)
 
     def test_real_generated_subtitle_still_completes_successfully(self):

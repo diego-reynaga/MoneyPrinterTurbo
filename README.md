@@ -387,7 +387,7 @@ cd MoneyPrinterTurbo
 docker compose -f docker-compose.release.yml up
 ```
 
-> La opción por defecto recomendada es `docker-compose.release.yml`, que descarga la imagen precompilada de GitHub Container Registry: `ghcr.io/harry0703/moneyprinterturbo:latest`.
+> La opción por defecto recomendada es `docker-compose.release.yml`, que descarga la imagen precompilada de GitHub Container Registry: `ghcr.io/diego-reynaga/moneyprinterturbo:latest`.
 > Si necesitas compilar la imagen en local, puedes seguir ejecutando `docker compose up`.
 > Antes del primer arranque, copia `config.example.toml` a `config.toml` para poder montarlo en los contenedores.
 

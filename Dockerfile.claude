@@ -1,9 +1,9 @@
-# Imagen variante para Claude Code: instala la CLI claude sobre la imagen oficial publicada.
+# Imagen variante para Claude Code: instala la CLI claude sobre la imagen publicada por este repositorio.
 #
 # La suscripción de Claude (Pro / Max / Team) no emite claves API, y solo el cliente oficial de Claude Code
 # puede usar sus credenciales, así que el proveedor `claude_code` necesita que haya una CLI claude
 # ejecutable dentro del contenedor. Aquí se reutiliza la imagen publicada, para no volver a instalar las dependencias de Python.
-FROM ghcr.io/harry0703/moneyprinterturbo:latest
+FROM ghcr.io/diego-reynaga/moneyprinterturbo:latest
 
 # La versión de la CLI está fijada, para que el comportamiento no cambie al reconstruir la imagen; para actualizar basta con cambiar aquí el número de versión.
 ARG CLAUDE_CODE_VERSION=2.1.260

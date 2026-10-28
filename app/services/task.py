@@ -1641,6 +1641,70 @@ def _schedule_cross_post(
     return None
 
 
+def schedule_cross_post_for_task(
+    task_id: str,
+    video_paths: list[str],
+    params: VideoParams,
+    video_script: str = "",
+    platforms: list[str] | None = None,
+    youtube_privacy_status: str | None = None,
+    youtube_made_for_kids: bool | None = None,
+) -> str | None:
+    """
+    Encola la publicación multiplataforma de una tarea cuyo vídeo ya está generado.
+
+    El flujo normal ya la encola al final de ``_run_pipeline`` cuando
+    ``upload_post_auto_upload`` está activo. La publicación automática diaria tiene que
+    publicar siempre, incluso con ese ajuste global desactivado, porque desactivarlo es
+    justo lo que evita que las generaciones manuales de la WebUI se publiquen solas.
+    Exponer aquí la planificación permite a esa ruta reutilizar el mismo worker, la
+    misma cola acotada y el mismo estado consultable, sin duplicar la lógica de subida.
+
+    Devuelve None si el trabajo queda encolado, y un motivo de error si la planificación
+    falla de forma síncrona.
+    """
+    service = upload_post.upload_post_service
+    if not service.is_configured():
+        return "Upload-Post no está configurado"
+
+    platforms = list(platforms if platforms is not None else service.platforms)
+    if not platforms:
+        return "no hay plataformas de publicación configuradas"
+    if not video_paths:
+        return "no hay vídeos que publicar"
+
+    # El estado pending se escribe antes de encolar, para que una consulta hecha entre
+    # el envío y el arranque del worker no vea una tarea completa sin publicación en
+    # curso. Que la tarea no exista no es un error de planificación recuperable.
+    patched = _patch_cross_post_state(
+        task_id,
+        cross_post_state=const.CROSS_POST_STATE_PENDING,
+        cross_post_results=None,
+        cross_post_error=None,
+        cross_post_owner=_cross_post_process_owner,
+    )
+    if patched is False:
+        return "la tarea ya no existe"
+
+    return _schedule_cross_post(
+        task_id=task_id,
+        video_paths=video_paths,
+        params=params,
+        video_script=video_script,
+        platforms=platforms,
+        youtube_privacy_status=(
+            service.youtube_privacy_status
+            if youtube_privacy_status is None
+            else youtube_privacy_status
+        ),
+        youtube_made_for_kids=(
+            service.youtube_made_for_kids
+            if youtube_made_for_kids is None
+            else youtube_made_for_kids
+        ),
+    )
+
+
 def _run_pipeline(
     task_id,
     params: VideoParams,

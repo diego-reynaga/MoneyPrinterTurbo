@@ -75,6 +75,17 @@ def test_cli_preserves_arguments_and_exit_status(monkeypatch):
     assert seen == [["--video-script", "中文", "--stop-at", "script"]]
 
 
+def test_autopilot_preserves_arguments_and_exit_status(monkeypatch):
+    from app.services import autopilot_cli
+
+    seen = []
+    monkeypatch.setattr(
+        autopilot_cli, "run_autopilot_cli", lambda args: seen.append(args) or 1
+    )
+    assert launcher.main(["autopilot", "once", "--videos-per-day", "2"]) == 1
+    assert seen == [["once", "--videos-per-day", "2"]]
+
+
 def test_webui_launch_uses_current_python_and_bundled_ui(monkeypatch):
     called = []
     monkeypatch.setattr(launcher, "_available_port", lambda host: 8504)

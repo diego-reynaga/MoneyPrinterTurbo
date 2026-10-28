@@ -283,6 +283,7 @@ _RUNTIME_CONFIG_SECTIONS = {
     "fish_audio": config.fish_audio,
     "voxcpm": config.voxcpm,
     "ui": config.ui,
+    "autopilot": config.autopilot,
 }
 # Los preajustes de ajustes y las copias de seguridad de claves usan cada uno su propio
 # identificador de archivo. Al importar se validan primero el schema y la versión, para
@@ -3473,6 +3474,144 @@ def _render_logging_settings():
     width="medium",
     on_dismiss=_dismiss_settings_dialog,
 )
+def _render_autopilot_settings():
+    """
+    Renderiza los ajustes de la publicación automática diaria.
+
+    Aquí solo se edita la sección ``[autopilot]`` de config.toml y se muestra el plan ya
+    guardado. El planificador es un proceso aparte (``autopilot.py run``), así que la
+    WebUI nunca lanza publicaciones por su cuenta: dejar la configuración y la ejecución
+    separadas es lo que permite que abrir esta pestaña no publique nada.
+    """
+    from app.services import autopilot
+
+    st.divider()
+    st.subheader(tr("Daily Autopilot"))
+    st.caption(tr("Daily Autopilot Help"))
+
+    section = config.autopilot
+    autopilot_enabled = st.checkbox(
+        tr("Enable Daily Autopilot"),
+        value=bool(section.get("enabled", False)),
+        key="autopilot_enabled_checkbox",
+    )
+    if autopilot_enabled != section.get("enabled", False):
+        _set_runtime_config("autopilot", "enabled", autopilot_enabled)
+
+    niche = st.text_area(
+        tr("Autopilot Niche"),
+        value=str(section.get("niche", "")),
+        help=tr("Autopilot Niche Help"),
+        max_chars=500,
+        height=80,
+        key="autopilot_niche_input",
+    )
+    if niche.strip() != str(section.get("niche", "")):
+        _set_runtime_config("autopilot", "niche", niche.strip())
+
+    saved_subjects = section.get("subjects", [])
+    if not isinstance(saved_subjects, list):
+        saved_subjects = []
+    subjects_text = st.text_area(
+        tr("Autopilot Subjects"),
+        value="\n".join(str(item) for item in saved_subjects),
+        help=tr("Autopilot Subjects Help"),
+        height=100,
+        key="autopilot_subjects_input",
+    )
+    subjects = [line.strip() for line in subjects_text.splitlines() if line.strip()]
+    if subjects != saved_subjects:
+        _set_runtime_config("autopilot", "subjects", subjects)
+
+    count_column, start_column, end_column = st.columns(3)
+    with count_column:
+        videos_per_day = st.number_input(
+            tr("Videos Per Day"),
+            min_value=1,
+            max_value=48,
+            value=int(section.get("videos_per_day", autopilot.DEFAULT_VIDEOS_PER_DAY)),
+            step=1,
+            key="autopilot_videos_per_day_input",
+        )
+        if int(videos_per_day) != section.get("videos_per_day"):
+            _set_runtime_config("autopilot", "videos_per_day", int(videos_per_day))
+    with start_column:
+        window_start = st.number_input(
+            tr("Publish Window Start"),
+            min_value=0,
+            max_value=23,
+            value=int(
+                section.get("window_start_hour", autopilot.DEFAULT_WINDOW_START_HOUR)
+            ),
+            step=1,
+            key="autopilot_window_start_input",
+        )
+        if int(window_start) != section.get("window_start_hour"):
+            _set_runtime_config("autopilot", "window_start_hour", int(window_start))
+    with end_column:
+        window_end = st.number_input(
+            tr("Publish Window End"),
+            min_value=1,
+            max_value=24,
+            value=int(section.get("window_end_hour", autopilot.DEFAULT_WINDOW_END_HOUR)),
+            step=1,
+            key="autopilot_window_end_input",
+        )
+        if int(window_end) != section.get("window_end_hour"):
+            _set_runtime_config("autopilot", "window_end_hour", int(window_end))
+
+    if int(window_end) <= int(window_start):
+        st.error(tr("Publish Window Invalid"))
+        return
+
+    # La configuración recién editada se valida con el mismo cargador que usa el
+    # planificador, para que la interfaz avise de los mismos problemas que haría fallar
+    # el arranque, en lugar de descubrirlos horas después en el log.
+    try:
+        settings = autopilot.load_settings()
+    except autopilot.AutopilotConfigError as exc:
+        st.error(str(exc))
+        return
+
+    # El informe de estado ya trae la lista de problemas, así que se pide una sola vez:
+    # comprobar la configuración incluye validar las opciones de la CLI, y no hace falta
+    # repetirlo en cada refresco de la página.
+    report = autopilot.status_report(settings)
+    problems = report["problems"]
+    if problems:
+        st.warning(
+            tr("Autopilot Problems") + "\n" + "\n".join(f"- {item}" for item in problems)
+        )
+    else:
+        st.success(
+            tr("Autopilot Ready").format(
+                count=settings.videos_per_day,
+                window=autopilot.describe_window(settings),
+            )
+        )
+
+    st.caption(tr("Autopilot Start Command"))
+    st.code("uv run python autopilot.py run", language="shell")
+
+    if not report["slots"]:
+        st.caption(tr("Autopilot Not Planned"))
+        return
+
+    st.caption(tr("Autopilot Today Plan").format(date=report["date"]))
+    st.dataframe(
+        [
+            {
+                tr("Publish Time"): str(slot["retry_at"] or slot["at"])[11:16],
+                tr("Status"): slot["status"],
+                tr("Video Subject"): slot["subject"] or "-",
+            }
+            for slot in report["slots"]
+        ],
+        hide_index=True,
+        width="stretch",
+    )
+
+
 def _render_settings_dialog():
     with st.container():
         # El hide_config histórico solo servía para ocultar el antiguo panel de ajustes
@@ -3612,6 +3751,8 @@ def _render_settings_dialog():
                 )
                 if isinstance(made_for_kids, bool):
                     _set_runtime_config("app", "upload_post_youtube_made_for_kids", made_for_kids)
+
+            _render_autopilot_settings()
 
         # Panel izquierdo - ajustes de logs
         with left_config_panel:

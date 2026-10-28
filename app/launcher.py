@@ -48,10 +48,28 @@ def main(argv: list[str] | None = None) -> int:
         cli._force_utf8_console()
         return cli.run_cli(argv[1:])
 
+    # La publicación automática diaria tiene sus propios modos y códigos de salida, así
+    # que se despacha antes del analizador de mpt por el mismo motivo que la CLI: dos
+    # analizadores no pueden repartirse los mismos parámetros.
+    if argv and argv[0] == "autopilot":
+        from app.services.autopilot_cli import run_autopilot_cli
+
+        if paths.is_source_checkout():
+            import cli
+        else:
+            from app import cli
+
+        cli._force_utf8_console()
+        return run_autopilot_cli(argv[1:])
+
     parser = argparse.ArgumentParser(prog="mpt", description="MoneyPrinterTurbo")
     parser.add_argument("--version", action="version", version=__version__)
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("cli", help="genera vídeos (mpt cli --help)")
+    commands.add_parser(
+        "autopilot",
+        help="publica a diario sin intervención (mpt autopilot --help)",
+    )
     webui = commands.add_parser("webui", help="arranca la WebUI")
     webui.add_argument("--host", default="127.0.0.1", help="dirección de escucha")
     webui.add_argument("--port", type=_port_number, help="puerto de escucha (por defecto: el primer puerto libre a partir del 8501)")

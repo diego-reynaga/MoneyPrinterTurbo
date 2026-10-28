@@ -631,6 +631,24 @@
     "Confirm Infistar Charge Required": "Confirma el cargo de vídeo de Infistar antes de generar.",
     "Infistar MiniMax Landscape Help": "La ruta actual de MiniMax H3 genera metraje horizontal. La salida vertical usa el modo de ajuste de vídeo seleccionado para recortarlo o añadir franjas negras.",
     "Infistar Video API Key": "Clave API de vídeo de Infistar",
-    "Infistar Video Base URL": "URL base de vídeo de Infistar"
+    "Infistar Video Base URL": "URL base de vídeo de Infistar",
+    "Daily Autopilot": "Publicación automática diaria",
+    "Daily Autopilot Help": "Con el nicho configurado, genera y publica por su cuenta un número fijo de vídeos al día a horas aleatorias dentro de la franja que elijas. Las horas se sortean de nuevo cada día. Aquí solo se guarda la configuración: para que publique hay que dejar el planificador en marcha con `autopilot.py run`.",
+    "Enable Daily Autopilot": "Habilitar la publicación automática diaria",
+    "Autopilot Niche": "Nicho del canal",
+    "Autopilot Niche Help": "En cada publicación, el modelo propone un ángulo nuevo de este nicho evitando los temas ya publicados. Ejemplo: finanzas personales explicadas para gente que empieza a trabajar.",
+    "Autopilot Subjects": "Temas fijos (uno por línea)",
+    "Autopilot Subjects Help": "Alternativa al nicho: si escribes temas aquí se van rotando en orden día tras día y no se le pide ninguno al modelo. Déjalo vacío para usar el nicho.",
+    "Videos Per Day": "Vídeos al día",
+    "Publish Window Start": "Desde la hora",
+    "Publish Window End": "Hasta la hora",
+    "Publish Window Invalid": "La hora de fin tiene que ser mayor que la de inicio.",
+    "Autopilot Problems": "Falta algo para que pueda publicar sin intervención:",
+    "Autopilot Ready": "Todo listo: {count} vídeos al día entre las {window}, a horas aleatorias.",
+    "Autopilot Start Command": "Arranca el planificador en una terminal y déjalo corriendo; también puedes programar `autopilot.py once` cada pocos minutos con el Programador de tareas. Consulta docs/autopilot.md.",
+    "Autopilot Today Plan": "Plan del {date}",
+    "Autopilot Not Planned": "Todavía no hay plan: lo crea el planificador la primera vez que arranca, o con `autopilot.py plan`.",
+    "Publish Time": "Hora",
+    "Status": "Estado"
   }
 }

@@ -663,6 +663,7 @@ def save_config():
         config_to_save["voxcpm"] = dict(voxcpm)
         config_to_save["ui"] = dict(ui)
         config_to_save["diagnostics"] = dict(diagnostics)
+        config_to_save["autopilot"] = dict(autopilot)
         serialized_config = toml.dumps(config_to_save)
 
         # La WebUI llama al guardado al terminar cada rerun completo. Si el contenido no
@@ -730,6 +731,11 @@ ui = _SynchronizedConfig(
         },
     )
 )
+
+# Publicación automática diaria. Vive en su propia sección para que activarla no toque
+# ningún ajuste del flujo manual, y para que quien no la use siga teniendo la sección
+# vacía y sin efecto.
+autopilot = _SynchronizedConfig(_cfg.get("autopilot", {}))
 
 hostname = socket.gethostname()
 

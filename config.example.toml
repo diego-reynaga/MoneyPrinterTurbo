@@ -737,6 +737,100 @@ model_id = ""
 voice_id = "default"
 
 # =============================================================================
+# Publicación automática diaria (sin intervención)
+# =============================================================================
+
+# Genera y publica por su cuenta un número fijo de vídeos al día, a horas aleatorias
+# dentro de una ventana horaria. Está desactivada por defecto y no cambia nada del flujo
+# manual: con enabled = false, generar vídeos desde la WebUI o la CLI se comporta
+# exactamente igual que antes.
+#
+# Arranque:
+#   uv run python autopilot.py check   comprueba la configuración
+#   uv run python autopilot.py plan    muestra las horas sorteadas para hoy
+#   uv run python autopilot.py run     publica día tras día sin intervención
+#   uv run python autopilot.py once    publica los huecos ya vencidos y termina
+#                                      (para una tarea programada del sistema)
+#
+# Necesita, además de esta sección, las credenciales de publicación de [app]:
+# upload_post_enabled, upload_post_api_key, upload_post_username y
+# upload_post_platforms. No hace falta activar upload_post_auto_upload: la publicación
+# automática encola su propia subida, de modo que ese ajuste puede seguir en false para
+# que los vídeos que generes a mano no se publiquen solos.
+
+[autopilot]
+# Interruptor principal. Mientras sea false, el planificador se niega a ejecutarse.
+enabled = false
+
+# El nicho del canal. En cada hueco el LLM propone un ángulo nuevo del nicho, evitando
+# los temas ya publicados que se guardan en el archivo de estado.
+# Ejemplo: niche = "finanzas personales explicadas para gente que empieza a trabajar"
+niche = ""
+
+# Alternativa al nicho: lista fija de temas que se van rotando en orden. Si tiene algún
+# valor, se usa en lugar de niche y no se llama al LLM para elegir el tema. La rotación
+# continúa de un día para otro.
+# Ejemplo: subjects = ["Interés compuesto", "Fondo de emergencia", "Presupuesto 50/30/20"]
+subjects = []
+
+# Vídeos que se publican cada día. Cada uno es una generación completa y una subida.
+videos_per_day = 3
+
+# Ventana horaria de publicación, en hora local del equipo, con 22 = las 22:00. Las
+# horas concretas se sortean cada día dentro de esta ventana, así que no hay dos días
+# con el mismo patrón de publicación.
+window_start_hour = 10
+window_end_hour = 22
+
+# Separación mínima entre dos publicaciones del mismo día, en minutos. Evita que el
+# sorteo junte dos vídeos en la misma media hora. Si no cabe en la ventana con el número
+# de vídeos pedido, se reduce automáticamente y se avisa en el log.
+min_gap_minutes = 45
+
+# Minutos finales de la ventana en los que ya no se empieza ninguna publicación. La hora
+# sorteada es la hora de *inicio* de la generación, y generar y subir un vídeo tarda unos
+# minutos. Súbelo (por ejemplo a 30) si quieres que también la subida termine dentro de
+# la ventana.
+reserve_minutes = 0
+
+# Qué hacer con un hueco cuya hora pasó mientras el equipo estaba apagado o el
+# planificador parado. Con true se publica en cuanto el planificador vuelve, siempre que
+# siga dentro de la ventana; con false el hueco se marca omitido.
+catch_up = true
+
+# Minutos de margen por detrás del fin de la ventana en los que todavía se acepta
+# recuperar un hueco perdido. Con 0, nunca se publica fuera de la ventana.
+catch_up_grace_minutes = 0
+
+# Intentos por hueco antes de darlo por fallido, y espera entre intentos. Un reintento
+# solo se programa si cabe dentro de la ventana del día.
+max_attempts = 2
+retry_delay_minutes = 15
+
+# Cada cuántos segundos comprueba el bucle si ha llegado algún hueco. No hace falta
+# tocarlo.
+poll_interval_seconds = 30
+
+# Tiempo máximo que se espera a que Upload-Post confirme la subida de un vídeo, en
+# segundos.
+upload_timeout_seconds = 3900
+
+# Idioma del guion de los vídeos automáticos. Vacío deja que el LLM use el idioma del
+# tema.
+# Ejemplo: video_language = "es-ES"
+video_language = ""
+
+# Opciones extra de la CLI de vídeo que se aplican a cada hueco. Sin nada aquí, se usan
+# los mismos ajustes que la WebUI tiene guardados (fuente de material, voz, subtítulos,
+# música...). Acepta las mismas opciones que `uv run python cli.py --help`.
+# Ejemplo: cli_options = ["--video-source", "pexels", "--video-aspect", "9:16"]
+cli_options = []
+
+# Archivo donde se guardan el plan del día y el resultado de cada hueco. Vacío usa
+# storage/autopilot/state.json.
+state_file = ""
+
+# =============================================================================
 # Preferencias de la WebUI
 # =============================================================================
 

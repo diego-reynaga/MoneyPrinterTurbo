@@ -1506,6 +1506,144 @@ def generate_social_metadata(
     return _fallback_social_metadata(video_subject, video_script, platform)
 
 
+# El nicho y el tema son textos cortos de una sola línea. Se acotan para que un nicho
+# pegado por error junto a un documento entero no genere un coste de tokens anómalo, y
+# para que el tema devuelto siga cabiendo en video_subject.
+MAX_NICHE_LENGTH = 500
+MAX_GENERATED_SUBJECT_LENGTH = 200
+# Número de temas recientes que se pasan al modelo como lista de exclusión. Más allá de
+# esto el prompt crece sin que mejore la variedad.
+MAX_RECENT_SUBJECTS = 30
+_SUBJECT_LIST_MARKER_PATTERN = re.compile(r"^(?:[-*•>]+|\d+[.)])\s*")
+_SUBJECT_WRAPPING_QUOTES = "\"'`“”‘’"
+_SUBJECT_LABEL_PREFIXES = ("subject:", "tema:", "topic:", "título:", "titulo:")
+
+
+def build_video_subject_prompt(
+    niche: str,
+    language: str = "",
+    recent_subjects: List[str] | None = None,
+) -> str:
+    """Construye el prompt que convierte un nicho estable en el tema concreto del
+    siguiente vídeo.
+    """
+    niche = _limit_social_text(niche, MAX_NICHE_LENGTH, "niche")
+    language = _normalize_social_language(language)
+    recent = [
+        _clamp_text(subject, MAX_GENERATED_SUBJECT_LENGTH)
+        for subject in (recent_subjects or [])
+    ]
+    recent = [subject for subject in dict.fromkeys(recent) if subject][
+        -MAX_RECENT_SUBJECTS:
+    ]
+
+    if language.lower() == DEFAULT_SOCIAL_LANGUAGE:
+        language_instruction = "Write the subject in the same language as the niche."
+    else:
+        language_instruction = f"Write the subject in this language: {language}."
+
+    avoid_block = (
+        "\n".join(f"- {subject}" for subject in recent)
+        if recent
+        else "(nothing published yet)"
+    )
+
+    return f"""
+# Role: Short-Video Content Planner
+
+## Goal
+Pick the subject of the next short video for a channel that always posts about one niche.
+
+## Constraints
+1. Respond with the subject only: one single line of plain text, no quotes, no numbering, no commentary, no hashtags.
+2. At most {MAX_GENERATED_SUBJECT_LENGTH} characters.
+3. It must be a concrete, specific angle on the niche that a 30-60 second video can cover, not the niche restated.
+4. It must be clearly different from every subject in "Already Published" below, in topic and not only in wording.
+5. {language_instruction}
+
+## Niche
+{niche}
+
+## Already Published
+{avoid_block}
+""".strip()
+
+
+def _parse_video_subject(response: str) -> str:
+    """Extrae un tema de una sola línea de la respuesta del modelo."""
+    text = _strip_code_fence("" if response is None else str(response)).strip()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Algunos modelos prologan la respuesta o devuelven una lista numerada aunque se
+        # haya pedido una sola línea. Se toma la primera línea útil y se le quitan los
+        # adornos de lista, la etiqueta y las comillas envolventes.
+        line = _SUBJECT_LIST_MARKER_PATTERN.sub("", line).strip()
+        line = line.strip(_SUBJECT_WRAPPING_QUOTES).strip()
+        lowered = line.lower()
+        for prefix in _SUBJECT_LABEL_PREFIXES:
+            if lowered.startswith(prefix):
+                line = line.split(":", 1)[1].strip(_SUBJECT_WRAPPING_QUOTES + " ")
+                break
+        if line:
+            return _clamp_text(line, MAX_GENERATED_SUBJECT_LENGTH)
+    raise ValueError("la respuesta del tema del vídeo está vacía")
+
+
+def generate_video_subject(
+    niche: str,
+    language: str = "",
+    recent_subjects: List[str] | None = None,
+) -> str:
+    """
+    Genera el tema del siguiente vídeo a partir de un nicho fijo.
+
+    Lo usa la publicación automática diaria, que tiene el nicho configurado una sola vez
+    y necesita un tema nuevo en cada ejecución sin que nadie lo escriba. Si el modelo no
+    está disponible o responde en un formato que no se puede aprovechar se lanza
+    ``ValueError``, para que quien planifica registre el fallo del hueco en lugar de
+    publicar un vídeo sobre un tema vacío.
+    """
+    niche = _limit_social_text(niche, MAX_NICHE_LENGTH, "niche")
+    if not niche:
+        raise ValueError("el nicho no puede estar vacío")
+
+    prompt = build_video_subject_prompt(
+        niche=niche, language=language, recent_subjects=recent_subjects
+    )
+    logger.info(
+        f"generando el tema del vídeo a partir del nicho: language={language or 'auto'}, "
+        f"recent={len(recent_subjects or [])}"
+    )
+
+    last_error = "el modelo no devolvió ningún tema"
+    for attempt in range(_max_retries):
+        try:
+            response = _generate_response(prompt)
+            if isinstance(response, str) and response.startswith("Error: "):
+                # El marcador de error del proveedor no es un tema, y reintentarlo no lo
+                # convierte en uno; se corta ya para no gastar más llamadas.
+                last_error = response
+                logger.error(f"no se pudo generar el tema del vídeo: {response}")
+                break
+            subject = _parse_video_subject(response)
+            logger.success(f"tema del vídeo generado: {subject}")
+            return subject
+        except Exception as exc:
+            last_error = str(exc)
+            logger.warning(f"no se pudo analizar el tema del vídeo: {last_error}")
+
+        if attempt < _max_retries - 1:
+            logger.warning(
+                f"no se pudo generar el tema del vídeo, reintentando... {attempt + 1}"
+            )
+
+    raise ValueError(
+        f"no se pudo generar el tema del vídeo a partir del nicho: {last_error}"
+    )
+
+
 if __name__ == "__main__":
     video_subject = "¿Cuál es el sentido de la vida?"
     script = generate_script(

@@ -74,7 +74,7 @@ dev = [
 # así que se incluyen en la medición junto con la capa de servicio de app, la entrada de arranque del servicio y el script de la Skill
 # publicado para los usuarios de agentes, para que la cobertura no refleje solo módulos sueltos.
 branch = true
-source = ["app", "cli", "webui", "main", "docs/skill"]
+source = ["app", "cli", "autopilot", "webui", "main", "docs/skill"]
 
 [tool.coverage.report]
 # La cobertura de ramas medida en los tests completos de Python 3.11 y 3.13 supera en ambos casos el 70,4 %. Usar el 70 %
@@ -108,7 +108,7 @@ exclude = ["**/.DS_Store", "**/__pycache__", "**/*.pyc", "**/.streamlit"]
 [tool.hatch.build.targets.sdist]
 # Se usa una lista blanca, para que la configuración local, las credenciales, storage, AGENTS.md, etc., no se cuelen en el paquete de código fuente.
 include = [
-    "/app", "/cli.py", "/webui", "/config.example.toml", "/pyproject.toml",
+    "/app", "/cli.py", "/autopilot.py", "/webui", "/config.example.toml", "/pyproject.toml",
     "/uv.lock", "/LICENSE", "/docs/pypi-description.md", "/docs/packaging.md",
     "/test/services/test_packaging.py", "/resource/songs", "/resource/public",
     "/resource/fonts/STHeitiMedium.ttc", "/resource/fonts/MicrosoftYaHeiBold.ttc",

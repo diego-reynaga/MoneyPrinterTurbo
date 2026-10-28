@@ -206,6 +206,7 @@ Español | [Versiones](https://github.com/harry0703/MoneyPrinterTurbo/releases) 
 
 - [x] Exporta vídeos verticales `9:16 (1080×1920)`, horizontales `16:9 (1920×1080)` o cuadrados `1:1 (1080×1080)`
 - [x] Publica los vídeos terminados directamente en **TikTok, Instagram y YouTube Shorts**
+- [x] Deja la cuenta publicando sola: **3 vídeos al día a horas aleatorias** dentro de la franja que elijas, con el nicho configurado una sola vez ([guía](docs/autopilot.md))
 
 ## Galería 🎬
 
@@ -269,6 +270,7 @@ Todos los ejemplos siguientes se generaron con MoneyPrinterTurbo.
 - Usuarios de Windows: usad primero el paquete de un clic para probarlo en local lo antes posible
 - Para desplegar desde el código fuente o desarrollar: usa `uv` para gestionar el entorno y las dependencias
 - Si quieres un entorno de ejecución más aislado: usa el despliegue con Docker
+- Si quieres que la cuenta publique sola todos los días: configura la [publicación automática diaria](docs/autopilot.md)
 
 ### Generar vídeos con un agente de IA
 
@@ -510,6 +512,50 @@ Todas las entradas se validan antes de empezar la primera tarea, las tareas sigu
 alguna en tiempo de ejecución, y el comando imprime un resumen JSON al terminar.
 El resumen contiene `total`, `succeeded`, `failed` y `tasks`; cada entrada de tarea tiene
 `index`, `task_id`, `status`, `result`, `failed_stage` y `error`.
+
+#### ⑤ Publicación automática diaria (sin intervención) 🤖
+
+Con el nicho configurado una sola vez, el planificador genera y publica **3 vídeos al día
+a horas aleatorias entre las 10:00 y las 22:00** en las redes que tengas conectadas, sin
+que nadie tenga que intervenir. Está desactivado por defecto y no cambia nada del flujo
+manual: puedes volver a generar vídeos a mano en cualquier momento.
+
+```toml
+[app]
+upload_post_enabled = true
+upload_post_api_key = "tu-clave-de-upload-post"
+upload_post_username = "tu-usuario-de-upload-post"
+upload_post_platforms = ["tiktok", "instagram", "youtube"]
+
+[autopilot]
+enabled = true
+niche = "finanzas personales explicadas para gente que empieza a trabajar"
+videos_per_day = 3
+window_start_hour = 10
+window_end_hour = 22
+```
+
+```shell
+uv run python autopilot.py check   # comprueba la configuración
+uv run python autopilot.py plan    # muestra las horas sorteadas para hoy
+uv run python autopilot.py test    # genera y publica un vídeo ya, para probar
+uv run python autopilot.py run     # publica día tras día sin intervención
+uv run python autopilot.py status  # qué se ha publicado hoy y qué queda
+```
+
+El nicho y la franja horaria también se pueden configurar desde la WebUI, en
+**Ajustes → Configuración de publicación automática**.
+
+También existe el modo `once`, que publica los huecos ya vencidos y termina: programarlo
+cada pocos minutos con el Programador de tareas de Windows o con cron es más robusto
+frente a reinicios que dejar un proceso siempre vivo. Con el paquete instalado con pip,
+los mismos modos están en `mpt autopilot <modo>`.
+
+Las horas se sortean de nuevo cada día, el plan y el resultado de cada publicación se
+guardan en `storage/autopilot/state.json`, y un hueco nunca se publica dos veces aunque
+se reinicie el equipo. Consulta [docs/autopilot.md](docs/autopilot.md) para la referencia
+completa: reintentos, recuperación de huecos perdidos, arranque como servicio y qué pasa
+cuando algo falla.
 
 ## Locución, subtítulos y música de fondo 🎙️
 

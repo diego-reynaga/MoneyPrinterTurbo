@@ -83,6 +83,12 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.videos_per_day, 5)
         self.assertTrue(settings.enabled)
 
+    def test_out_of_range_overrides_are_rejected(self):
+        with patch.dict(ap.config.autopilot, {}, clear=True):
+            with self.assertRaises(ap.AutopilotConfigError) as error:
+                ap.load_settings(overrides={"videos_per_day": 500})
+        self.assertIn("autopilot.videos_per_day", str(error.exception))
+
     def test_unknown_overrides_are_rejected(self):
         with patch.dict(ap.config.autopilot, {}, clear=True):
             with self.assertRaises(ap.AutopilotConfigError):

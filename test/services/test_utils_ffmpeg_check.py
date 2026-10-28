@@ -63,5 +63,33 @@ class TestCheckFfmpegReady(unittest.TestCase):
         self.assertIn("no se pudo comprobar ffmpeg", warning.call_args.args[0])
 
 
+class TestFfmpegDecodeFailed(unittest.TestCase):
+    def _completed(self, returncode, stderr=b""):
+        return subprocess.CompletedProcess(args=["ffmpeg"], returncode=returncode, stderr=stderr)
+
+    def test_non_zero_exit_code_fails(self):
+        self.assertTrue(utils.ffmpeg_decode_failed(self._completed(183)))
+
+    def test_clean_decode_passes(self):
+        self.assertFalse(utils.ffmpeg_decode_failed(self._completed(0)))
+
+    def test_ffmpeg_61_aborted_decoder_with_zero_exit_fails(self):
+        # FFmpeg 6.1 detiene el decodificador con -xerror pero sale con 0.
+        stderr = (
+            b"[mp3float @ 0x1] Header missing\n"
+            b"[aist#0:0/mp3 @ 0x2] Decoder thread returned error: Invalid data found\n"
+        )
+        self.assertTrue(utils.ffmpeg_decode_failed(self._completed(0, stderr)))
+
+    def test_benign_decoder_messages_pass(self):
+        stderr = b"[h264 @ 0x1] mmco: unref short failure\n"
+        self.assertFalse(utils.ffmpeg_decode_failed(self._completed(0, stderr)))
+
+    def test_missing_stderr_attribute_passes(self):
+        from types import SimpleNamespace
+
+        self.assertFalse(utils.ffmpeg_decode_failed(SimpleNamespace(returncode=0)))
+
+
 if __name__ == "__main__":
     unittest.main()

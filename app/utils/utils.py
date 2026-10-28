@@ -184,6 +184,29 @@ def get_ffmpeg_binary() -> str:
     return "ffmpeg"
 
 
+def ffmpeg_decode_failed(completed) -> bool:
+    """
+    Indica si una decodificación de validación lanzada con ``-v error -xerror`` falló.
+
+    No basta con el código de salida: en FFmpeg 6.1 (el de Ubuntu 24.04) la
+    decodificación se movió a hilos y ``-xerror`` detiene el hilo del decodificador pero
+    el proceso termina con 0, así que un archivo dañado pasaría la validación. En ese
+    caso FFmpeg deja siempre la marca de abajo en stderr. No se trata como fallo
+    cualquier salida en stderr porque decodificadores como H.264 registran con nivel
+    error avisos benignos (``mmco: unref short failure``) en vídeos que se reproducen
+    bien y que las demás versiones aceptan.
+    """
+    if completed.returncode != 0:
+        return True
+    stderr = getattr(completed, "stderr", None) or b""
+    if isinstance(stderr, str):
+        stderr = stderr.encode("utf-8", "replace")
+    return _FFMPEG_DECODER_ABORT_MARKER in stderr
+
+
+_FFMPEG_DECODER_ABORT_MARKER = b"Decoder thread returned error"
+
+
 _FFMPEG_INSTALL_HINT = (
     "Instala FFmpeg en tu sistema o configura app.ffmpeg_path en config.toml con "
     "la ruta completa de un ejecutable de ffmpeg (por ejemplo, descargado de "

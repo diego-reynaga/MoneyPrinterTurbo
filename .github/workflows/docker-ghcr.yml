@@ -21,7 +21,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: ghcr.io/harry0703/moneyprinterturbo
+  # El GITHUB_TOKEN solo puede publicar en el registro del dueño del repositorio, así que
+  # un nombre fijo de otra cuenta hacía fallar la publicación en los forks.
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/moneyprinterturbo
 
 jobs:
   publish:

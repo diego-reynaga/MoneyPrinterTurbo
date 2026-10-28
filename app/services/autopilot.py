@@ -25,7 +25,7 @@ import socket
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Sequence
 
@@ -174,7 +174,16 @@ def load_settings(overrides: dict[str, Any] | None = None) -> AutopilotSettings:
     vea al arrancar el planificador y no a las once de la noche, cuando ya no quedan
     huecos del día para recuperarlo.
     """
-    section = config.autopilot
+    section = dict(config.autopilot)
+    if overrides:
+        unknown = set(overrides) - set(vars(AutopilotSettings()))
+        if unknown:
+            raise AutopilotConfigError(
+                f"sobrescrituras de autopilot desconocidas: {', '.join(sorted(unknown))}"
+            )
+        # Las sobrescrituras pasan por la misma validación que el archivo, para que
+        # --videos-per-day 500 o --window-start 24 fallen igual que en config.toml.
+        section.update(overrides)
     settings = AutopilotSettings(
         enabled=_coerce_bool(_setting(section, "enabled", False), "enabled"),
         niche=str(_setting(section, "niche", "")).strip(),
@@ -238,14 +247,6 @@ def load_settings(overrides: dict[str, Any] | None = None) -> AutopilotSettings:
         cli_options=_coerce_text_list(_setting(section, "cli_options", []), "cli_options"),
         state_file=str(_setting(section, "state_file", "")).strip(),
     )
-
-    if overrides:
-        unknown = set(overrides) - set(vars(settings))
-        if unknown:
-            raise AutopilotConfigError(
-                f"sobrescrituras de autopilot desconocidas: {', '.join(sorted(unknown))}"
-            )
-        settings = replace(settings, **overrides)
 
     _validate_window(settings)
     return settings

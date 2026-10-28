@@ -3295,7 +3295,7 @@ def prepare_voxcpm_reference_audio(uploaded_audio: bytes, suffix: str = "") -> b
                 timeout=VOXCPM_REFERENCE_AUDIO_CONVERSION_TIMEOUT_SECONDS,
                 check=False,
             )
-            if result.returncode != 0 or not os.path.isfile(output_path):
+            if utils.ffmpeg_decode_failed(result) or not os.path.isfile(output_path):
                 raise ValueError(
                     "el audio de referencia debe contener una pista de audio decodificable"
                 )

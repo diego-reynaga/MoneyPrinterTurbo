@@ -239,7 +239,7 @@ def _validate_video(
         raise MaterialServiceError(
             "no se pudo ejecutar FFmpeg para validar el material"
         ) from exc
-    if decoded.returncode != 0:
+    if utils.ffmpeg_decode_failed(decoded):
         raise MaterialUploadError(
             "el archivo subido debe contener un stream de vídeo que se pueda decodificar por completo"
         )

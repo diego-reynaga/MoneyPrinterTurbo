@@ -11,6 +11,7 @@ from moviepy.audio.io.AudioFileClip import AudioFileClip
 
 from app.config import config
 from app.services import voice
+from app.utils import utils
 
 
 @pytest.mark.parametrize("provider", ["siliconflow", "minimax", "elevenlabs", "openai", "fish"])
@@ -26,7 +27,9 @@ def test_accepted_audio_requires_full_decode_and_preserves_previous_export(tmp_p
     with AudioFileClip(str(probe)) as clip:
         assert clip.duration > 0
     decoded = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-i", str(probe), "-f", "null", "-"], capture_output=True)
-    assert (decoded.returncode != 0) == corrupt
+    # FFmpeg 6.1 sale con 0 aunque -xerror detenga el decodificador; se usa el mismo
+    # criterio que la validación de producción.
+    assert utils.ffmpeg_decode_failed(decoded) == corrupt
     seen = []
 
     class Handler(BaseHTTPRequestHandler):

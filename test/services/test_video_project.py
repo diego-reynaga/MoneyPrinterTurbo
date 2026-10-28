@@ -228,7 +228,7 @@ def test_integrity_and_source_snapshot(native):
     assert artifact.read_bytes() != b"corrupted"
     asset = project.directory / revision["scenes"][0]["footage"]["path"]
     asset.write_bytes(b"source damage")
-    with pytest.raises(ProjectError, match="source snapshot"):
+    with pytest.raises(ProjectError, match="instantánea de origen"):
         project.plan()
 
 
@@ -238,11 +238,11 @@ def test_failed_retry_and_last_success(native):
     previous = project.metadata()["last_successful_export"]
     request["scenes"][0]["footage"] = "green.mp4"
     project.create_revision(request, relative_to=root)
-    with pytest.raises(ProjectError, match="working.*required"):
+    with pytest.raises(ProjectError, match="hace falta.*que funcione"):
         project.render(ffmpeg=str(root / "missing-command"))
     assert project.status()["state"] == "failed"
     assert project.metadata()["last_successful_export"] == previous
-    with pytest.raises(ProjectError, match="explicit --retry"):
+    with pytest.raises(ProjectError, match="--retry explícito"):
         project.render()
     assert project.render(retry=True)["state"] == "succeeded"
     assert Path(success["export"]["path"]).exists()
@@ -259,7 +259,7 @@ def test_cancel_then_explicit_retry(native):
         project.render(on_stage=cancel_scene)
     assert project.status()["state"] == "cancelled"
     assert project.metadata()["last_successful_export"] is None
-    with pytest.raises(ProjectError, match="explicit --retry"):
+    with pytest.raises(ProjectError, match="--retry explícito"):
         project.render()
     assert project.render(retry=True)["state"] == "succeeded"
     assert project.status()["stages"]["opening:audio"]["reused"]
@@ -311,7 +311,7 @@ def test_interrupted_status_requires_retry(native):
         project._revision_path(revision["revision_id"]) / "status.json",
         {"state": "running", "stages": {}},
     )
-    with pytest.raises(ProjectError, match="explicit --retry"):
+    with pytest.raises(ProjectError, match="--retry explícito"):
         project.render()
     assert project.render(retry=True)["state"] == "succeeded"
 
@@ -347,7 +347,7 @@ def test_cli_presets_compare_and_path_validation(native, capsys):
     with pytest.raises(ProjectError):
         project.revision("../../escape")
     request["api_key"] = "do not persist"
-    with pytest.raises(ProjectError, match="unknown project fields"):
+    with pytest.raises(ProjectError, match="campos de proyecto desconocidos"):
         project.create_revision(request, relative_to=root)
     assert "do not persist" not in (project.directory / "project.json").read_text()
 
@@ -371,7 +371,7 @@ project.render(on_stage=crash)
     assert "opening:audio" not in _builds(project)
     assert "opening:timing" not in _builds(project)
     assert project.metadata()["last_successful_export"] is None
-    with pytest.raises(ProjectError, match="explicit --retry"):
+    with pytest.raises(ProjectError, match="--retry explícito"):
         project.render()
     assert project.render(retry=True)["stages"]["opening:audio"]["reused"]
 
@@ -785,8 +785,8 @@ def test_project_cli_rejects_large_json_numbers_without_traceback(
     assert (project / "project.json").read_bytes() == previous
     assert rejected.stdout == ""
     assert "Traceback" not in rejected.stderr
-    assert "video project:" in rejected.stderr
-    assert ("scene duration" if field == "duration" else field) in rejected.stderr
+    assert "proyecto de vídeo:" in rejected.stderr
+    assert ("duración de la escena" if field == "duration" else field) in rejected.stderr
 
 
 @pytest.mark.skipif(
@@ -856,6 +856,6 @@ def test_project_cli_numeric_bounds_controls(tmp_path, field, number):
     else:
         assert result.returncode == 1
         assert "Traceback" not in result.stderr
-        assert "video project:" in result.stderr
-        assert ("scene duration" if field == "duration" else field) in result.stderr
+        assert "proyecto de vídeo:" in result.stderr
+        assert ("duración de la escena" if field == "duration" else field) in result.stderr
         assert not project.joinpath("project.json").exists()

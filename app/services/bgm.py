@@ -203,16 +203,14 @@ def _validate_audio(file_path: str, timeout_seconds: int = 30) -> None:
                 file_path,
                 "-map",
                 "0:a:0",
-                # Normaliza las marcas de tiempo a partir de las muestras decodificadas.
                 # Un WAV que solo tiene cabecera puede terminar con éxito sin producir
-                # audio.
-                "-af",
-                "asetpts=N/SR/TB",
-                "-progress",
-                "pipe:1",
-                "-nostats",
+                # audio, así que se cuentan los paquetes decodificados. framecrc escribe
+                # una línea por paquete con su tamaño y se comporta igual en todas las
+                # versiones de FFmpeg; el out_time_us de -progress no, porque FFmpeg 6 y
+                # anteriores (los de Debian/Ubuntu de las imágenes Docker) informan del
+                # inicio del último paquete y un audio corto de un solo paquete da 0.
                 "-f",
-                "null",
+                "framecrc",
                 "-",
             ],
             capture_output=True,
@@ -223,16 +221,21 @@ def _validate_audio(file_path: str, timeout_seconds: int = 30) -> None:
         raise BgmServiceError("se agotó el tiempo de la validación de la música de fondo con FFmpeg") from exc
     except OSError as exc:
         raise BgmServiceError("no se pudo ejecutar FFmpeg para validar la música de fondo") from exc
-    if decoded.returncode != 0:
+    if utils.ffmpeg_decode_failed(decoded):
         raise BgmUploadError("el archivo subido debe contener un stream de audio que se pueda decodificar")
     decoded_audio = False
     for line in decoded.stdout.splitlines():
-        key, separator, value = line.partition(b"=")
-        if separator and key == b"out_time_us":
-            try:
-                decoded_audio = decoded_audio or int(value) > 0
-            except ValueError:
-                continue
+        # Formato de framecrc: "stream, dts, pts, duración, tamaño, checksum"; las
+        # líneas que empiezan por "#" son la cabecera.
+        fields = line.split(b",")
+        if line.startswith(b"#") or len(fields) < 5:
+            continue
+        try:
+            if int(fields[4]) > 0:
+                decoded_audio = True
+                break
+        except ValueError:
+            continue
     if not decoded_audio:
         raise BgmUploadError("el archivo subido debe contener audio no vacío que se pueda decodificar")
 

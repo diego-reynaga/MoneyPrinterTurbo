@@ -1,5 +1,7 @@
-# Usa un runtime oficial de Python como imagen base
-FROM python:3.11-slim-bullseye
+# Usa un runtime oficial de Python como imagen base. Debian 11 (bullseye) terminó su
+# soporte LTS en agosto de 2026 y sus paquetes de seguridad ya no se sirven desde
+# deb.debian.org, así que la construcción fallaba con 404; bookworm sigue soportado.
+FROM python:3.11-slim-bookworm
 
 # Define el directorio de trabajo dentro del contenedor
 WORKDIR /MoneyPrinterTurbo
@@ -23,8 +25,9 @@ RUN set -u; \
     write_debian_sources() { \
         main_url="$1"; \
         security_url="$2"; \
-        printf 'deb %s bullseye main\ndeb %s bullseye-updates main\ndeb %s bullseye-security main\n' \
+        printf 'deb %s bookworm main\ndeb %s bookworm-updates main\ndeb %s bookworm-security main\n' \
             "$main_url" "$main_url" "$security_url" > /etc/apt/sources.list; \
+        rm -f /etc/apt/sources.list.d/debian.sources; \
         rm -rf /var/lib/apt/lists/*; \
     }; \
     install_system_dependencies() { \

@@ -3591,7 +3591,15 @@ def _render_autopilot_settings():
         )
 
     st.caption(tr("Autopilot Start Command"))
-    st.code("uv run python autopilot.py run", language="shell")
+    from app import paths
+
+    # Con la instalación de pip no hay autopilot.py; la entrada es ``mpt autopilot``.
+    st.code(
+        "uv run python autopilot.py run"
+        if paths.is_source_checkout()
+        else "mpt autopilot run",
+        language="shell",
+    )
 
     if not report["slots"]:
         st.caption(tr("Autopilot Not Planned"))
